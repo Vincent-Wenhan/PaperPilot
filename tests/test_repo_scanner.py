@@ -1,11 +1,12 @@
 """Tests for repository scanner."""
 from __future__ import annotations
 
+import os
 import unittest
 import tempfile
 from pathlib import Path
 
-from tools.repo_scanner import scan_repo
+from tools.repo_scanner import scan_repo, scan_repo_detailed
 
 
 class TestRepoScanner(unittest.TestCase):
@@ -56,3 +57,62 @@ class TestRepoScanner(unittest.TestCase):
     def test_scanner_raises_on_nonexistent_dir(self) -> None:
         with self.assertRaises(NotADirectoryError):
             scan_repo("/nonexistent/path/12345")
+
+
+class TestRepoScannerDetailed(unittest.TestCase):
+    """Test structured evidence scanning."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        (self.root / "train.py").write_text("import torch\nimport argparse\ndef main(): pass")
+        (self.root / "inference.py").write_text("from torch import nn\ndef predict(): pass")
+        (self.root / "README.md").write_text("# Repo\nUses ImageNet dataset")
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_detects_pytorch_framework(self) -> None:
+        result = scan_repo_detailed(str(self.root))
+        self.assertEqual(result["detected_framework"], "pytorch")
+
+    def test_detects_argparse_config(self) -> None:
+        result = scan_repo_detailed(str(self.root))
+        self.assertIn("argparse", result["config_systems"])
+
+    def test_detects_training_and_inference_code(self) -> None:
+        result = scan_repo_detailed(str(self.root))
+        self.assertTrue(result["has_training_code"])
+        self.assertTrue(result["has_inference_code"])
+
+    def test_detects_cuda_risk_signal(self) -> None:
+        os.makedirs(self.root / "cuda", exist_ok=True)
+        (self.root / "cuda" / "custom_kernel.cu").write_text("__global__ void kernel() {}")
+        result = scan_repo_detailed(str(self.root))
+        risk_signals = result["risk_signals"]
+        self.assertIn("cuda_extension", risk_signals)
+
+    def test_detects_no_checkpoint_risk(self) -> None:
+        temp_dir2 = tempfile.TemporaryDirectory()
+        root2 = Path(temp_dir2.name)
+        (root2 / "train.py").write_text("import torch")
+        (root2 / "README.md").write_text("# A Simple Repo\nThis is a demo project with basic setup.")
+        result = scan_repo_detailed(str(root2))
+        self.assertIn("no_checkpoint_link", result["risk_signals"])
+        temp_dir2.cleanup()
+
+    def test_repo_name_from_path(self) -> None:
+        result = scan_repo_detailed(str(self.root))
+        self.assertEqual(result["repo_name"], self.root.name)
+
+    def test_detects_unknown_framework(self) -> None:
+        temp_dir3 = tempfile.TemporaryDirectory()
+        root3 = Path(temp_dir3.name)
+        (root3 / "main.py").write_text("print('hello')")
+        result = scan_repo_detailed(str(root3))
+        self.assertEqual(result["detected_framework"], "unknown")
+        temp_dir3.cleanup()
+
+    def test_includes_notes(self) -> None:
+        result = scan_repo_detailed(str(self.root))
+        self.assertTrue(len(result["notes"]) > 0)

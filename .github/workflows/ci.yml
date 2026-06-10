@@ -33,4 +33,4 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests/ -q
+          pytest tests/ -v --tb=long 2>&1 | tee /tmp/pytest-results.log

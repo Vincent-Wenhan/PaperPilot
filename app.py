@@ -10,21 +10,12 @@ from uuid import uuid4
 import streamlit as st
 
 from agents import DebugAgent, RunnerAgent
-from config import OUTPUTS_DIR, PROJECT_ROOT
+from config import MAIN_GOAL_DEBUG, OUTPUTS_DIR, PROJECT_ROOT
 from main import run_paperpilot
 from tools.llm_client import LLMClient
 
 
 UPLOADS_DIR = PROJECT_ROOT / "uploads"
-AGENT_STATUS_MESSAGES = (
-    "Paper Reader Agent 正在分析论文",
-    "Method Extractor Agent 正在拆解方法",
-    "Repo Clone Agent 正在 clone 仓库",
-    "Repo Analyzer Agent 正在分析代码",
-    "Environment Agent 正在生成环境配置",
-    "Experiment Planner Agent 正在生成复现计划",
-    "Report Agent 正在生成报告",
-)
 OUTPUT_FILES = (
     ("reproduction_plan.md", "下载 reproduction_plan.md", "text/markdown"),
     ("run.sh", "下载 run.sh", "text/x-shellscript"),
@@ -327,7 +318,7 @@ def main() -> None:
                 "跑通官方 demo",
                 "最小训练实验",
                 "复现主实验",
-                "Debug 报错",
+                MAIN_GOAL_DEBUG,
             ],
         )
 
@@ -335,44 +326,70 @@ def main() -> None:
     st.session_state["selected_gpu_info"] = gpu_info
 
     if st.button("Analyze", type="primary", key="analyze_pipeline"):
-        validation_errors: list[str] = []
-        if uploaded_pdf is None:
-            validation_errors.append("请先上传论文 PDF。")
-        if not github_url.strip():
-            validation_errors.append("GitHub URL 不能为空。")
-
-        if validation_errors:
-            for error in validation_errors:
-                st.error(error)
+        # --- Debug goal: skip pipeline, go straight to Debug section ---
+        if goal == MAIN_GOAL_DEBUG:
+            st.info(
+                "「Debug 报错」目标已选择。请滚动到页面底部的 Debug 区粘贴日志进行分析。"
+            )
+            st.session_state["debug_goal_selected"] = True
+            st.session_state.pop("paperpilot_result", None)
         else:
-            try:
-                saved_pdf = save_uploaded_pdf(uploaded_pdf)
-            except Exception as exc:
-                st.error(f"PDF 保存失败：{exc}")
+            validation_errors: list[str] = []
+            if uploaded_pdf is None:
+                validation_errors.append("请先上传论文 PDF。")
+            if not github_url.strip():
+                validation_errors.append("GitHub URL 不能为空。")
+
+            if validation_errors:
+                for error in validation_errors:
+                    st.error(error)
             else:
-                st.session_state["uploaded_pdf_path"] = str(saved_pdf)
-                with st.status("Agent 状态区", expanded=True) as status:
-                    for message in AGENT_STATUS_MESSAGES:
-                        st.write(message)
-                    try:
-                        result = run_paperpilot(
-                            pdf_path=str(saved_pdf),
-                            github_url=github_url.strip(),
-                            hardware=hardware,
-                            gpu_info=gpu_info.strip(),
-                            goal=goal,
+                try:
+                    saved_pdf = save_uploaded_pdf(uploaded_pdf)
+                except Exception as exc:
+                    st.error(f"PDF 保存失败：{exc}")
+                else:
+                    st.session_state["uploaded_pdf_path"] = str(saved_pdf)
+                    st.session_state.pop("debug_goal_selected", None)
+
+                    # --- Real-time progress log ---
+                    progress_container = st.container()
+                    progress_log = progress_container.empty()
+                    progress_lines: list[str] = []
+
+                    def _on_progress(agent_name: str) -> None:
+                        progress_lines.append(f"- {agent_name}...")
+                        progress_log.markdown(
+                            "**Agent 进度**\n" + "\n".join(progress_lines)
                         )
-                    except Exception as exc:
-                        st.error(f"主流程执行失败：{exc}")
-                        status.update(label="分析失败", state="error")
-                    else:
-                        st.session_state["paperpilot_result"] = result
-                        status.update(label="Agent 流程完成", state="complete")
+
+                    with st.status("Agent 状态区", expanded=True) as status:
+                        _on_progress("初始化分析流程")
+                        try:
+                            result = run_paperpilot(
+                                pdf_path=str(saved_pdf),
+                                github_url=github_url.strip(),
+                                hardware=hardware,
+                                gpu_info=gpu_info.strip(),
+                                goal=goal,
+                                progress_callback=_on_progress,
+                            )
+                        except Exception as exc:
+                            st.error(f"主流程执行失败：{exc}")
+                            status.update(label="分析失败", state="error")
+                        else:
+                            st.session_state["paperpilot_result"] = result
+                            _on_progress("分析完成")
+                            status.update(label="Agent 流程完成", state="complete")
 
     result = st.session_state.get("paperpilot_result")
     if result:
         _show_pipeline_errors(result.get("errors", []))
         _show_outputs(result)
+    elif st.session_state.get("debug_goal_selected"):
+        st.info(
+            "「Debug 报错」模式不运行主分析流程。请使用下方的 Debug 区。"
+        )
     else:
         st.info("提交输入并点击 Analyze 后，将在此显示分析结果。")
 

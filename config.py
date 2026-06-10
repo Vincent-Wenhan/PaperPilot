@@ -20,3 +20,5 @@ LLM_MOCK_MODE = os.getenv("LLM_MOCK_MODE", "true").lower() in {
     "yes",
     "on",
 }
+
+MAIN_GOAL_DEBUG = "Debug 报错"

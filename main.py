@@ -14,15 +14,51 @@ from agents import (
     RepoCloneAgent,
     ReportAgent,
 )
-from config import OUTPUTS_DIR
+from config import MAIN_GOAL_DEBUG, OUTPUTS_DIR
 from tools.github_tool import is_valid_github_url
 from tools.llm_client import LLMClient
 from tools.markdown_writer import save_markdown, save_shell_script
 from tools.pdf_parser import parse_pdf
 from tools.repo_scanner import scan_repo
 
-
 PipelineResult = dict[str, Any]
+
+# Goal → (agents to run, human-readable names)
+GOAL_PIPELINE_STEPS: dict[str, list[dict[str, Any]]] = {
+    "只理解论文": [
+        {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
+        {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
+        {"agent_factory": ReportAgent, "step_name": "Report Agent"},
+    ],
+    "跑通官方 demo": [
+        {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
+        {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
+        {"agent_factory": None, "step_name": "Repo Clone Agent", "is_deterministic": True, "deterministic_type": "clone"},
+        {"agent_factory": RepoAnalyzerAgent, "step_name": "Repo Analyzer Agent"},
+        {"agent_factory": EnvAgent, "step_name": "Environment Agent"},
+        {"agent_factory": ReportAgent, "step_name": "Report Agent"},
+    ],
+    "最小训练实验": [
+        {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
+        {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
+        {"agent_factory": None, "step_name": "Repo Clone Agent", "is_deterministic": True, "deterministic_type": "clone"},
+        {"agent_factory": RepoAnalyzerAgent, "step_name": "Repo Analyzer Agent"},
+        {"agent_factory": EnvAgent, "step_name": "Environment Agent"},
+        {"agent_factory": ExperimentAgent, "step_name": "Experiment Planner Agent"},
+        {"agent_factory": ReportAgent, "step_name": "Report Agent"},
+    ],
+    "复现主实验": [
+        {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
+        {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
+        {"agent_factory": None, "step_name": "Repo Clone Agent", "is_deterministic": True, "deterministic_type": "clone"},
+        {"agent_factory": RepoAnalyzerAgent, "step_name": "Repo Analyzer Agent"},
+        {"agent_factory": EnvAgent, "step_name": "Environment Agent"},
+        {"agent_factory": ExperimentAgent, "step_name": "Experiment Planner Agent"},
+        {"agent_factory": ReportAgent, "step_name": "Report Agent"},
+    ],
+}
+
+_DEBUG_GOAL = MAIN_GOAL_DEBUG
 
 
 def _record_error(result: PipelineResult, step: str, error: object) -> None:
@@ -60,6 +96,19 @@ def _create_agent(
     except Exception as exc:
         _record_error(result, step, f"Agent 初始化失败：{exc}")
         return None
+
+
+def _run_llm_agent_step(
+    result: PipelineResult,
+    factory: Callable[[LLMClient], Any],
+    llm_client: LLMClient,
+    step_name: str,
+    input_data: dict[str, Any] | str,
+) -> str:
+    agent = _create_agent(result, step_name, factory, llm_client)
+    if agent is None:
+        return f"{step_name} 未生成：Agent 初始化失败。"
+    return _run_agent(result, step_name, agent, input_data)
 
 
 def _build_reproduction_plan(result: PipelineResult) -> str:
@@ -178,14 +227,44 @@ def _save_output(
         _record_error(result, step, exc)
 
 
+def _reject_scanned_pdf(result: PipelineResult, step: str) -> str:
+    msg = "PDF 未提取到文本，文件可能是扫描版，请提供 OCR 版本。"
+    _record_error(result, step, msg)
+    return ""
+
+
+def _do_clone(result: PipelineResult, github_url: str) -> str:
+    if not is_valid_github_url(github_url):
+        _record_error(
+            result,
+            "GitHub URL 校验失败",
+            "仅支持 https://github.com/owner/repo 格式。",
+        )
+        return ""
+    try:
+        repo_clone_agent = RepoCloneAgent()
+        repo_path = repo_clone_agent.clone(github_url)
+        result["repo_path"] = str(repo_path)
+        return str(repo_path)
+    except Exception as exc:
+        _record_error(result, "Repo Clone Agent", exc)
+        return ""
+
+
 def run_paperpilot(
     pdf_path: str,
     github_url: str,
     hardware: str,
     gpu_info: str,
     goal: str,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-    """Run the PaperPilot analysis pipeline while preserving partial results."""
+    """Run the PaperPilot analysis pipeline while preserving partial results.
+
+    The ``goal`` parameter controls which agents are executed.  When a
+    ``progress_callback`` is provided it is called with the Chinese name of
+    each agent step before that step begins.
+    """
     result: PipelineResult = {
         "paper_info": "",
         "method_info": "",
@@ -197,186 +276,162 @@ def run_paperpilot(
         "run_sh": "",
         "errors": [],
     }
+
+    if goal == _DEBUG_GOAL:
+        result["errors"].append(
+            "「Debug 报错」目标下不运行主流程。请在 Debug 区粘贴日志进行分析。"
+        )
+        return result
+
+    steps = GOAL_PIPELINE_STEPS.get(goal, GOAL_PIPELINE_STEPS["最小训练实验"])
     llm_client = LLMClient()
 
+    # ------------------------------------------------------------------
+    # PDF parsing (always needed if a paper was uploaded)
+    # ------------------------------------------------------------------
     paper_text = ""
     try:
-        if not pdf_path or not pdf_path.strip():
-            raise ValueError("未提供 PDF 文件路径。")
-        paper_text = parse_pdf(pdf_path)
+        if pdf_path and pdf_path.strip():
+            paper_text = parse_pdf(pdf_path)
     except Exception as exc:
         _record_error(result, "PDF 解析失败", exc)
 
-    paper_agent = _create_agent(
-        result,
-        "Paper Reader Agent",
-        PaperReaderAgent,
-        llm_client,
-    )
-    if paper_text and paper_agent is not None:
-        result["paper_info"] = _run_agent(
-            result,
-            "Paper Reader Agent",
-            paper_agent,
-            paper_text,
-        )
-    else:
-        result["paper_info"] = "论文信息未生成：PDF 解析失败或未提供。"
+    paper_text_available = bool(paper_text.strip())
 
-    method_agent = _create_agent(
-        result,
-        "Method Extractor Agent",
-        MethodExtractorAgent,
-        llm_client,
-    )
-    method_input = {
-        "paper_info": result["paper_info"],
-        "paper_text_available": bool(paper_text),
-    }
-    if method_agent is not None:
-        result["method_info"] = _run_agent(
-            result,
-            "Method Extractor Agent",
-            method_agent,
-            method_input,
-        )
-    else:
-        result["method_info"] = "方法拆解未生成：Agent 初始化失败。"
-
+    # ------------------------------------------------------------------
+    # Clone + scan — run early if the goal needs them so the results are
+    # available for downstream LLM agents.
+    # ------------------------------------------------------------------
     repo_scan: dict[str, Any] | None = None
-    try:
-        repo_clone_agent = RepoCloneAgent()
-    except Exception as exc:
-        repo_clone_agent = None
-        _record_error(result, "Repo Clone Agent", f"Agent 初始化失败：{exc}")
-    if not is_valid_github_url(github_url):
-        _record_error(
-            result,
-            "GitHub URL 校验失败",
-            "仅支持 https://github.com/owner/repo 格式。",
-        )
-    elif repo_clone_agent is not None:
-        try:
-            repo_path = repo_clone_agent.clone(github_url)
-            result["repo_path"] = str(repo_path)
-        except Exception as exc:
-            _record_error(result, "Repo Clone Agent", exc)
-
-    if result["repo_path"]:
-        try:
-            repo_scan = scan_repo(result["repo_path"])
-        except Exception as exc:
-            _record_error(result, "Repo Scanner", exc)
-
-    repo_agent = _create_agent(
-        result,
-        "Repo Analyzer Agent",
-        RepoAnalyzerAgent,
-        llm_client,
+    needs_repo = any(
+        step.get("is_deterministic") for step in steps
     )
-    if repo_scan and repo_agent is not None:
-        result["repo_info"] = _run_agent(
-            result,
-            "Repo Analyzer Agent",
-            repo_agent,
-            repo_scan,
-        )
-    else:
-        result["repo_info"] = "仓库分析未生成：仓库 clone 或扫描失败。"
 
-    hardware_context = {
-        "hardware": hardware or "未提供",
-        "gpu_info": gpu_info or "未提供",
-        "goal": goal or "未提供",
-        "repository_scan": repo_scan or {},
-        "repository_analysis": result["repo_info"],
-    }
-    env_agent = _create_agent(
-        result,
-        "Environment Agent",
-        EnvAgent,
-        llm_client,
-    )
-    if env_agent is not None:
-        result["env_plan"] = _run_agent(
-            result,
-            "Environment Agent",
-            env_agent,
-            hardware_context,
-        )
-    else:
-        result["env_plan"] = "环境计划未生成：Agent 初始化失败。"
+    if needs_repo:
+        if progress_callback:
+            progress_callback("Repo Clone Agent 正在 clone 仓库")
+        repo_path = _do_clone(result, github_url)
+        if result["repo_path"]:
+            try:
+                repo_scan = scan_repo(result["repo_path"])
+            except Exception as exc:
+                _record_error(result, "Repo Scanner", exc)
 
-    experiment_context = {
-        "paper_info": result["paper_info"],
-        "method_info": result["method_info"],
-        "repo_info": result["repo_info"],
-        "env_plan": result["env_plan"],
-        "hardware": hardware or "未提供",
-        "gpu_info": gpu_info or "未提供",
-        "goal": goal or "未提供",
-    }
-    experiment_agent = _create_agent(
-        result,
-        "Experiment Planner Agent",
-        ExperimentAgent,
-        llm_client,
-    )
-    if experiment_agent is not None:
-        result["experiment_plan"] = _run_agent(
-            result,
-            "Experiment Planner Agent",
-            experiment_agent,
-            experiment_context,
-        )
-    else:
-        result["experiment_plan"] = "实验计划未生成：Agent 初始化失败。"
+    # ------------------------------------------------------------------
+    # Agent steps
+    # ------------------------------------------------------------------
+    for step in steps:
+        if step.get("is_deterministic"):
+            continue  # already handled above
 
-    report_context = {
-        **experiment_context,
-        "experiment_plan": result["experiment_plan"],
-        "repo_path": result["repo_path"],
-        "errors": result["errors"],
-    }
-    report_agent = _create_agent(
-        result,
-        "Report Agent",
-        ReportAgent,
-        llm_client,
-    )
-    if report_agent is not None:
-        report_draft = _run_agent(
-            result,
-            "Report Agent",
-            report_agent,
-            report_context,
-        )
-    else:
-        report_draft = "Report Agent 未生成内容：初始化失败。"
+        factory = step["agent_factory"]
+        step_name = step["step_name"]
 
-    reproduction_plan = _build_reproduction_plan(result)
-    result["run_sh"] = _build_run_script(repo_scan)
-    result["report"] = _build_report(result, report_draft)
+        if progress_callback:
+            progress_callback(f"{step_name} 正在分析")
 
-    _save_output(
-        result,
-        "保存 reproduction_plan.md 失败",
-        save_markdown,
-        reproduction_plan,
-        OUTPUTS_DIR / "reproduction_plan.md",
-    )
-    _save_output(
-        result,
-        "保存 run.sh 失败",
-        save_shell_script,
-        result["run_sh"],
-        OUTPUTS_DIR / "run.sh",
-    )
-    _save_output(
-        result,
-        "保存 report.md 失败",
-        save_markdown,
-        result["report"],
-        OUTPUTS_DIR / "report.md",
-    )
+        # --- Paper Reader ---
+        if factory is PaperReaderAgent:
+            if not paper_text_available:
+                result["paper_info"] = _reject_scanned_pdf(result, step_name)
+                continue
+            result["paper_info"] = _run_llm_agent_step(
+                result, factory, llm_client, step_name, paper_text,
+            )
+
+        # --- Method Extractor ---
+        elif factory is MethodExtractorAgent:
+            if not result["paper_info"] or "扫描版" in result["paper_info"]:
+                result["method_info"] = "方法拆解未生成：论文信息不可用。"
+                continue
+            method_input = {
+                "paper_info": result["paper_info"],
+                "paper_text_available": paper_text_available,
+            }
+            result["method_info"] = _run_llm_agent_step(
+                result, factory, llm_client, step_name, method_input,
+            )
+
+        # --- Repo Analyzer ---
+        elif factory is RepoAnalyzerAgent:
+            if not repo_scan:
+                result["repo_info"] = "仓库分析未生成：仓库 clone 或扫描失败。"
+                continue
+            result["repo_info"] = _run_llm_agent_step(
+                result, factory, llm_client, step_name, repo_scan,
+            )
+
+        # --- Environment ---
+        elif factory is EnvAgent:
+            hardware_context = {
+                "hardware": hardware or "未提供",
+                "gpu_info": gpu_info or "未提供",
+                "goal": goal or "未提供",
+                "repository_scan": repo_scan or {},
+                "repository_analysis": result["repo_info"],
+            }
+            result["env_plan"] = _run_llm_agent_step(
+                result, factory, llm_client, step_name, hardware_context,
+            )
+
+        # --- Experiment Planner ---
+        elif factory is ExperimentAgent:
+            experiment_context = {
+                "paper_info": result["paper_info"],
+                "method_info": result["method_info"],
+                "repo_info": result["repo_info"],
+                "env_plan": result["env_plan"],
+                "hardware": hardware or "未提供",
+                "gpu_info": gpu_info or "未提供",
+                "goal": goal or "未提供",
+            }
+            result["experiment_plan"] = _run_llm_agent_step(
+                result, factory, llm_client, step_name, experiment_context,
+            )
+
+        # --- Report ---
+        elif factory is ReportAgent:
+            report_context = {
+                "paper_info": result["paper_info"],
+                "method_info": result["method_info"],
+                "repo_info": result["repo_info"],
+                "env_plan": result["env_plan"],
+                "experiment_plan": result["experiment_plan"],
+                "hardware": hardware or "未提供",
+                "gpu_info": gpu_info or "未提供",
+                "goal": goal or "未提供",
+                "repo_path": result["repo_path"],
+                "errors": result["errors"],
+            }
+            report_draft = _run_llm_agent_step(
+                result, factory, llm_client, step_name, report_context,
+            )
+
+            # Build final outputs
+            reproduction_plan = _build_reproduction_plan(result)
+            result["run_sh"] = _build_run_script(repo_scan)
+            result["report"] = _build_report(result, report_draft)
+
+            _save_output(
+                result,
+                "保存 reproduction_plan.md 失败",
+                save_markdown,
+                reproduction_plan,
+                OUTPUTS_DIR / "reproduction_plan.md",
+            )
+            _save_output(
+                result,
+                "保存 run.sh 失败",
+                save_shell_script,
+                result["run_sh"],
+                OUTPUTS_DIR / "run.sh",
+            )
+            _save_output(
+                result,
+                "保存 report.md 失败",
+                save_markdown,
+                result["report"],
+                OUTPUTS_DIR / "report.md",
+            )
+
     return result

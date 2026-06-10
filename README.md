@@ -89,7 +89,7 @@ AIGC_PaperPilot/
 The project is developed on WSL with Python 3.12. A dedicated Conda environment is recommended:
 
 ```bash
-cd /home/fcc/projects/AIGC_PaperPilot
+cd AIGC_PaperPilot
 conda create -n paperpilot python=3.12 -y
 conda run -n paperpilot python -m pip install --upgrade pip
 conda run -n paperpilot python -m pip install -r requirements.txt
@@ -105,7 +105,7 @@ conda run -n paperpilot python -c "import fitz, streamlit, openai; print('import
 ## Running
 
 ```bash
-cd /home/fcc/projects/AIGC_PaperPilot
+cd AIGC_PaperPilot
 conda run -n paperpilot streamlit run app.py
 ```
 

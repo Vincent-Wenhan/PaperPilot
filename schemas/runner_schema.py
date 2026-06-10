@@ -24,3 +24,4 @@ class CommandResult(BaseModel):
     timeout: bool = False
     risk_level: str = "unknown"
     blocked_reason: Optional[str] = None
+    sandbox_dir: Optional[str] = None

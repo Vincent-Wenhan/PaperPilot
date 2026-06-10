@@ -269,6 +269,10 @@ def _show_command_result_structured(command_result: dict[str, Any]) -> None:
     st.markdown(f"**Risk Level:** :{color}[{risk_level.upper()}]")
     st.markdown(f"**Exit Code:** `{command_result.get('returncode')}`")
 
+    sandbox_dir = command_result.get("sandbox_dir")
+    if sandbox_dir:
+        st.markdown(f"**Sandbox Directory:** `{sandbox_dir}`")
+
     if blocked:
         st.error(f"**Blocked:** {blocked}")
     else:
@@ -294,16 +298,17 @@ def _show_runner_section(result: dict[str, Any] | None) -> None:
     # Runner mode toggle
     runner_mode = st.selectbox(
         "Runner Mode",
-        options=["safe", "review"],
+        options=["safe", "review", "sandbox"],
         index=0,
         key="runner_mode_select",
-        help="Safe: only allowlisted commands execute. Review: you confirm before non-allowlisted commands run.",
+        help="Safe: only allowlisted commands. Review: confirm before running. Sandbox: isolated temp directory.",
     )
     st.session_state["runner_mode"] = runner_mode
 
     mode_info = {
         "safe": "Only allowlisted commands (version checks, --help) are allowed.",
         "review": "Commands are assessed for risk. Blocked commands never execute. Other commands require your confirmation.",
+        "sandbox": "Runs command in an isolated temp directory copy. Not auto-deleted. Useful for real experiment testing.",
     }
     st.info(mode_info[runner_mode])
 

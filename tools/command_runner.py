@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import re
 import shlex
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +57,7 @@ def is_safe_command(command: str) -> tuple[bool, str]:
     return True, "Command passed safety check."
 
 
-RUNNER_MODES = ("safe", "review")
+RUNNER_MODES = ("safe", "review", "sandbox")
 
 RISK_PATTERNS: list[tuple[str, str, str]] = [
     ("blocked", "Shell pipeline or download", r"(\bcurl\b.*\||\bwget\b.*\||\|\s*(bash|sh)\b)"),
@@ -120,6 +122,9 @@ def run_command_review(
     In safe mode, only allowlisted commands execute (same as run_command).
     In review mode, blocked commands are rejected; all others execute.
     """
+    if mode == "sandbox":
+        return run_command_sandbox(command, cwd, timeout)
+
     if mode not in RUNNER_MODES:
         return CommandResult(
             command=command,
@@ -167,6 +172,108 @@ def run_command_review(
 def _is_allowed_cwd(path: Path) -> bool:
     allowed_roots = (PROJECT_ROOT.resolve(), WORKSPACE_DIR.resolve())
     return any(path == root or path.is_relative_to(root) for root in allowed_roots)
+
+
+def _copytree(src: Path, dst: Path) -> None:
+    """Copy a directory tree skipping .git, __pycache__, and venv dirs."""
+    dst.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        if item.name in (".git", "__pycache__", ".venv", "venv", "node_modules"):
+            continue
+        target = dst / item.name
+        if item.is_dir():
+            try:
+                _copytree(item, target)
+            except OSError:
+                pass
+        else:
+            try:
+                shutil.copy2(item, target)
+            except OSError:
+                # Fallback to basic copy if metadata copy fails
+                shutil.copy(item, target)
+
+
+def run_command_sandbox(
+    command: str,
+    cwd: str | Path,
+    timeout: int = 300,
+) -> CommandResult:
+    """Run a command in a temporary sandbox directory.
+
+    Copies the content of *cwd* into a temp directory under ``workspace/sandboxes/``,
+    executes the command there, and does NOT auto-delete the sandbox.
+    """
+    resolved_cwd = Path(cwd).expanduser().resolve()
+    if not resolved_cwd.is_dir():
+        return CommandResult(
+            command=command,
+            mode="sandbox",
+            executed=False,
+            risk_level="blocked",
+            blocked_reason=f"Source directory does not exist: {resolved_cwd}",
+        )
+
+    risk_level, reason = assess_risk(command)
+    if risk_level == "blocked":
+        return CommandResult(
+            command=command,
+            mode="sandbox",
+            executed=False,
+            risk_level=risk_level,
+            blocked_reason=reason,
+        )
+
+    sandbox_root = WORKSPACE_DIR / "sandboxes"
+    sandbox_root.mkdir(parents=True, exist_ok=True)
+    sandbox_dir = Path(tempfile.mkdtemp(prefix="sandbox_", dir=str(sandbox_root)))
+
+    try:
+        _copytree(resolved_cwd, sandbox_dir)
+
+        result = subprocess.run(
+            shlex.split(command, posix=True),
+            cwd=str(sandbox_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        return CommandResult(
+            command=command,
+            mode="sandbox",
+            executed=True,
+            exit_code=result.returncode,
+            stdout=result.stdout[-MAX_OUTPUT_CHARS:],
+            stderr=result.stderr[-MAX_OUTPUT_CHARS:],
+            timeout=False,
+            risk_level=risk_level,
+            sandbox_dir=str(sandbox_dir),
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode(errors="replace")
+        return CommandResult(
+            command=command,
+            mode="sandbox",
+            executed=True,
+            exit_code=None,
+            stdout=stdout[-MAX_OUTPUT_CHARS:],
+            stderr="Timeout exceeded.",
+            timeout=True,
+            risk_level=risk_level,
+            sandbox_dir=str(sandbox_dir),
+        )
+    except OSError as exc:
+        return CommandResult(
+            command=command,
+            mode="sandbox",
+            executed=False,
+            risk_level=risk_level,
+            blocked_reason=f"Sandbox execution failed: {exc}",
+            sandbox_dir=str(sandbox_dir),
+        )
 
 
 def run_command(

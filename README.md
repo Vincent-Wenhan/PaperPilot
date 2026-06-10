@@ -1,12 +1,14 @@
-# PaperPilot / PaperPilot
+# PaperPilot 2.0
 
 [![GitHub](https://img.shields.io/badge/GitHub-Vincent--Wenhan/PaperPilot-181717?logo=github)](https://github.com/Vincent-Wenhan/PaperPilot) · [中文版](README_ZH.md)
 
-PaperPilot is a multi-agent paper reproduction assistant for ML research novices. Traditionally, reproducing a paper requires repeatedly reading the paper, finding code, setting up the environment, understanding experimental configurations, and debugging errors — a complex process that often fails. This project decomposes paper reproduction into stages: paper reading, method decomposition, code acquisition or generation, environment setup, experiment planning, safe execution, error diagnosis, and report generation. Multiple specialized agents collaborate to complete these tasks. Users upload a paper PDF and may provide a GitHub repository link; when no link is available, Code Agent generates a minimal reproduction project from the paper analysis.
+PaperPilot 2.0 is a multi-agent paper reproduction and product prototyping assistant. Users upload a paper PDF and optionally provide a GitHub repository. Reproduce Mode analyzes the method and code to produce an actionable reproduction plan. Productize Mode then identifies realistic applications, recommends an MVP, and generates a limited-scope Streamlit prototype with a unified, mock-first `ModelAdapter`.
+
+The project extends **Paper-to-Reproduce** into **Paper-to-Product** without presenting itself as a universal product generator. When a real model interface cannot be determined safely, the generated prototype remains demonstrable through mock mode.
 
 ## Project Positioning
 
-This is an AIGC course final project demonstrating how a lightweight, interpretable multi-agent pipeline can assist paper reproduction. PaperPilot is neither a fully automated training system nor a simple paper summarizer. It connects paper comprehension, code analysis, environment planning, minimal experimentation, safe execution, error diagnosis, and report generation — prioritizing an actionable reproduction starting point for the user.
+This AIGC course project demonstrates how a lightweight, interpretable multi-agent pipeline can assist both paper reproduction and bounded application prototyping. It does not promise automatic full training, paper-result equivalence, or production-ready model integration.
 
 ## Features
 
@@ -20,33 +22,34 @@ This is an AIGC course final project demonstrating how a lightweight, interpreta
 - Run version checks and `--help` on lightweight candidate commands
 - Automatically analyze Runner failures; also supports manual log pasting for debugging
 - Generate and download reproduction plans, scripts, and course-project reports
+- Recommend three product ideas and score a feasible MVP
+- Generate product specifications, adapter plans, and frontend plans
+- Select image, text, video, or generic file-analysis templates
+- Generate an isolated Streamlit prototype under `generated_product/`
+- Inspect generated files, Python syntax, mock mode, and run instructions
 - Full demo via mock mode without any API key
 
 ## System Architecture
 
 ```text
-User Input
-├── Paper PDF
-├── GitHub URL (optional)
-├── Hardware Info
-└── Reproduction Goal
+Paper PDF + GitHub URL (optional)
 ↓
-PDF Parser + (GitHub Clone or Code Agent) + Repo Scanner
+Reproduce Mode
+├── Paper and method analysis
+├── Repository acquisition and analysis
+├── Environment and experiment planning
+└── Reproduction outputs
 ↓
-Multi-Agent Pipeline
-├── Paper Reader Agent
-├── Method Extractor Agent
-├── Repo Analyzer Agent
-├── Environment Agent
-├── Experiment Planner Agent
-├── Runner Agent
-├── Debug Agent
-└── Report Agent
+Productize Mode
+├── Product Opportunity Agent
+├── Product Designer Agent
+├── Template selection
+├── Tech Adapter Agent
+├── Frontend Builder Agent
+├── Deterministic product scaffold
+└── Product inspection and Product Test Agent
 ↓
-Outputs
-├── reproduction_plan.md
-├── run.sh
-└── report.md
+generated_product/
 ```
 
 ## Agent Overview
@@ -63,6 +66,11 @@ Outputs
 | Runner Agent | Deterministically invoke the safe command runner |
 | Debug Agent | Analyze command, stdout, stderr, and environment information |
 | Report Agent | Aggregate stage results and generate the reproduction report |
+| Product Opportunity Agent | Identify capabilities, three application ideas, scores, and an MVP |
+| Product Designer Agent | Convert the selected MVP into a bounded product specification |
+| Tech Adapter Agent | Plan real integration without inventing or executing repository APIs |
+| Frontend Builder Agent | Design a simple template-specific Streamlit interaction |
+| Product Test Agent | Explain deterministic product inspection results and limitations |
 
 All LLM agents share `BaseAgent` and a unified OpenAI-compatible `LLMClient`. Command execution and repository cloning are not LLM-decided.
 
@@ -74,6 +82,7 @@ PaperPilot/
 ├── main.py
 ├── config.py
 ├── agents/
+├── productize/
 ├── tools/
 ├── prompts/
 ├── uploads/
@@ -82,6 +91,7 @@ PaperPilot/
 │   ├── reproduction_plan.md
 │   ├── run.sh
 │   └── report.md
+├── generated_product/       # Runtime-generated, gitignored prototype
 ├── requirements.txt
 └── README.md
 ```
@@ -132,7 +142,7 @@ Mock mode returns fixed text, but PDF parsing, URL validation, repository clonin
 
 Alternatively, you may still use environment variables (`LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_MOCK_MODE`) — sidebar values take precedence. Do not write API keys into code or commit them to the repository.
 
-## Streamlit Usage
+## Reproduce Mode
 
 1. Upload a paper PDF.
 2. Optionally enter a repository URL in `https://github.com/owner/repository` format. Leave it empty to generate code from the paper.
@@ -142,6 +152,47 @@ Alternatively, you may still use environment variables (`LLM_API_KEY`, `LLM_BASE
 6. Download `reproduction_plan.md`, `run.sh`, and `report.md`.
 7. In the Runner section, click safe commands manually; automatic debugging appears on failure.
 8. In the Debug section, paste logs for independent diagnosis.
+
+## Productize Mode
+
+Productize Mode reuses the current session's paper, method, repository
+analysis, and repository path. If no complete analysis is available, it
+automatically runs the existing `run_paperpilot()` repository-analysis path
+before product generation.
+
+1. Select **Productize Paper** in the sidebar.
+2. Upload a PDF and optionally provide a GitHub URL when no reusable analysis exists.
+3. Enter the target user and product goal.
+4. Choose `Auto`, `Image`, `Text`, `Video`, or `File`.
+5. Click **Generate Product Prototype**.
+6. Review product opportunities, the MVP specification, adapter plan, frontend plan, generated files, and test report.
+
+The generated bundle contains:
+
+```text
+generated_product/
+├── app.py
+├── adapter.py
+├── README.md
+├── product_spec.md
+├── requirements.txt
+└── outputs/
+```
+
+Existing output is moved to a timestamped `generated_product_backup_*`
+directory before a replacement is written.
+
+Run the prototype:
+
+```bash
+cd generated_product
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+The generated adapter defaults to `mock_mode=True`. Real integration requires
+manual review and edits to `adapter.py`; PaperPilot does not import or execute
+the analyzed repository automatically.
 
 ## Example Input
 
@@ -185,6 +236,9 @@ When a Runner command fails, the system automatically forwards the command, cwd,
 
 Mock example outputs are provided in the repository. Each pipeline run overwrites these files.
 
+Product prototypes are runtime artifacts under `generated_product/` and are
+gitignored. The main application displays their contents after generation.
+
 ## Limitations
 
 - Scanned PDFs without OCR may yield no extractable text.
@@ -194,6 +248,10 @@ Mock example outputs are provided in the repository. Each pipeline run overwrite
 - The system does not verify whether full training achieves the original paper's metrics.
 - The Runner intentionally uses a strict allowlist and does not provide arbitrary terminal capabilities.
 - Real APIs, private repositories, datasets, and checkpoints may require manual user configuration.
+- Product idea quality depends on the available paper and static repository evidence.
+- Template selection supports only image, text, video, and generic file-analysis prototypes.
+- Generated adapters do not guarantee that a research model can be integrated without manual engineering.
+- Mock results demonstrate the product workflow; they are not paper-model predictions.
 
 ## Future Improvements
 

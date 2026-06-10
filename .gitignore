@@ -3,6 +3,8 @@ __pycache__/
 outputs/
 uploads/
 workspace/
+generated_product/
+generated_product_backup_*/
 .venv/
 venv/
 .env

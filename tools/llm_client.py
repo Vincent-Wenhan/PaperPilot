@@ -30,7 +30,7 @@ class LLMClient:
             from openai import OpenAI
         except ImportError as exc:
             raise RuntimeError(
-                "缺少 openai 依赖，请先安装 requirements.txt。"
+                "Missing openai dependency. Please install requirements.txt."
             ) from exc
 
         options: dict[str, str] = {"api_key": self.api_key}
@@ -44,12 +44,12 @@ class LLMClient:
         if self.mock_mode:
             return (
                 "# PaperPilot Mock Result\n\n"
-                "当前为 mock mode，已接收系统提示和用户输入。"
+                "Mock mode is active. The system prompt and user input have been received."
             )
         if not self.api_key:
-            return "未检测到 LLM API key，请在 .env 或环境变量中配置。"
+            return "No LLM API key detected. Please configure it in .env or environment variables."
         if not self.model:
-            return "未配置 LLM_MODEL，请在 config.py 或环境变量中配置。"
+            return "LLM_MODEL is not configured. Please set it in config.py or environment variables."
 
         try:
             response = self._get_client().chat.completions.create(
@@ -60,7 +60,7 @@ class LLMClient:
                 ],
             )
         except Exception as exc:
-            return f"LLM 调用失败：{exc}"
+            return f"LLM call failed: {exc}"
 
         content = response.choices[0].message.content
-        return content or "LLM 返回了空内容。"
+        return content or "LLM returned empty content."

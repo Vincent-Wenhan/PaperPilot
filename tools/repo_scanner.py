@@ -31,7 +31,7 @@ def _read_text(path: Path, max_chars: int) -> str:
     try:
         return path.read_text(encoding="utf-8", errors="replace")[:max_chars]
     except OSError as exc:
-        return f"[无法读取 {path.name}：{exc}]"
+        return f"[Unable to read {path.name}: {exc}]"
 
 
 def _relative_paths(paths: list[Path], root: Path) -> list[str]:
@@ -45,9 +45,9 @@ def scan_repo(
     """Scan a local repository without executing any of its contents."""
     root = Path(repo_path).expanduser().resolve()
     if not root.is_dir():
-        raise NotADirectoryError(f"仓库目录不存在：{root}")
+        raise NotADirectoryError(f"Repository directory does not exist: {root}")
     if max_file_chars <= 0:
-        raise ValueError("max_file_chars 必须是正整数。")
+        raise ValueError("max_file_chars must be a positive integer.")
 
     files: list[Path] = []
     directories: list[Path] = []

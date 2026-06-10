@@ -48,7 +48,7 @@ def clone_github_repo(
     repo_parts = _parse_github_repo(github_url)
     if repo_parts is None:
         raise ValueError(
-            "无效的 GitHub 仓库链接，仅支持 https://github.com/owner/repo。"
+            "Invalid GitHub URL. Only https://github.com/owner/repo is supported."
         )
 
     owner, repo = repo_parts
@@ -59,7 +59,7 @@ def clone_github_repo(
     if repo_path.exists():
         if (repo_path / ".git").is_dir():
             return repo_path
-        raise FileExistsError(f"目标目录已存在但不是 Git 仓库：{repo_path}")
+        raise FileExistsError(f"Target directory exists but is not a Git repository: {repo_path}")
 
     try:
         result = subprocess.run(
@@ -70,13 +70,13 @@ def clone_github_repo(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("GitHub clone 超时，可能是网络连接问题。") from exc
+        raise RuntimeError("GitHub clone timed out. This may be a network issue.") from exc
     except OSError as exc:
-        raise RuntimeError(f"无法启动 git clone：{exc}") from exc
+        raise RuntimeError(f"Unable to start git clone: {exc}") from exc
 
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
         raise RuntimeError(
-            f"GitHub clone 失败，可能是网络、权限或仓库地址问题：{detail}"
+            f"GitHub clone failed. This may be a network, permission, or repository address issue: {detail}"
         )
     return repo_path

@@ -19,7 +19,7 @@ class RepoCloneAgent:
     def clone(self, github_url: str) -> Path:
         """Clone a repository and return its path for pipeline integration."""
         if not github_url.strip():
-            raise ValueError("未提供 GitHub 仓库链接。")
+            raise ValueError("No GitHub URL provided.")
         return clone_github_repo(github_url.strip(), self.workspace_dir)
 
     def run(self, input_data: dict[str, object] | str) -> str:
@@ -32,9 +32,9 @@ class RepoCloneAgent:
                     input_data.get("github_url") or input_data.get("url") or ""
                 ).strip()
             else:
-                raise TypeError("输入必须是 GitHub URL 字符串或字典。")
+                raise TypeError("Input must be a GitHub URL string or a dict.")
 
             repo_path = self.clone(github_url)
-            return f"仓库 clone 成功：{repo_path}"
+            return f"Repository cloned successfully: {repo_path}"
         except Exception as exc:
-            return f"{self.name} 执行失败：{exc}"
+            return f"{self.name} failed: {exc}"

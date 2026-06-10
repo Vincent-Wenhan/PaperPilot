@@ -35,9 +35,9 @@ class RunnerAgent:
                 if input_data.get("timeout") is not None:
                     selected_timeout = int(input_data["timeout"])
             else:
-                raise TypeError("输入必须是命令字符串或字典。")
+                raise TypeError("Input must be a command string or a dict.")
             if not command:
-                raise ValueError("未提供待运行命令。")
+                raise ValueError("No command provided.")
 
             result = run_command(
                 command=command,
@@ -46,4 +46,4 @@ class RunnerAgent:
             )
             return json.dumps(result, ensure_ascii=False, indent=2)
         except Exception as exc:
-            return f"{self.name} 执行失败：{exc}"
+            return f"{self.name} failed: {exc}"

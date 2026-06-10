@@ -23,14 +23,14 @@ from tools.repo_scanner import scan_repo
 
 PipelineResult = dict[str, Any]
 
-# Goal → (agents to run, human-readable names)
+# Goal mapping controls which agents are executed per goal.
 GOAL_PIPELINE_STEPS: dict[str, list[dict[str, Any]]] = {
-    "只理解论文": [
+    "understand paper": [
         {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
         {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
         {"agent_factory": ReportAgent, "step_name": "Report Agent"},
     ],
-    "跑通官方 demo": [
+    "run official demo": [
         {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
         {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
         {"agent_factory": None, "step_name": "Repo Clone Agent", "is_deterministic": True, "deterministic_type": "clone"},
@@ -38,7 +38,7 @@ GOAL_PIPELINE_STEPS: dict[str, list[dict[str, Any]]] = {
         {"agent_factory": EnvAgent, "step_name": "Environment Agent"},
         {"agent_factory": ReportAgent, "step_name": "Report Agent"},
     ],
-    "最小训练实验": [
+    "minimal training experiment": [
         {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
         {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
         {"agent_factory": None, "step_name": "Repo Clone Agent", "is_deterministic": True, "deterministic_type": "clone"},
@@ -47,7 +47,7 @@ GOAL_PIPELINE_STEPS: dict[str, list[dict[str, Any]]] = {
         {"agent_factory": ExperimentAgent, "step_name": "Experiment Planner Agent"},
         {"agent_factory": ReportAgent, "step_name": "Report Agent"},
     ],
-    "复现主实验": [
+    "reproduce main experiments": [
         {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
         {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
         {"agent_factory": None, "step_name": "Repo Clone Agent", "is_deterministic": True, "deterministic_type": "clone"},
@@ -62,7 +62,7 @@ _DEBUG_GOAL = MAIN_GOAL_DEBUG
 
 
 def _record_error(result: PipelineResult, step: str, error: object) -> None:
-    result["errors"].append(f"{step}：{error}")
+    result["errors"].append(f"[{step}] {error}")
 
 
 def _run_agent(
@@ -77,9 +77,9 @@ def _run_agent(
         _record_error(result, step, exc)
         return ""
     if not isinstance(output, str) or not output.strip():
-        _record_error(result, step, "Agent 返回了空结果。")
+        _record_error(result, step, "Agent returned an empty result.")
         return ""
-    failure_markers = ("执行失败：", "LLM 调用失败：")
+    failure_markers = ("failed:", "LLM call failed:")
     if any(marker in output for marker in failure_markers):
         _record_error(result, step, output)
     return output
@@ -94,7 +94,7 @@ def _create_agent(
     try:
         return factory(llm_client)
     except Exception as exc:
-        _record_error(result, step, f"Agent 初始化失败：{exc}")
+        _record_error(result, step, f"Agent initialization failed: {exc}")
         return None
 
 
@@ -107,41 +107,41 @@ def _run_llm_agent_step(
 ) -> str:
     agent = _create_agent(result, step_name, factory, llm_client)
     if agent is None:
-        return f"{step_name} 未生成：Agent 初始化失败。"
+        return f"{step_name}: Agent initialization failed."
     return _run_agent(result, step_name, agent, input_data)
 
 
 def _build_reproduction_plan(result: PipelineResult) -> str:
-    errors = "\n".join(f"- {error}" for error in result["errors"]) or "- 暂未发现"
+    errors = "\n".join(f"- {error}" for error in result["errors"]) or "- None found."
     return f"""# Reproduction Plan
 
 ## 1. Paper Summary
-{result["paper_info"] or "未生成。"}
+{result["paper_info"] or "Not generated."}
 
 ## 2. Method Breakdown
-{result["method_info"] or "未生成。"}
+{result["method_info"] or "Not generated."}
 
 ## 3. Repository Analysis
-{result["repo_info"] or "未生成。"}
+{result["repo_info"] or "Not generated."}
 
 ## 4. Environment Setup
-{result["env_plan"] or "未生成。"}
+{result["env_plan"] or "Not generated."}
 
 ## 5. Minimal Reproduction Plan
-{result["experiment_plan"] or "未生成。"}
+{result["experiment_plan"] or "Not generated."}
 
 ## 6. Commands
 - `python --version`
 - `pip --version`
-- 对识别出的入口文件先运行 `python <entrypoint> --help`
-- demo 本体需要用户二次确认后再运行
+- Run `python <entrypoint> --help` on detected entry points
+- Demo execution requires explicit user confirmation
 
 ## 7. Checklist
-- [ ] 确认 Python 与依赖环境
-- [ ] 阅读论文与仓库分析结果
-- [ ] 运行入口文件的 `--help`
-- [ ] 准备最小数据与配置
-- [ ] 用户确认后再运行 demo 或训练
+- [ ] Verify Python and dependency environment
+- [ ] Read paper and repository analysis
+- [ ] Run `--help` on entry points
+- [ ] Prepare minimal data and configuration
+- [ ] Confirm before running demo or training
 
 ## 8. Risks
 {errors}
@@ -177,40 +177,40 @@ pip --version
 
 
 def _build_report(result: PipelineResult, generated_report: str) -> str:
-    errors = "\n".join(f"- {error}" for error in result["errors"]) or "- 暂无"
+    errors = "\n".join(f"- {error}" for error in result["errors"]) or "- None"
     return f"""# PaperPilot Reproduction Report
 
 ## Paper Information
-{result["paper_info"] or "未生成。"}
+{result["paper_info"] or "Not generated."}
 
 ## Method Overview
-{result["method_info"] or "未生成。"}
+{result["method_info"] or "Not generated."}
 
 ## Code Repository
-- Local path: {result["repo_path"] or "未生成"}
+- Local path: {result["repo_path"] or "Not generated"}
 
-{result["repo_info"] or "未生成。"}
+{result["repo_info"] or "Not generated."}
 
 ## Environment
-{result["env_plan"] or "未生成。"}
+{result["env_plan"] or "Not generated."}
 
 ## Data Preparation
-请依据论文、仓库 README 和实验计划手动准备数据；系统不会默认下载大型数据集。
+Prepare data manually based on the paper, repository README, and experiment plan. The system will not download large datasets by default.
 
 ## Commands
-默认仅执行版本检查。入口 `--help`、demo 和训练命令需要用户审阅。
+By default only version checks are executed. Entry point `--help`, demo, and training commands require user review.
 
 ## Debug Notes
 {errors}
 
 ## Difference from Original Paper
-当前结果是复现规划，不代表已经达到原论文的完整实验设置或指标。
+The current output is a reproduction plan and does not represent full alignment with the original paper's experimental setup or metrics.
 
 ## Next Steps
-{result["experiment_plan"] or "请先解决上述错误并重新运行。"}
+{result["experiment_plan"] or "Please resolve the errors above and re-run."}
 
 ## Generated Report Draft
-{generated_report or "Report Agent 未生成额外内容。"}
+{generated_report or "Report Agent did not generate additional content."}
 """
 
 
@@ -228,7 +228,7 @@ def _save_output(
 
 
 def _reject_scanned_pdf(result: PipelineResult, step: str) -> str:
-    msg = "PDF 未提取到文本，文件可能是扫描版，请提供 OCR 版本。"
+    msg = "No text could be extracted from the PDF. It may be a scanned document. Please provide an OCR version."
     _record_error(result, step, msg)
     return ""
 
@@ -237,8 +237,8 @@ def _do_clone(result: PipelineResult, github_url: str) -> str:
     if not is_valid_github_url(github_url):
         _record_error(
             result,
-            "GitHub URL 校验失败",
-            "仅支持 https://github.com/owner/repo 格式。",
+            "GitHub URL validation failed",
+            "Only https://github.com/owner/repo format is supported.",
         )
         return ""
     try:
@@ -262,7 +262,7 @@ def run_paperpilot(
     """Run the PaperPilot analysis pipeline while preserving partial results.
 
     The ``goal`` parameter controls which agents are executed.  When a
-    ``progress_callback`` is provided it is called with the Chinese name of
+    ``progress_callback`` is provided it is called with the name of
     each agent step before that step begins.
     """
     result: PipelineResult = {
@@ -279,28 +279,27 @@ def run_paperpilot(
 
     if goal == _DEBUG_GOAL:
         result["errors"].append(
-            "「Debug 报错」目标下不运行主流程。请在 Debug 区粘贴日志进行分析。"
+            "Pipeline skipped under debug goal. Please paste logs in the Debug section for analysis."
         )
         return result
 
-    steps = GOAL_PIPELINE_STEPS.get(goal, GOAL_PIPELINE_STEPS["最小训练实验"])
+    steps = GOAL_PIPELINE_STEPS.get(goal, GOAL_PIPELINE_STEPS["minimal training experiment"])
     llm_client = LLMClient()
 
     # ------------------------------------------------------------------
-    # PDF parsing (always needed if a paper was uploaded)
+    # PDF parsing
     # ------------------------------------------------------------------
     paper_text = ""
     try:
         if pdf_path and pdf_path.strip():
             paper_text = parse_pdf(pdf_path)
     except Exception as exc:
-        _record_error(result, "PDF 解析失败", exc)
+        _record_error(result, "PDF parsing failed", exc)
 
     paper_text_available = bool(paper_text.strip())
 
     # ------------------------------------------------------------------
-    # Clone + scan — run early if the goal needs them so the results are
-    # available for downstream LLM agents.
+    # Clone + scan — run early if the goal needs them
     # ------------------------------------------------------------------
     repo_scan: dict[str, Any] | None = None
     needs_repo = any(
@@ -309,7 +308,7 @@ def run_paperpilot(
 
     if needs_repo:
         if progress_callback:
-            progress_callback("Repo Clone Agent 正在 clone 仓库")
+            progress_callback("Repo Clone Agent cloning repository")
         repo_path = _do_clone(result, github_url)
         if result["repo_path"]:
             try:
@@ -322,13 +321,13 @@ def run_paperpilot(
     # ------------------------------------------------------------------
     for step in steps:
         if step.get("is_deterministic"):
-            continue  # already handled above
+            continue
 
         factory = step["agent_factory"]
         step_name = step["step_name"]
 
         if progress_callback:
-            progress_callback(f"{step_name} 正在分析")
+            progress_callback(f"{step_name} analyzing")
 
         # --- Paper Reader ---
         if factory is PaperReaderAgent:
@@ -341,8 +340,8 @@ def run_paperpilot(
 
         # --- Method Extractor ---
         elif factory is MethodExtractorAgent:
-            if not result["paper_info"] or "扫描版" in result["paper_info"]:
-                result["method_info"] = "方法拆解未生成：论文信息不可用。"
+            if not result["paper_info"] or "scanned" in result["paper_info"].lower():
+                result["method_info"] = "Method extraction skipped: paper information is unavailable."
                 continue
             method_input = {
                 "paper_info": result["paper_info"],
@@ -355,7 +354,7 @@ def run_paperpilot(
         # --- Repo Analyzer ---
         elif factory is RepoAnalyzerAgent:
             if not repo_scan:
-                result["repo_info"] = "仓库分析未生成：仓库 clone 或扫描失败。"
+                result["repo_info"] = "Repository analysis skipped: clone or scan failed."
                 continue
             result["repo_info"] = _run_llm_agent_step(
                 result, factory, llm_client, step_name, repo_scan,
@@ -364,9 +363,9 @@ def run_paperpilot(
         # --- Environment ---
         elif factory is EnvAgent:
             hardware_context = {
-                "hardware": hardware or "未提供",
-                "gpu_info": gpu_info or "未提供",
-                "goal": goal or "未提供",
+                "hardware": hardware or "Not provided",
+                "gpu_info": gpu_info or "Not provided",
+                "goal": goal or "Not provided",
                 "repository_scan": repo_scan or {},
                 "repository_analysis": result["repo_info"],
             }
@@ -381,9 +380,9 @@ def run_paperpilot(
                 "method_info": result["method_info"],
                 "repo_info": result["repo_info"],
                 "env_plan": result["env_plan"],
-                "hardware": hardware or "未提供",
-                "gpu_info": gpu_info or "未提供",
-                "goal": goal or "未提供",
+                "hardware": hardware or "Not provided",
+                "gpu_info": gpu_info or "Not provided",
+                "goal": goal or "Not provided",
             }
             result["experiment_plan"] = _run_llm_agent_step(
                 result, factory, llm_client, step_name, experiment_context,
@@ -397,9 +396,9 @@ def run_paperpilot(
                 "repo_info": result["repo_info"],
                 "env_plan": result["env_plan"],
                 "experiment_plan": result["experiment_plan"],
-                "hardware": hardware or "未提供",
-                "gpu_info": gpu_info or "未提供",
-                "goal": goal or "未提供",
+                "hardware": hardware or "Not provided",
+                "gpu_info": gpu_info or "Not provided",
+                "goal": goal or "Not provided",
                 "repo_path": result["repo_path"],
                 "errors": result["errors"],
             }
@@ -414,21 +413,21 @@ def run_paperpilot(
 
             _save_output(
                 result,
-                "保存 reproduction_plan.md 失败",
+                "Failed to save reproduction_plan.md",
                 save_markdown,
                 reproduction_plan,
                 OUTPUTS_DIR / "reproduction_plan.md",
             )
             _save_output(
                 result,
-                "保存 run.sh 失败",
+                "Failed to save run.sh",
                 save_shell_script,
                 result["run_sh"],
                 OUTPUTS_DIR / "run.sh",
             )
             _save_output(
                 result,
-                "保存 report.md 失败",
+                "Failed to save report.md",
                 save_markdown,
                 result["report"],
                 OUTPUTS_DIR / "report.md",

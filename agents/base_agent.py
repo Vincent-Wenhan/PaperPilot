@@ -33,13 +33,13 @@ class BaseAgent:
 
     def _load_prompt(self) -> str:
         if not self.prompt_path.is_file():
-            raise FileNotFoundError(f"Prompt 文件不存在：{self.prompt_path}")
+            raise FileNotFoundError(f"Prompt file not found: {self.prompt_path}")
         try:
             prompt = self.prompt_path.read_text(encoding="utf-8").strip()
         except OSError as exc:
-            raise RuntimeError(f"无法读取 Prompt 文件：{exc}") from exc
+            raise RuntimeError(f"Failed to read prompt file: {exc}") from exc
         if not prompt:
-            raise ValueError(f"Prompt 文件为空：{self.prompt_path}")
+            raise ValueError(f"Prompt file is empty: {self.prompt_path}")
         return prompt
 
     @staticmethod
@@ -47,18 +47,18 @@ class BaseAgent:
         if isinstance(input_data, str):
             text = input_data.strip()
             if not text:
-                raise ValueError("输入内容不能为空。")
+                raise ValueError("Input cannot be empty.")
             return text
         if isinstance(input_data, dict):
             if not input_data:
-                raise ValueError("输入字典不能为空。")
+                raise ValueError("Input dict cannot be empty.")
             return json.dumps(
                 input_data,
                 ensure_ascii=False,
                 indent=2,
                 default=str,
             )
-        raise TypeError("输入必须是字符串或字典。")
+        raise TypeError("Input must be a string or a dict.")
 
     def run(self, input_data: dict[str, Any] | str) -> str:
         """Generate a text result while containing agent-level failures."""
@@ -66,7 +66,7 @@ class BaseAgent:
             user_prompt = self._format_input(input_data)
             result = self.llm_client.generate(self.system_prompt, user_prompt)
             if not isinstance(result, str) or not result.strip():
-                return f"{self.name} 执行失败：LLM 返回了空结果。"
+                return f"{self.name} failed: LLM returned an empty result."
             return result
         except Exception as exc:
-            return f"{self.name} 执行失败：{exc}"
+            return f"{self.name} failed: {exc}"

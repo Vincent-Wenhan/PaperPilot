@@ -17,9 +17,9 @@ from tools.llm_client import LLMClient
 
 UPLOADS_DIR = PROJECT_ROOT / "uploads"
 OUTPUT_FILES = (
-    ("reproduction_plan.md", "下载 reproduction_plan.md", "text/markdown"),
-    ("run.sh", "下载 run.sh", "text/x-shellscript"),
-    ("report.md", "下载 report.md", "text/markdown"),
+    ("reproduction_plan.md", "Download reproduction_plan.md", "text/markdown"),
+    ("run.sh", "Download run.sh", "text/x-shellscript"),
+    ("report.md", "Download report.md", "text/markdown"),
 )
 RUNNER_ENTRYPOINTS = (
     "train.py",
@@ -35,11 +35,11 @@ def save_uploaded_pdf(uploaded_file: BinaryIO) -> Path:
     """Save one uploaded PDF under the project-local uploads directory."""
     original_name = Path(getattr(uploaded_file, "name", "paper.pdf")).name
     if Path(original_name).suffix.lower() != ".pdf":
-        raise ValueError("仅支持上传 PDF 文件。")
+        raise ValueError("Only PDF files are supported.")
 
     data = uploaded_file.getvalue()
     if not data:
-        raise ValueError("上传的 PDF 文件为空。")
+        raise ValueError("Uploaded PDF file is empty.")
 
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     safe_stem = "".join(
@@ -55,47 +55,47 @@ def save_uploaded_pdf(uploaded_file: BinaryIO) -> Path:
 
 def _show_pipeline_errors(errors: list[str]) -> None:
     if not errors:
-        st.success("分析完成，未记录流程错误。")
+        st.success("Analysis complete. No errors recorded.")
         return
-    st.warning("分析已完成，但部分步骤出现问题：")
+    st.warning("Analysis completed, but some steps encountered issues:")
     for error in errors:
         st.error(error)
 
 
 def _show_outputs(result: dict[str, Any]) -> None:
-    st.header("输出区")
+    st.header("Output")
     tabs = st.tabs(
         [
-            "论文摘要",
-            "方法拆解",
-            "仓库分析",
-            "环境配置",
-            "实验计划",
+            "Paper Summary",
+            "Method Breakdown",
+            "Repository Analysis",
+            "Environment Setup",
+            "Experiment Plan",
             "run.sh",
             "report.md",
         ]
     )
     with tabs[0]:
-        st.markdown(result.get("paper_info") or "尚未生成论文摘要。")
+        st.markdown(result.get("paper_info") or "Paper summary not yet generated.")
     with tabs[1]:
-        st.markdown(result.get("method_info") or "尚未生成方法拆解。")
+        st.markdown(result.get("method_info") or "Method breakdown not yet generated.")
     with tabs[2]:
         repo_path = result.get("repo_path")
         if repo_path:
-            st.caption(f"本地仓库：{repo_path}")
-        st.markdown(result.get("repo_info") or "尚未生成仓库分析。")
+            st.caption(f"Local repository: {repo_path}")
+        st.markdown(result.get("repo_info") or "Repository analysis not yet generated.")
     with tabs[3]:
-        st.markdown(result.get("env_plan") or "尚未生成环境配置。")
+        st.markdown(result.get("env_plan") or "Environment setup not yet generated.")
     with tabs[4]:
-        st.markdown(result.get("experiment_plan") or "尚未生成实验计划。")
+        st.markdown(result.get("experiment_plan") or "Experiment plan not yet generated.")
     with tabs[5]:
-        st.code(result.get("run_sh") or "尚未生成 run.sh。", language="bash")
+        st.code(result.get("run_sh") or "run.sh not yet generated.", language="bash")
     with tabs[6]:
-        st.markdown(result.get("report") or "尚未生成 report.md。")
+        st.markdown(result.get("report") or "report.md not yet generated.")
 
 
 def _show_downloads() -> None:
-    st.subheader("下载输出文件")
+    st.subheader("Download Output Files")
     columns = st.columns(len(OUTPUT_FILES))
     for column, (filename, label, mime) in zip(
         columns,
@@ -113,7 +113,7 @@ def _show_downloads() -> None:
                     key=f"download_{filename}",
                 )
             else:
-                st.info(f"{filename} 尚未生成。")
+                st.info(f"{filename} not yet generated.")
 
 
 def _debug_command_failure(command_result: dict[str, Any]) -> str:
@@ -128,16 +128,16 @@ def _debug_command_failure(command_result: dict[str, Any]) -> str:
                 "stderr": command_result.get("stderr", ""),
                 "hardware": st.session_state.get(
                     "selected_hardware",
-                    "未提供",
+                    "Not provided",
                 ),
                 "gpu_info": st.session_state.get(
                     "selected_gpu_info",
-                    "未提供",
+                    "Not provided",
                 ),
             }
         )
     except Exception as exc:
-        return f"Debug Agent 执行失败：{exc}"
+        return f"Debug Agent execution failed: {exc}"
 
 
 def execute_runner_command(
@@ -205,25 +205,26 @@ def _show_command_result(command_result: dict[str, Any]) -> None:
 
 
 def _show_runner_section(result: dict[str, Any] | None) -> None:
-    st.header("Runner 区")
+    st.header("Runner")
     st.info(
-        "Runner 只执行轻量安全命令，不会默认执行完整训练、下载大型数据集，"
-        "也不会运行未知 shell 脚本。"
+        "The runner only executes lightweight safe commands. "
+        "It will not run full training, download large datasets, "
+        "or execute unknown shell scripts by default."
     )
 
     repo_path = str((result or {}).get("repo_path") or "")
     commands: list[tuple[str, str, Path]] = [
-        ("运行 python --version", "python --version", PROJECT_ROOT),
-        ("运行 pip --version", "pip --version", PROJECT_ROOT),
+        ("Run python --version", "python --version", PROJECT_ROOT),
+        ("Run pip --version", "pip --version", PROJECT_ROOT),
     ]
     commands.extend(
-        (f"运行 {command}", command, Path(repo_path))
+        (f"Run {command}", command, Path(repo_path))
         for command in _candidate_help_commands(repo_path)
     )
 
     for index, (label, command, cwd) in enumerate(commands):
         if st.button(label, key=f"runner_command_{index}"):
-            with st.spinner(f"正在安全运行：{command}"):
+            with st.spinner(f"Running safely: {command}"):
                 command_result, diagnosis = execute_runner_command(
                     command,
                     cwd,
@@ -232,71 +233,71 @@ def _show_runner_section(result: dict[str, Any] | None) -> None:
             st.session_state["runner_debug_result"] = diagnosis
 
     if repo_path and not _candidate_help_commands(repo_path):
-        st.caption("当前仓库未识别到可运行 `--help` 的候选入口文件。")
+        st.caption("No candidate entry points found for `--help` in this repository.")
     elif not repo_path:
-        st.caption("完成论文与仓库分析后，将显示已识别入口文件的 `--help` 按钮。")
+        st.caption("After the paper and repository analysis complete, available `--help` buttons will appear here.")
 
     command_result = st.session_state.get("runner_result")
     if command_result:
         _show_command_result(command_result)
         if command_result.get("success"):
-            st.success("命令执行成功。")
+            st.success("Command executed successfully.")
         else:
-            st.error("命令执行失败或被安全策略拒绝。")
+            st.error("Command failed or was rejected by the security policy.")
 
     diagnosis = st.session_state.get("runner_debug_result")
     if diagnosis:
-        st.subheader("自动 Debug 结果")
+        st.subheader("Automatic Debug Result")
         st.markdown(diagnosis)
 
 
 def _show_debug_section() -> None:
-    st.header("Debug 区")
+    st.header("Debug")
     debug_log = st.text_area(
-        "粘贴报错日志",
+        "Paste error logs",
         height=220,
-        placeholder="请粘贴运行命令、stdout、stderr 和环境信息。",
+        placeholder="Paste commands, stdout, stderr, and environment information here.",
     )
-    if st.button("分析报错", key="analyze_debug"):
+    if st.button("Analyze errors", key="analyze_debug"):
         if not debug_log.strip():
-            st.error("请先粘贴报错日志。")
+            st.error("Please paste error logs first.")
             return
-        with st.spinner("Debug Agent 正在分析报错"):
+        with st.spinner("Debug Agent is analyzing the error"):
             try:
                 diagnosis = DebugAgent(LLMClient()).run(
                     {
                         "error_log": debug_log,
                         "hardware": st.session_state.get(
                             "selected_hardware",
-                            "未提供",
+                            "Not provided",
                         ),
                         "gpu_info": st.session_state.get(
                             "selected_gpu_info",
-                            "未提供",
+                            "Not provided",
                         ),
                     }
                 )
             except Exception as exc:
-                diagnosis = f"Debug Agent 执行失败：{exc}"
+                diagnosis = f"Debug Agent execution failed: {exc}"
         st.session_state["debug_result"] = diagnosis
 
     diagnosis = st.session_state.get("debug_result")
     if diagnosis:
-        st.subheader("Debug Agent 诊断结果")
+        st.subheader("Debug Agent Diagnosis")
         st.markdown(diagnosis)
 
 
 def main() -> None:
     """Render the PaperPilot Streamlit application."""
     st.set_page_config(
-        page_title="PaperPilot：多智能体论文复现助手",
+        page_title="PaperPilot: Multi-Agent Paper Reproduction Assistant",
         layout="wide",
     )
-    st.title("PaperPilot：多智能体论文复现助手")
-    st.caption("从论文 PDF 与 GitHub 仓库生成可执行、可检查的复现计划。")
+    st.title("PaperPilot: Multi-Agent Paper Reproduction Assistant")
+    st.caption("Generate executable, inspectable reproduction plans from paper PDFs and GitHub repositories.")
 
-    st.header("输入区")
-    uploaded_pdf = st.file_uploader("上传论文 PDF", type=["pdf"])
+    st.header("Input")
+    uploaded_pdf = st.file_uploader("Upload paper PDF", type=["pdf"])
     github_url = st.text_input(
         "GitHub URL",
         placeholder="https://github.com/owner/repository",
@@ -305,19 +306,19 @@ def main() -> None:
     hardware_column, gpu_column, goal_column = st.columns(3)
     with hardware_column:
         hardware = st.selectbox(
-            "硬件条件",
+            "Hardware",
             ["CPU only", "Single GPU", "Multi GPU"],
         )
     with gpu_column:
-        gpu_info = st.text_input("GPU 型号", placeholder="例如 RTX 4090")
+        gpu_info = st.text_input("GPU model", placeholder="e.g. RTX 4090")
     with goal_column:
         goal = st.selectbox(
-            "复现目标",
+            "Goal",
             [
-                "只理解论文",
-                "跑通官方 demo",
-                "最小训练实验",
-                "复现主实验",
+                "understand paper",
+                "run official demo",
+                "minimal training experiment",
+                "reproduce main experiments",
                 MAIN_GOAL_DEBUG,
             ],
         )
@@ -329,16 +330,16 @@ def main() -> None:
         # --- Debug goal: skip pipeline, go straight to Debug section ---
         if goal == MAIN_GOAL_DEBUG:
             st.info(
-                "「Debug 报错」目标已选择。请滚动到页面底部的 Debug 区粘贴日志进行分析。"
+                "Debug goal selected. Scroll to the Debug section at the bottom to paste logs for analysis."
             )
             st.session_state["debug_goal_selected"] = True
             st.session_state.pop("paperpilot_result", None)
         else:
             validation_errors: list[str] = []
             if uploaded_pdf is None:
-                validation_errors.append("请先上传论文 PDF。")
+                validation_errors.append("Please upload a paper PDF.")
             if not github_url.strip():
-                validation_errors.append("GitHub URL 不能为空。")
+                validation_errors.append("GitHub URL cannot be empty.")
 
             if validation_errors:
                 for error in validation_errors:
@@ -347,7 +348,7 @@ def main() -> None:
                 try:
                     saved_pdf = save_uploaded_pdf(uploaded_pdf)
                 except Exception as exc:
-                    st.error(f"PDF 保存失败：{exc}")
+                    st.error(f"Failed to save PDF: {exc}")
                 else:
                     st.session_state["uploaded_pdf_path"] = str(saved_pdf)
                     st.session_state.pop("debug_goal_selected", None)
@@ -360,11 +361,11 @@ def main() -> None:
                     def _on_progress(agent_name: str) -> None:
                         progress_lines.append(f"- {agent_name}...")
                         progress_log.markdown(
-                            "**Agent 进度**\n" + "\n".join(progress_lines)
+                            "**Agent Progress**\n" + "\n".join(progress_lines)
                         )
 
-                    with st.status("Agent 状态区", expanded=True) as status:
-                        _on_progress("初始化分析流程")
+                    with st.status("Agent Status", expanded=True) as status:
+                        _on_progress("Initializing pipeline")
                         try:
                             result = run_paperpilot(
                                 pdf_path=str(saved_pdf),
@@ -375,12 +376,12 @@ def main() -> None:
                                 progress_callback=_on_progress,
                             )
                         except Exception as exc:
-                            st.error(f"主流程执行失败：{exc}")
-                            status.update(label="分析失败", state="error")
+                            st.error(f"Pipeline execution failed: {exc}")
+                            status.update(label="Analysis failed", state="error")
                         else:
                             st.session_state["paperpilot_result"] = result
-                            _on_progress("分析完成")
-                            status.update(label="Agent 流程完成", state="complete")
+                            _on_progress("Analysis complete")
+                            status.update(label="Pipeline complete", state="complete")
 
     result = st.session_state.get("paperpilot_result")
     if result:
@@ -388,10 +389,10 @@ def main() -> None:
         _show_outputs(result)
     elif st.session_state.get("debug_goal_selected"):
         st.info(
-            "「Debug 报错」模式不运行主分析流程。请使用下方的 Debug 区。"
+            "Debug mode does not run the main analysis pipeline. Please use the Debug section below."
         )
     else:
-        st.info("提交输入并点击 Analyze 后，将在此显示分析结果。")
+        st.info("Submit inputs and click Analyze to see results here.")
 
     _show_downloads()
     _show_runner_section(result)

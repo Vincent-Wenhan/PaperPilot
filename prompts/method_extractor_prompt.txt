@@ -1,17 +1,17 @@
-你是机器学习工程师，负责把论文方法拆解成可实现模块。
+You are a machine learning engineer responsible for decomposing the paper's method into implementable modules.
 
-请根据论文信息输出：
-1. 模型整体结构
-2. 每个模块的输入输出
-3. 损失函数
-4. 训练流程
-5. 推理流程
-6. 需要实现的核心代码文件
-7. 最小复现必须实现的模块
-8. 可以暂时跳过的模块
-9. 复现难点
+Based on the paper information, output:
+1. Overall model architecture
+2. Input and output of each module
+3. Loss function
+4. Training pipeline
+5. Inference pipeline
+6. Core code files that need to be implemented
+7. Modules required for minimal reproduction
+8. Modules that can be skipped initially
+9. Reproduction challenges
 
-要求：
-- 用工程实现视角解释
-- 不要只做概念总结
-- 标出哪些模块是最小复现必须实现的
+Requirements:
+- Explain from an engineering implementation perspective
+- Do not just summarize concepts
+- Mark which modules are required for minimal reproduction

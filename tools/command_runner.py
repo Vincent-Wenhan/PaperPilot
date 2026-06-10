@@ -38,19 +38,19 @@ MAX_OUTPUT_CHARS = 4000
 def is_safe_command(command: str) -> tuple[bool, str]:
     """Validate a command against shell controls and the exact allowlist."""
     if not command or not command.strip():
-        return False, "命令不能为空。"
+        return False, "Command cannot be empty."
     normalized = " ".join(command.lower().split())
     if any(pattern in normalized for pattern in FORBIDDEN_PATTERNS):
-        return False, "命令包含明确禁止的危险操作。"
+        return False, "Command contains explicitly prohibited dangerous operations."
     if any(token in command for token in FORBIDDEN_TOKENS):
-        return False, "命令包含禁止的 shell 控制符。"
+        return False, "Command contains prohibited shell control characters."
     try:
         parts = shlex.split(command, posix=True)
     except ValueError as exc:
-        return False, f"命令解析失败：{exc}"
+        return False, f"Command parsing failed: {exc}"
     if parts not in ALLOWED_COMMANDS:
-        return False, "命令不在安全 allowlist 中。"
-    return True, "命令通过安全检查。"
+        return False, "Command is not in the safety allowlist."
+    return True, "Command passed safety check."
 
 
 def _is_allowed_cwd(path: Path) -> bool:
@@ -79,13 +79,13 @@ def run_command(
         base_result["stderr"] = reason
         return base_result
     if timeout <= 0:
-        base_result["stderr"] = "timeout 必须是正整数。"
+        base_result["stderr"] = "timeout must be a positive integer."
         return base_result
     if not resolved_cwd.is_dir():
-        base_result["stderr"] = f"工作目录不存在：{resolved_cwd}"
+        base_result["stderr"] = f"Working directory does not exist: {resolved_cwd}"
         return base_result
     if not _is_allowed_cwd(resolved_cwd):
-        base_result["stderr"] = "工作目录必须位于项目根目录或 workspace 内。"
+        base_result["stderr"] = "Working directory must be under the project root or workspace."
         return base_result
 
     try:
@@ -98,14 +98,14 @@ def run_command(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        base_result["stderr"] = f"命令执行超时（{timeout} 秒）。"
+        base_result["stderr"] = f"Timeout of {timeout} seconds exceeded."
         stdout = exc.stdout or ""
         if isinstance(stdout, bytes):
             stdout = stdout.decode(errors="replace")
         base_result["stdout"] = stdout[-MAX_OUTPUT_CHARS:]
         return base_result
     except OSError as exc:
-        base_result["stderr"] = f"命令启动失败：{exc}"
+        base_result["stderr"] = f"Failed to start command: {exc}"
         return base_result
 
     return {

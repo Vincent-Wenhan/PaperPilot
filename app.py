@@ -68,7 +68,7 @@ def _show_outputs(result: dict[str, Any]) -> None:
         [
             "Paper Summary",
             "Method Breakdown",
-            "Repository Analysis",
+            "Code / Repository",
             "Environment Setup",
             "Experiment Plan",
             "run.sh",
@@ -81,8 +81,16 @@ def _show_outputs(result: dict[str, Any]) -> None:
         st.markdown(result.get("method_info") or "Method breakdown not yet generated.")
     with tabs[2]:
         repo_path = result.get("repo_path")
+        repo_source = result.get("repo_source")
+        if repo_source:
+            st.caption(f"Code source: {repo_source}")
         if repo_path:
             st.caption(f"Local repository: {repo_path}")
+        code_info = result.get("code_info")
+        if code_info:
+            st.subheader("Code Agent Output")
+            st.markdown(code_info)
+        st.subheader("Repository Analysis")
         st.markdown(result.get("repo_info") or "Repository analysis not yet generated.")
     with tabs[3]:
         st.markdown(result.get("env_plan") or "Environment setup not yet generated.")
@@ -245,7 +253,7 @@ def _show_runner_section(result: dict[str, Any] | None) -> None:
     if repo_path and not _candidate_help_commands(repo_path):
         st.caption("No candidate entry points found for `--help` in this repository.")
     elif not repo_path:
-        st.caption("After the paper and repository analysis complete, available `--help` buttons will appear here.")
+        st.caption("After code generation or repository analysis completes, available `--help` buttons will appear here.")
 
     command_result = st.session_state.get("runner_result")
     if command_result:
@@ -336,13 +344,14 @@ def main() -> None:
         )
 
     st.title("PaperPilot: Multi-Agent Paper Reproduction Assistant")
-    st.caption("Generate executable, inspectable reproduction plans from paper PDFs and GitHub repositories.")
+    st.caption("Generate executable, inspectable reproduction plans from paper PDFs, with or without an existing code repository.")
 
     st.header("Input")
     uploaded_pdf = st.file_uploader("Upload paper PDF", type=["pdf"])
     github_url = st.text_input(
-        "GitHub URL",
+        "GitHub URL (optional)",
         placeholder="https://github.com/owner/repository",
+        help="Leave empty to let Code Agent generate a minimal reproduction project from the paper.",
     )
 
     hardware_column, gpu_column, goal_column = st.columns(3)
@@ -380,9 +389,6 @@ def main() -> None:
             validation_errors: list[str] = []
             if uploaded_pdf is None:
                 validation_errors.append("Please upload a paper PDF.")
-            if not github_url.strip():
-                validation_errors.append("GitHub URL cannot be empty.")
-
             if validation_errors:
                 for error in validation_errors:
                     st.error(error)

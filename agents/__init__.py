@@ -1,6 +1,7 @@
 """PaperPilot agent package."""
 
 from agents.base_agent import BaseAgent
+from agents.code_agent import CodeAgent
 from agents.debug_agent import DebugAgent
 from agents.env_agent import EnvironmentAgent
 from agents.experiment_agent import ExperimentPlannerAgent
@@ -16,6 +17,7 @@ ExperimentAgent = ExperimentPlannerAgent
 
 __all__ = [
     "BaseAgent",
+    "CodeAgent",
     "DebugAgent",
     "EnvAgent",
     "EnvironmentAgent",

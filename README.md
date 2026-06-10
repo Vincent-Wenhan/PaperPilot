@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-Vincent--Wenhan/PaperPilot-181717?logo=github)](https://github.com/Vincent-Wenhan/PaperPilot) · [中文版](README_ZH.md)
 
-PaperPilot is a multi-agent paper reproduction assistant for ML research novices. Traditionally, reproducing a paper requires repeatedly reading the paper, finding code, setting up the environment, understanding experimental configurations, and debugging errors — a complex process that often fails. This project decomposes paper reproduction into stages: paper reading, method decomposition, code repository analysis, environment setup, experiment planning, safe execution, error diagnosis, and report generation. Multiple specialized agents collaborate to complete these tasks. Users simply upload a paper PDF and provide a GitHub repository link, and the system generates a structured reproduction roadmap, experiment checklist, run commands, and debug suggestions.
+PaperPilot is a multi-agent paper reproduction assistant for ML research novices. Traditionally, reproducing a paper requires repeatedly reading the paper, finding code, setting up the environment, understanding experimental configurations, and debugging errors — a complex process that often fails. This project decomposes paper reproduction into stages: paper reading, method decomposition, code acquisition or generation, environment setup, experiment planning, safe execution, error diagnosis, and report generation. Multiple specialized agents collaborate to complete these tasks. Users upload a paper PDF and may provide a GitHub repository link; when no link is available, Code Agent generates a minimal reproduction project from the paper analysis.
 
 ## Project Positioning
 
@@ -11,7 +11,8 @@ This is an AIGC course final project demonstrating how a lightweight, interpreta
 ## Features
 
 - Upload and parse paper PDFs
-- Validate and shallow-clone public GitHub repositories
+- Optionally validate and shallow-clone public GitHub repositories
+- Generate a minimal reproduction codebase with Code Agent when no repository URL is available
 - Scan README, dependency files, configurations, and candidate entry points
 - Generate paper summaries and engineering-oriented method breakdowns
 - Plan environments based on CPU, single-GPU, or multi-GPU
@@ -26,11 +27,11 @@ This is an AIGC course final project demonstrating how a lightweight, interpreta
 ```text
 User Input
 ├── Paper PDF
-├── GitHub URL
+├── GitHub URL (optional)
 ├── Hardware Info
 └── Reproduction Goal
 ↓
-PDF Parser + GitHub Clone + Repo Scanner
+PDF Parser + (GitHub Clone or Code Agent) + Repo Scanner
 ↓
 Multi-Agent Pipeline
 ├── Paper Reader Agent
@@ -55,6 +56,7 @@ Outputs
 | Paper Reader Agent | Extract task, contributions, datasets, metrics, and experimental settings |
 | Method Extractor Agent | Decompose method into implementable modules, training and inference pipelines |
 | Repo Clone Agent | Deterministically call GitHub clone tool; does not execute repository code |
+| Code Agent | Generate a minimal, inspectable reproduction project when no GitHub URL is provided |
 | Repo Analyzer Agent | Analyze repository structure, dependencies, configurations, and entry points |
 | Environment Agent | Generate environment recommendations based on dependency evidence and hardware |
 | Experiment Planner Agent | Generate Level 0 to Level 4 hierarchical reproduction roadmaps |
@@ -133,7 +135,7 @@ Alternatively, you may still use environment variables (`LLM_API_KEY`, `LLM_BASE
 ## Streamlit Usage
 
 1. Upload a paper PDF.
-2. Enter a repository URL in `https://github.com/owner/repository` format.
+2. Optionally enter a repository URL in `https://github.com/owner/repository` format. Leave it empty to generate code from the paper.
 3. Select `CPU only`, `Single GPU`, or `Multi GPU`; optionally enter a GPU model.
 4. Select a goal: understand the paper, run the official demo, minimal training experiment, reproduce main experiments, or debug errors.
 5. Click `Analyze` to view agent status and stage results.
@@ -187,6 +189,7 @@ Mock example outputs are provided in the repository. Each pipeline run overwrite
 
 - Scanned PDFs without OCR may yield no extractable text.
 - LLM output quality depends on the model, context length, and paper text quality.
+- Code Agent output is an independent approximation and is not the paper's official implementation.
 - Repository analysis is based on static file scanning and may not automatically understand all custom entry points.
 - The system does not verify whether full training achieves the original paper's metrics.
 - The Runner intentionally uses a strict allowlist and does not provide arbitrary terminal capabilities.

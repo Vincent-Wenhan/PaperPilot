@@ -22,3 +22,4 @@ Requirements:
 - Clearly indicate which paths the user needs to modify manually
 - Do not assume the user has unlimited GPU resources
 - Do not default to downloading large datasets
+- Never describe Code Agent output as an official demo or claim that it reproduces the paper's reported metrics

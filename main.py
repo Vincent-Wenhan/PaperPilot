@@ -257,6 +257,7 @@ def run_paperpilot(
     hardware: str,
     gpu_info: str,
     goal: str,
+    llm_client: LLMClient | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Run the PaperPilot analysis pipeline while preserving partial results.
@@ -264,6 +265,9 @@ def run_paperpilot(
     The ``goal`` parameter controls which agents are executed.  When a
     ``progress_callback`` is provided it is called with the name of
     each agent step before that step begins.
+
+    If ``llm_client`` is not provided a default one is created from
+    environment variables.
     """
     result: PipelineResult = {
         "paper_info": "",
@@ -284,7 +288,8 @@ def run_paperpilot(
         return result
 
     steps = GOAL_PIPELINE_STEPS.get(goal, GOAL_PIPELINE_STEPS["minimal training experiment"])
-    llm_client = LLMClient()
+    if llm_client is None:
+        llm_client = LLMClient()
 
     # ------------------------------------------------------------------
     # PDF parsing

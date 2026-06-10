@@ -116,10 +116,20 @@ def _show_downloads() -> None:
                 st.info(f"{filename} not yet generated.")
 
 
+def _get_llm_client() -> LLMClient:
+    """Build an LLMClient from sidebar session state (falling back to env vars)."""
+    return LLMClient(
+        api_key=st.session_state.get("llm_api_key"),
+        base_url=st.session_state.get("llm_base_url"),
+        model=st.session_state.get("llm_model"),
+        mock_mode=st.session_state.get("llm_mock_mode", True),
+    )
+
+
 def _debug_command_failure(command_result: dict[str, Any]) -> str:
     """Ask Debug Agent to diagnose one failed deterministic command."""
     try:
-        return DebugAgent(LLMClient()).run(
+        return DebugAgent(_get_llm_client()).run(
             {
                 "command": command_result.get("command", ""),
                 "cwd": command_result.get("cwd", ""),
@@ -264,7 +274,7 @@ def _show_debug_section() -> None:
             return
         with st.spinner("Debug Agent is analyzing the error"):
             try:
-                diagnosis = DebugAgent(LLMClient()).run(
+                diagnosis = DebugAgent(_get_llm_client()).run(
                     {
                         "error_log": debug_log,
                         "hardware": st.session_state.get(
@@ -293,6 +303,38 @@ def main() -> None:
         page_title="PaperPilot: Multi-Agent Paper Reproduction Assistant",
         layout="wide",
     )
+
+    # ------------------------------------------------------------------
+    # Sidebar: LLM API configuration
+    # ------------------------------------------------------------------
+    with st.sidebar:
+        st.header("LLM Configuration")
+        st.session_state.setdefault("llm_api_key", "")
+        st.session_state.setdefault("llm_base_url", "https://api.openai.com/v1")
+        st.session_state.setdefault("llm_model", "gpt-4o-mini")
+        st.session_state.setdefault("llm_mock_mode", True)
+
+        st.session_state["llm_api_key"] = st.text_input(
+            "API Key",
+            value=st.session_state["llm_api_key"],
+            type="password",
+            help="Leave empty to use the LLM_API_KEY environment variable.",
+        )
+        st.session_state["llm_base_url"] = st.text_input(
+            "Base URL",
+            value=st.session_state["llm_base_url"],
+            help="OpenAI-compatible endpoint URL.",
+        )
+        st.session_state["llm_model"] = st.text_input(
+            "Model",
+            value=st.session_state["llm_model"],
+        )
+        st.session_state["llm_mock_mode"] = st.toggle(
+            "Mock Mode",
+            value=st.session_state["llm_mock_mode"],
+            help="When enabled, LLM calls return fixed text (no API key needed).",
+        )
+
     st.title("PaperPilot: Multi-Agent Paper Reproduction Assistant")
     st.caption("Generate executable, inspectable reproduction plans from paper PDFs and GitHub repositories.")
 
@@ -373,6 +415,7 @@ def main() -> None:
                                 hardware=hardware,
                                 gpu_info=gpu_info.strip(),
                                 goal=goal,
+                                llm_client=_get_llm_client(),
                                 progress_callback=_on_progress,
                             )
                         except Exception as exc:

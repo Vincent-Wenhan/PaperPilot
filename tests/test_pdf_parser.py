@@ -1,6 +1,7 @@
 """Tests for PDF parser."""
 from __future__ import annotations
 
+import tempfile
 import unittest
 
 from tools.pdf_parser import parse_pdf
@@ -12,3 +13,25 @@ class TestPdfParser(unittest.TestCase):
     def test_nonexistent_file_raises_error(self) -> None:
         with self.assertRaises((FileNotFoundError, OSError)):
             parse_pdf("/nonexistent/paper.pdf")
+
+
+class TestPdfQuality(unittest.TestCase):
+    """Test PDF quality analysis and section extraction error handling."""
+
+    def test_analyze_raises_on_nonexistent_file(self) -> None:
+        from tools.pdf_parser import analyze_pdf_quality
+        with self.assertRaises((FileNotFoundError, OSError)):
+            analyze_pdf_quality("/nonexistent/paper.pdf")
+
+    def test_extract_raises_on_nonexistent_file(self) -> None:
+        from tools.pdf_parser import extract_pdf_sections
+        with self.assertRaises((FileNotFoundError, OSError)):
+            extract_pdf_sections("/nonexistent/paper.pdf")
+
+    def test_analyze_invalid_extension_raises_runtime_error(self) -> None:
+        from tools.pdf_parser import analyze_pdf_quality
+        f = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
+        f.write(b"not a pdf")
+        f.close()
+        with self.assertRaises(RuntimeError):
+            analyze_pdf_quality(f.name)

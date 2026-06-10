@@ -1,84 +1,155 @@
-"""Resilient orchestration for PaperPilot Productize Mode."""
+"""Theory-guided, multi-paper Productize Mode orchestration."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
+
+from pydantic import BaseModel
 
 from agents import (
-    FrontendBuilderAgent,
-    ProductDesignerAgent,
-    ProductOpportunityAgent,
-    ProductTestAgent,
-    TechAdapterAgent,
+    ProductEvaluatorAgent,
+    ProductPlannerAgent,
+    PrototypeBuilderAgent,
+    ResearchSynthesizerAgent,
 )
-from productize import scaffold_product, select_product_template, inspect_generated_product
+from agents.schema_display import opportunities_to_markdown
+from productize import inspect_generated_product, scaffold_product, select_product_template
+from schemas.composition_schema import ResearchSynthesis
+from schemas.evaluation_schema import ProductEvaluation
+from schemas.product_schema import (
+    ProductOpportunityList,
+    ProductPlan,
+    PrototypePlan,
+)
 from tools.llm_client import LLMClient
 
 ProductResult = dict[str, Any]
-
-_FAILURE_MARKERS = (" failed:", "LLM call failed:")
+SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 
 def _record_error(result: ProductResult, stage: str, error: object) -> None:
     result["errors"].append(f"[{stage}] {error}")
 
 
-def _run_agent_stage(
+def _run_structured_stage(
     result: ProductResult,
     stage: str,
     agent_factory: Callable[[LLMClient], Any],
     llm_client: LLMClient,
     input_data: dict[str, Any],
-) -> str:
+    fallback: Callable[[], SchemaT],
+) -> SchemaT:
     try:
-        agent = agent_factory(llm_client)
-        output = agent.run(input_data)
+        return agent_factory(llm_client).run_structured(input_data)
     except Exception as exc:
         _record_error(result, stage, exc)
-        return ""
-    if not isinstance(output, str) or not output.strip():
-        _record_error(result, stage, "Agent returned an empty result.")
-        return ""
-    if any(marker in output for marker in _FAILURE_MARKERS):
-        _record_error(result, stage, output)
-        return ""
-    return output.strip()
+        return fallback()
 
 
-def _fallback_product_spec(
-    target_user: str,
-    product_goal: str,
-) -> str:
-    return f"""# Generated Product Specification
+def _normalize_papers(
+    papers: list[dict[str, Any]] | None,
+    paper_info: str,
+    method_info: str,
+    repo_info: str,
+    repo_path: str,
+) -> list[dict[str, Any]]:
+    source = papers or [
+        {
+            "paper_id": "paper-1",
+            "title": "Paper 1",
+            "paper_info": paper_info,
+            "method_info": method_info,
+            "repo_info": repo_info,
+            "repo_path": repo_path,
+        }
+    ]
+    normalized: list[dict[str, Any]] = []
+    for index, paper in enumerate(source, 1):
+        item = dict(paper)
+        item.setdefault("paper_id", f"paper-{index}")
+        item.setdefault("title", f"Paper {index}")
+        item.setdefault("paper_info", "")
+        item.setdefault("method_info", "")
+        item.setdefault("repo_info", "")
+        item.setdefault("repo_path", "")
+        normalized.append(item)
+    return normalized
 
-## Product Name
-Research File Analysis Prototype
 
-## One-line Description
-A mock-first Streamlit prototype that demonstrates a bounded research
-technology workflow without assuming the original model is integrated.
+def _product_plan_to_markdown(plan: ProductPlan) -> str:
+    lines = [
+        "# Product Plan",
+        "",
+        f"## Selected Product\n\n{plan.selected_product}",
+        "",
+        f"## Selection Reason\n\n{plan.selection_reason}",
+        "",
+        f"## JTBD\n\n{plan.jtbd}",
+        "",
+        "## PRD",
+        "",
+        f"### Problem\n\n{plan.prd.problem_statement}",
+        "",
+        "### Core Features",
+        *[f"- {item}" for item in plan.prd.core_features],
+        "",
+        "### User Flow",
+        *[f"{index}. {item}" for index, item in enumerate(plan.prd.user_flow, 1)],
+        "",
+        "## MVP / MoSCoW",
+        "",
+        "### Must Have",
+        *[f"- {item}" for item in plan.mvp_scope.must_have],
+        "",
+        "### Should Have",
+        *[f"- {item}" for item in plan.mvp_scope.should_have],
+        "",
+        "### Could Have",
+        *[f"- {item}" for item in plan.mvp_scope.could_have],
+        "",
+        "### Won't Have",
+        *[f"- {item}" for item in plan.mvp_scope.wont_have],
+    ]
+    return "\n".join(lines)
 
-## Target User
-{target_user or "Course project reviewers and research learners"}
 
-## User Problem
-Research code is difficult to demonstrate as a simple user-facing workflow.
+def _prototype_plan_to_markdown(plan: PrototypePlan) -> str:
+    lines = [
+        "# Prototype Plan",
+        "",
+        f"**Template:** {plan.template_type}",
+        f"**Mock First:** {plan.mock_first}",
+        "",
+        "## Page Structure",
+        *[f"- {item}" for item in plan.page_structure],
+        "",
+        "## Adapter Boundary",
+        *[f"- {item}" for item in plan.adapter_boundary],
+        "",
+        "## Real Integration Placeholder",
+        plan.real_integration_placeholder,
+    ]
+    return "\n".join(lines)
 
-## Core Function
-Accept one input, call a unified ModelAdapter, and present a structured result.
 
-## Product Goal
-{product_goal or "Demonstrate a safe paper-to-product workflow"}
-
-## MVP Boundary
-The generated application uses mock mode by default and does not execute,
-train, download, or modify the source repository.
-
-## Risks and Limitations
-Real model inputs, checkpoints, dependencies, and output conversion require
-manual review and implementation.
-"""
+def _evaluation_to_markdown(evaluation: ProductEvaluation) -> str:
+    lines = [
+        "# Product Evaluation",
+        "",
+        f"**Overall Score:** {evaluation.overall_score}/5",
+        f"**Demo Readiness:** {evaluation.demo_readiness}",
+        "",
+        "## Revision Suggestions",
+    ]
+    lines.extend(
+        f"- {item}" for item in evaluation.revision_suggestions
+    )
+    if not evaluation.revision_suggestions:
+        lines.append("- No mandatory revision identified.")
+    lines.extend(["", "## Safety Warnings"])
+    lines.extend(f"- {item}" for item in evaluation.safety_warnings)
+    return "\n".join(lines)
 
 
 def run_productize_pipeline(
@@ -93,68 +164,112 @@ def run_productize_pipeline(
     output_dir: str | Path = "generated_product",
     progress_callback: Callable[[str], None] | None = None,
     user_idea: str = "",
+    papers: list[dict[str, Any]] | None = None,
 ) -> ProductResult:
-    """Generate a product prototype while preserving partial stage results."""
+    """Generate a structured mock-first product from one or more papers.
+
+    Existing single-paper callers remain valid. Multi-paper callers may pass
+    ``papers`` with paper, method, and optional repository context per item.
+    """
     result: ProductResult = {
+        "papers": [],
+        "research_synthesis": {},
+        "capability_cards": [],
+        "capability_map": {},
+        "composition_plan": {},
         "opportunities": "",
+        "product_plan": {},
+        "prd": {},
+        "mvp_scope": {},
         "product_spec": "",
         "template_type": "",
+        "prototype_plan": {},
         "adapter_plan": "",
         "frontend_plan": "",
         "scaffold_result": {},
         "inspection": {},
+        "evaluation": {},
         "test_report": "",
         "errors": [],
     }
     client = llm_client or LLMClient()
+    normalized_papers = _normalize_papers(
+        papers,
+        paper_info,
+        method_info,
+        repo_info,
+        repo_path,
+    )
+    result["papers"] = normalized_papers
+    effective_repo_path = repo_path or next(
+        (
+            str(paper.get("repo_path") or "")
+            for paper in normalized_papers
+            if paper.get("repo_path")
+        ),
+        "",
+    )
 
     def progress(stage: str) -> None:
         if progress_callback:
             progress_callback(stage)
 
-    progress("Product Opportunity Agent analyzing")
-    result["opportunities"] = _run_agent_stage(
+    progress("Research Synthesizer Agent analyzing paper capabilities")
+    synthesis = _run_structured_stage(
         result,
-        "Product Opportunity Agent",
-        ProductOpportunityAgent,
+        "Research Synthesizer Agent",
+        ResearchSynthesizerAgent,
         client,
         {
-            "paper_info": paper_info,
-            "method_info": method_info,
-            "repo_info": repo_info,
+            "papers": normalized_papers,
+            "target_domain": product_goal,
+            "user_goal": user_idea,
+        },
+        fallback=lambda: ResearchSynthesizerAgent(client).build_mock(
+            {"papers": normalized_papers}
+        ),
+    )
+    result["research_synthesis"] = synthesis.model_dump(mode="json")
+    result["capability_cards"] = result["research_synthesis"]["capability_cards"]
+    result["capability_map"] = result["research_synthesis"]["capability_map"]
+    result["composition_plan"] = result["research_synthesis"]["composition_plan"]
+
+    progress("Product Planner Agent building PRD and MVP")
+    product_plan = _run_structured_stage(
+        result,
+        "Product Planner Agent",
+        ProductPlannerAgent,
+        client,
+        {
+            "research_synthesis": result["research_synthesis"],
             "target_user": target_user,
             "product_goal": product_goal,
-            **({"user_idea": user_idea} if user_idea else {}),
-        }
+            "user_idea": user_idea,
+        },
+        fallback=lambda: ProductPlannerAgent(client).build_mock(
+            {
+                "research_synthesis": result["research_synthesis"],
+                "target_user": target_user,
+                "product_goal": product_goal,
+            }
+        ),
+    )
+    result["product_plan"] = product_plan.model_dump(mode="json")
+    result["prd"] = result["product_plan"]["prd"]
+    result["mvp_scope"] = result["product_plan"]["mvp_scope"]
+    result["opportunities"] = opportunities_to_markdown(
+        ProductOpportunityList(opportunities=product_plan.opportunities)
     )
     if user_idea:
-        result["opportunities_input"] = result["opportunities"]
         result["opportunities"] += f"\n\n## User's Own Idea\n{user_idea}"
-
-    if result["opportunities"]:
-        progress("Product Designer Agent designing MVP")
-        result["product_spec"] = _run_agent_stage(
-            result,
-            "Product Designer Agent",
-            ProductDesignerAgent,
-            client,
-            {
-                "opportunities": result["opportunities"],
-                "paper_info": paper_info,
-                "method_info": method_info,
-                "repo_info": repo_info,
-                **({"user_idea": user_idea} if user_idea else {}),
-            },
-        )
-    if not result["product_spec"]:
-        result["product_spec"] = _fallback_product_spec(target_user, product_goal)
+    result["product_spec"] = _product_plan_to_markdown(product_plan)
 
     progress("Selecting product template")
     try:
         result["template_type"] = select_product_template(
-            paper_info,
-            method_info,
-            repo_info,
+            " ".join(str(item["paper_info"]) for item in normalized_papers),
+            " ".join(str(item["method_info"]) for item in normalized_papers),
+            " ".join(str(item["repo_info"]) for item in normalized_papers),
             result["product_spec"],
             preferred_type,
         )
@@ -162,32 +277,26 @@ def run_productize_pipeline(
         _record_error(result, "Product Template Selection", exc)
         result["template_type"] = "file"
 
-    progress("Tech Adapter Agent planning integration")
-    result["adapter_plan"] = _run_agent_stage(
+    progress("Prototype Builder Agent planning interface and adapter")
+    prototype_plan = _run_structured_stage(
         result,
-        "Tech Adapter Agent",
-        TechAdapterAgent,
+        "Prototype Builder Agent",
+        PrototypeBuilderAgent,
         client,
         {
-            "repo_info": repo_info,
-            "repo_path": repo_path,
-            "product_spec": result["product_spec"],
+            "product_plan": result["product_plan"],
             "template_type": result["template_type"],
         },
+        fallback=lambda: PrototypeBuilderAgent(client).build_mock(
+            {
+                "product_plan": result["product_plan"],
+                "template_type": result["template_type"],
+            }
+        ),
     )
-
-    progress("Frontend Builder Agent planning interface")
-    result["frontend_plan"] = _run_agent_stage(
-        result,
-        "Frontend Builder Agent",
-        FrontendBuilderAgent,
-        client,
-        {
-            "product_spec": result["product_spec"],
-            "template_type": result["template_type"],
-            "adapter_plan": result["adapter_plan"],
-        },
-    )
+    result["prototype_plan"] = prototype_plan.model_dump(mode="json")
+    result["adapter_plan"] = _prototype_plan_to_markdown(prototype_plan)
+    result["frontend_plan"] = result["adapter_plan"]
 
     progress("Generating product scaffold")
     try:
@@ -196,7 +305,7 @@ def run_productize_pipeline(
             product_spec=result["product_spec"],
             adapter_plan=result["adapter_plan"],
             frontend_plan=result["frontend_plan"],
-            repo_path=repo_path,
+            repo_path=effective_repo_path,
             output_dir=output_dir,
         )
     except Exception as exc:
@@ -225,20 +334,25 @@ def run_productize_pipeline(
             "notes": ["Product inspection failed."],
         }
 
-    progress("Product Test Agent reviewing prototype")
-    result["test_report"] = _run_agent_stage(
+    progress("Product Evaluator Agent scoring prototype")
+    evaluation = _run_structured_stage(
         result,
-        "Product Test Agent",
-        ProductTestAgent,
+        "Product Evaluator Agent",
+        ProductEvaluatorAgent,
         client,
         {
-            "generated_product_dir": result["scaffold_result"].get(
-                "output_dir",
-                str(output_dir),
-            ),
-            "template_type": result["template_type"],
-            "files": result["scaffold_result"].get("files", []),
+            "research_synthesis": result["research_synthesis"],
+            "product_plan": result["product_plan"],
+            "prototype_plan": result["prototype_plan"],
             "inspection": result["inspection"],
         },
+        fallback=lambda: ProductEvaluatorAgent(client).build_mock(
+            {
+                "research_synthesis": result["research_synthesis"],
+                "inspection": result["inspection"],
+            }
+        ),
     )
+    result["evaluation"] = evaluation.model_dump(mode="json")
+    result["test_report"] = _evaluation_to_markdown(evaluation)
     return result

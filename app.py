@@ -441,11 +441,46 @@ def _show_debug_section() -> None:
 
 def _has_productize_context(result: dict[str, Any] | None) -> bool:
     """Return whether a reproduction result can feed Productize Mode."""
-    required = ("paper_info", "method_info", "repo_info", "repo_path")
+    required = ("paper_info", "method_info")
     return bool(
         result
         and all(str(result.get(key) or "").strip() for key in required)
     )
+
+
+def _assign_repo_urls(repo_text: str, paper_count: int) -> list[str]:
+    """Map zero, one shared, or one-per-paper repository URLs."""
+    if paper_count <= 0:
+        return []
+    urls = [line.strip() for line in repo_text.splitlines() if line.strip()]
+    if not urls:
+        return [""] * paper_count
+    if len(urls) == 1:
+        return urls * paper_count
+    if len(urls) != paper_count:
+        raise ValueError(
+            "Provide one shared GitHub URL or exactly one URL per uploaded paper."
+        )
+    return urls
+
+
+def _analysis_to_productize_paper(
+    analysis: dict[str, Any],
+    *,
+    index: int,
+    title: str = "",
+) -> dict[str, Any]:
+    """Normalize one reproduction result for multi-paper productization."""
+    return {
+        "paper_id": f"paper-{index}",
+        "title": title or f"Paper {index}",
+        "paper_info": analysis.get("paper_info", ""),
+        "method_info": analysis.get("method_info", ""),
+        "repo_info": analysis.get("repo_info", ""),
+        "repo_path": analysis.get("repo_path", ""),
+        "repo_source": analysis.get("repo_source", ""),
+        "errors": analysis.get("errors", []),
+    }
 
 
 def _run_analysis_for_productize(
@@ -607,24 +642,28 @@ def _show_productize_result(result: dict[str, Any]) -> None:
 
     tabs = st.tabs(
         [
+            "Capability Cards",
+            "Composition Plan",
             "Product Opportunities",
-            "MVP Product Spec",
-            "Adapter Plan",
-            "Frontend Plan",
+            "PRD & MVP",
+            "Prototype Plan",
             "Generated Files",
-            "Product Test Report",
+            "Evaluation",
         ]
     )
     with tabs[0]:
-        st.markdown(result.get("opportunities") or "Not generated.")
+        st.json(result.get("capability_cards") or [])
     with tabs[1]:
+        st.json(result.get("composition_plan") or {})
+    with tabs[2]:
+        st.markdown(result.get("opportunities") or "Not generated.")
+    with tabs[3]:
         st.caption(f"Template type: {result.get('template_type', 'file')}")
         st.markdown(result.get("product_spec") or "Not generated.")
-    with tabs[2]:
-        st.markdown(result.get("adapter_plan") or "Not generated.")
-    with tabs[3]:
-        st.markdown(result.get("frontend_plan") or "Not generated.")
     with tabs[4]:
+        st.json(result.get("prototype_plan") or {})
+        st.markdown(result.get("adapter_plan") or "Not generated.")
+    with tabs[5]:
         scaffold = result.get("scaffold_result", {})
         output_dir = Path(scaffold.get("output_dir") or "")
         st.write(f"Output directory: `{output_dir}`")
@@ -639,9 +678,10 @@ def _show_productize_result(result: dict[str, Any]) -> None:
                         path.read_text(encoding="utf-8"),
                         language="python" if path.suffix == ".py" else "markdown",
                     )
-    with tabs[5]:
+    with tabs[6]:
         inspection = result.get("inspection", {})
         st.json(inspection)
+        st.json(result.get("evaluation") or {})
         st.markdown(result.get("test_report") or "Not generated.")
 
     st.subheader("How to Run Generated Product")
@@ -649,32 +689,44 @@ def _show_productize_result(result: dict[str, Any]) -> None:
 
 
 def _render_productize_mode() -> None:
-    """Render Productize Mode with automatic analysis fallback."""
+    """Render multi-paper Productize Mode with automatic analysis fallback."""
     st.title("PaperPilot 2.0: Productize Paper")
     st.caption(
-        "Turn paper and repository analysis into a limited, mock-first "
-        "Streamlit product prototype."
+        "Combine one or more paper capabilities into a theory-guided, "
+        "mock-first Streamlit product prototype."
     )
 
-    existing = st.session_state.get("paperpilot_result")
-    if _has_productize_context(existing):
-        st.success("Reusable paper and repository analysis found in this session.")
+    existing_analyses = st.session_state.get("paperpilot_results") or []
+    existing_single = st.session_state.get("paperpilot_result")
+    if not existing_analyses and _has_productize_context(existing_single):
+        existing_analyses = [existing_single]
+    if existing_analyses:
+        st.success(
+            f"Reusable analysis found for {len(existing_analyses)} paper(s). "
+            "Upload new papers to replace it for this run."
+        )
     else:
         st.info(
             "No reusable analysis is available. PaperPilot will automatically "
-            "run the existing paper and repository analysis first."
+            "analyze each uploaded paper first."
         )
 
     st.header("Input")
-    uploaded_pdf = st.file_uploader(
-        "Upload paper PDF",
+    uploaded_pdfs = st.file_uploader(
+        "Upload one or more paper PDFs",
         type=["pdf"],
+        accept_multiple_files=True,
         key="productize_pdf",
     )
-    github_url = st.text_input(
-        "GitHub URL (optional)",
-        placeholder="https://github.com/owner/repository",
-        help="Leave empty to generate a minimal repository before productization.",
+    github_urls = st.text_area(
+        "GitHub URL(s) (optional)",
+        placeholder=(
+            "Use one shared URL, or enter exactly one URL per paper on separate lines."
+        ),
+        help=(
+            "Leave empty for paper-only product planning. The existing analysis "
+            "pipeline may generate a minimal mock-oriented repository context."
+        ),
         key="productize_github_url",
     )
     hardware_column, gpu_column = st.columns(2)
@@ -716,7 +768,6 @@ def _render_productize_mode() -> None:
         type="primary",
         key="generate_product",
     ):
-        analysis = st.session_state.get("paperpilot_result")
         progress_lines: list[str] = []
         progress_log = st.empty()
 
@@ -726,49 +777,83 @@ def _render_productize_mode() -> None:
                 "**Productize Progress**\n" + "\n".join(progress_lines)
             )
 
-        if not _has_productize_context(analysis):
-            if uploaded_pdf is None:
-                st.error(
-                    "Upload a paper PDF so PaperPilot can create the required "
-                    "analysis context."
-                )
-                return
+        analyses: list[dict[str, Any]] = []
+        titles: list[str] = []
+        if uploaded_pdfs:
             try:
-                saved_pdf = save_uploaded_pdf(uploaded_pdf)
-                analysis = _run_analysis_for_productize(
-                    pdf_path=str(saved_pdf),
-                    github_url=github_url.strip(),
-                    hardware=hardware,
-                    gpu_info=gpu_info.strip(),
-                    llm_client=_get_llm_client(),
-                    progress_callback=_on_progress,
-                )
-            except Exception as exc:
-                st.error(f"Automatic paper analysis failed: {exc}")
+                assigned_urls = _assign_repo_urls(github_urls, len(uploaded_pdfs))
+            except ValueError as exc:
+                st.error(str(exc))
                 return
-            st.session_state["paperpilot_result"] = analysis
+            for index, (uploaded_pdf, assigned_url) in enumerate(
+                zip(uploaded_pdfs, assigned_urls, strict=True),
+                1,
+            ):
+                _on_progress(f"Analyzing paper {index}: {uploaded_pdf.name}")
+                try:
+                    saved_pdf = save_uploaded_pdf(uploaded_pdf)
+                    analysis = _run_analysis_for_productize(
+                        pdf_path=str(saved_pdf),
+                        github_url=assigned_url,
+                        hardware=hardware,
+                        gpu_info=gpu_info.strip(),
+                        llm_client=_get_llm_client(),
+                        progress_callback=_on_progress,
+                    )
+                except Exception as exc:
+                    st.error(f"Automatic analysis failed for {uploaded_pdf.name}: {exc}")
+                    return
+                analyses.append(analysis)
+                titles.append(Path(uploaded_pdf.name).stem)
+            st.session_state["paperpilot_results"] = analyses
+            st.session_state["paperpilot_result"] = analyses[0]
+        else:
+            analyses = list(existing_analyses)
+            titles = [f"Paper {index}" for index in range(1, len(analyses) + 1)]
 
-        if not _has_productize_context(analysis):
+        if not analyses:
+            st.error("Upload at least one paper PDF or run Reproduce Mode first.")
+            return
+        incomplete = [
+            index
+            for index, analysis in enumerate(analyses, 1)
+            if not _has_productize_context(analysis)
+        ]
+        if incomplete:
             st.error(
-                "PaperPilot could not produce complete paper and repository "
-                "analysis. Review the recorded analysis errors and try again."
+                "PaperPilot could not produce paper and method analysis for "
+                f"paper(s): {', '.join(map(str, incomplete))}."
             )
-            if analysis:
+            for analysis in analyses:
                 _show_pipeline_errors(analysis.get("errors", []))
             return
 
+        papers = [
+            _analysis_to_productize_paper(
+                analysis,
+                index=index,
+                title=titles[index - 1],
+            )
+            for index, analysis in enumerate(analyses, 1)
+        ]
+        primary = papers[0]
+        primary_repo_path = next(
+            (str(paper["repo_path"]) for paper in papers if paper["repo_path"]),
+            "",
+        )
         try:
             product_result = run_productize_pipeline(
-                paper_info=analysis["paper_info"],
-                method_info=analysis["method_info"],
-                repo_info=analysis["repo_info"],
-                repo_path=analysis["repo_path"],
+                paper_info=str(primary["paper_info"]),
+                method_info=str(primary["method_info"]),
+                repo_info=str(primary["repo_info"]),
+                repo_path=primary_repo_path,
                 target_user=target_user.strip(),
                 product_goal=product_goal.strip(),
                 llm_client=_get_llm_client(),
                 preferred_type=preferred_label.lower(),
                 progress_callback=_on_progress,
                 user_idea=user_idea.strip(),
+                papers=papers,
             )
         except Exception as exc:
             st.error(f"Productize pipeline failed: {exc}")

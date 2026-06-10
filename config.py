@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 WORKSPACE_DIR = PROJECT_ROOT / "workspace"
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
+GUIDELINES_DIR = PROJECT_ROOT / "guidelines"
 
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")

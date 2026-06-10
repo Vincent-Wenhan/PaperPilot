@@ -3,7 +3,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-Vincent--Wenhan/PaperPilot-181717?logo=github)](https://github.com/Vincent-Wenhan/PaperPilot) · [中文版](README_ZH.md)
 ![CI](https://github.com/Vincent-Wenhan/PaperPilot/actions/workflows/ci.yml/badge.svg)
 
-PaperPilot 2.0 is a multi-agent paper reproduction and product prototyping assistant. Users upload a paper PDF and optionally provide a GitHub repository. Reproduce Mode analyzes the method and code to produce an actionable reproduction plan. Productize Mode then identifies realistic applications, recommends an MVP, and generates a limited-scope Streamlit prototype with a unified, mock-first `ModelAdapter`.
+PaperPilot 2.0 is a theory-guided, safety-bounded multi-agent system for paper reproduction and research-to-product prototyping. Users can upload one or multiple papers and optionally provide GitHub repositories. Reproduce Mode analyzes methods and code to produce actionable reproduction plans. Productize Mode extracts paper capability cards, composes compatible methods, creates a PRD-driven MVP, and generates a limited-scope Streamlit prototype with a unified, mock-first `ModelAdapter`.
 
 The project extends **Paper-to-Reproduce** into **Paper-to-Product** without presenting itself as a universal product generator. When a real model interface cannot be determined safely, the generated prototype remains demonstrable through mock mode.
 
@@ -30,8 +30,10 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 
 ### Productize Mode
 
-- Recommend three product ideas and score a feasible MVP
-- Generate product specifications, adapter plans, and frontend plans
+- Accept one or multiple paper PDFs with an optional shared or per-paper repository
+- Generate Paper Capability Cards, a Capability Map, and Method Composition Plan
+- Apply JTBD, Value Proposition Canvas, PRD, MVP, and MoSCoW scope rules
+- Produce a structured prototype plan and rubric-based product evaluation
 - Select image, text, video, or generic file-analysis templates
 - Generate an isolated Streamlit prototype under `generated_product/`
 - Inspect generated files, Python syntax, mock mode, and run instructions
@@ -44,7 +46,7 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 ## System Architecture
 
 ```text
-Paper PDF + GitHub URL (optional)
+Paper PDF(s) + GitHub URL(s) (optional)
 ↓
 Reproduce Mode
 ├── Paper and method analysis
@@ -53,13 +55,16 @@ Reproduce Mode
 └── Reproduction outputs
 ↓
 Productize Mode
-├── Product Opportunity Agent
-├── Product Designer Agent
-├── Template selection
-├── Tech Adapter Agent
-├── Frontend Builder Agent
-├── Deterministic product scaffold
-└── Product inspection and Product Test Agent
+├── Research Synthesizer Agent
+│   ├── Capability Cards and Capability Map
+│   └── Method Composition Plan
+├── Product Planner Agent
+│   ├── JTBD and Value Proposition
+│   └── PRD, MVP, and MoSCoW
+├── Prototype Builder Agent
+├── Template selection and deterministic scaffold
+├── Product Evaluator Agent
+└── Static inspection and rubric evaluation
 ↓
 generated_product/
 ```
@@ -78,13 +83,12 @@ generated_product/
 | Runner Agent | Deterministically invoke the safe command runner |
 | Debug Agent | Analyze command, stdout, stderr, and environment information |
 | Report Agent | Aggregate stage results and generate the reproduction report |
-| Product Opportunity Agent | Identify capabilities, three application ideas, scores, and an MVP |
-| Product Designer Agent | Convert the selected MVP into a bounded product specification |
-| Tech Adapter Agent | Plan real integration without inventing or executing repository APIs |
-| Frontend Builder Agent | Design a simple template-specific Streamlit interaction |
-| Product Test Agent | Explain deterministic product inspection results and limitations |
+| Research Synthesizer Agent | Build capability cards, relationships, and method composition plans |
+| Product Planner Agent | Apply JTBD, Value Proposition, PRD, MVP, and MoSCoW |
+| Prototype Builder Agent | Define the Streamlit flow, mock result, and adapter boundary |
+| Product Evaluator Agent | Score paper faithfulness, coherence, safety, and demo readiness |
 
-All LLM agents share `BaseAgent` and a unified OpenAI-compatible `LLMClient`. Command execution and repository cloning are not LLM-decided.
+Legacy Productize agents remain available for compatibility, but the upgraded pipeline uses the four high-level agents above. All LLM agents share `BaseAgent` and a unified OpenAI-compatible `LLMClient`. Command execution and repository cloning are not LLM-decided.
 
 ## Project Structure
 
@@ -94,6 +98,8 @@ PaperPilot/
 ├── main.py
 ├── config.py
 ├── agents/
+├── guidelines/              # Product, composition, UI, and safety rules
+├── schemas/                 # Structured paper, composition, product, and evaluation models
 ├── productize/
 ├── tools/
 ├── prompts/
@@ -184,17 +190,24 @@ Alternatively, you may still use environment variables (`LLM_API_KEY`, `LLM_BASE
 
 ## Productize Mode
 
-Productize Mode reuses the current session's paper, method, repository
-analysis, and repository path. If no complete analysis is available, it
-automatically runs the existing `run_paperpilot()` repository-analysis path
-before product generation.
+Productize Mode reuses current-session paper analysis when available. It also
+supports multiple PDFs and can use no repository, one shared repository URL,
+or exactly one repository URL per paper. If analysis is unavailable, it runs
+the existing `run_paperpilot()` analysis path for each uploaded paper before
+product generation.
 
 1. Select **Productize Paper** in the sidebar.
-2. Upload a PDF and optionally provide a GitHub URL when no reusable analysis exists.
-3. Enter the target user and product goal.
-4. Choose `Auto`, `Image`, `Text`, `Video`, or `File`.
-5. Click **Generate Product Prototype**.
-6. Review product opportunities, the MVP specification, adapter plan, frontend plan, generated files, and test report.
+2. Upload one or more PDFs.
+3. Optionally provide one shared GitHub URL or one URL per paper on separate lines.
+4. Enter the target user and product goal.
+5. Choose `Auto`, `Image`, `Text`, `Video`, or `File`.
+6. Click **Generate Product Prototype**.
+7. Review capability cards, composition plan, opportunities, PRD/MVP, prototype plan, generated files, and rubric evaluation.
+
+The Productize pipeline returns structured artifacts for downstream use:
+`capability_cards`, `capability_map`, `composition_plan`, `product_plan`,
+`prd`, `mvp_scope`, `prototype_plan`, and `evaluation`. Existing single-paper
+callers of `run_productize_pipeline()` remain supported.
 
 The generated bundle contains:
 
@@ -278,6 +291,7 @@ gitignored. The main application displays their contents after generation.
 - The Runner intentionally uses a strict allowlist and does not provide arbitrary terminal capabilities.
 - Real APIs, private repositories, datasets, and checkpoints may require manual user configuration.
 - Product idea quality depends on the available paper and static repository evidence.
+- Multi-paper composition is an evidence-backed plan, not proof that the real models integrate correctly.
 - Template selection supports only image, text, video, and generic file-analysis prototypes.
 - Generated adapters do not guarantee that a research model can be integrated without manual engineering.
 - Mock results demonstrate the product workflow; they are not paper-model predictions.

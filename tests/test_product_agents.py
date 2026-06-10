@@ -67,7 +67,57 @@ class ProductAgentTests(unittest.TestCase):
                 self.assertTrue(agent.system_prompt)
                 self.assertTrue(agent.prompt_path.is_file())
                 output = agent.run(input_data)
-                self.assertIn("PaperPilot Mock Result", output)
+                self.assertTrue(output.startswith("#"))
+
+    def test_mock_agents_return_productize_specific_sections(self) -> None:
+        client = LLMClient(mock_mode=True)
+        outputs = {
+            "opportunity": ProductOpportunityAgent(client).run(
+                {
+                    "paper_info": "paper",
+                    "method_info": "method",
+                    "repo_info": "repo",
+                    "target_user": "student",
+                    "product_goal": "demo",
+                }
+            ),
+            "designer": ProductDesignerAgent(client).run(
+                {
+                    "opportunities": "ideas",
+                    "paper_info": "paper",
+                    "method_info": "method",
+                    "repo_info": "repo",
+                }
+            ),
+            "adapter": TechAdapterAgent(client).run(
+                {
+                    "repo_info": "repo",
+                    "repo_path": "/tmp/repo",
+                    "product_spec": "spec",
+                    "template_type": "file",
+                }
+            ),
+            "frontend": FrontendBuilderAgent(client).run(
+                {
+                    "product_spec": "spec",
+                    "template_type": "file",
+                    "adapter_plan": "adapter",
+                }
+            ),
+            "test": ProductTestAgent(client).run(
+                {
+                    "generated_product_dir": "generated_product",
+                    "template_type": "file",
+                    "files": ["app.py"],
+                }
+            ),
+        }
+        self.assertIn("| Product idea |", outputs["opportunity"])
+        self.assertIn("## Recommended MVP", outputs["opportunity"])
+        self.assertIn("## MVP Boundary", outputs["designer"])
+        self.assertIn("## Mock Fallback", outputs["adapter"])
+        self.assertIn("## Input Components", outputs["frontend"])
+        self.assertIn("## File Completeness", outputs["test"])
 
 
 if __name__ == "__main__":

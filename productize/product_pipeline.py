@@ -94,6 +94,7 @@ def run_productize_pipeline(
     preferred_type: str = "auto",
     output_dir: str | Path = "generated_product",
     progress_callback: Callable[[str], None] | None = None,
+    user_idea: str = "",
 ) -> ProductResult:
     """Generate a product prototype while preserving partial stage results."""
     result: ProductResult = {
@@ -125,8 +126,12 @@ def run_productize_pipeline(
             "repo_info": repo_info,
             "target_user": target_user,
             "product_goal": product_goal,
-        },
+            **({"user_idea": user_idea} if user_idea else {}),
+        }
     )
+    if user_idea:
+        result["opportunities_input"] = result["opportunities"]  # preserve original
+        result["opportunities"] += f"\n\n## User's Own Idea\n{user_idea}"
 
     if result["opportunities"]:
         progress("Product Designer Agent designing MVP")
@@ -140,6 +145,7 @@ def run_productize_pipeline(
                 "paper_info": paper_info,
                 "method_info": method_info,
                 "repo_info": repo_info,
+                **({"user_idea": user_idea} if user_idea else {}),
             },
         )
     if not result["product_spec"]:

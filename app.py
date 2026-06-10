@@ -382,6 +382,12 @@ def _render_reproduce_mode() -> None:
             key="reproduce_goal",
         )
 
+    user_idea = st.text_area(
+        "Additional Notes (optional)",
+        placeholder="Any specific focus areas, concerns, or ideas you want the analysis to consider...",
+        key="reproduce_user_idea",
+    )
+
     st.session_state["selected_hardware"] = hardware
     st.session_state["selected_gpu_info"] = gpu_info
 
@@ -431,6 +437,7 @@ def _render_reproduce_mode() -> None:
                                 goal=goal,
                                 llm_client=_get_llm_client(),
                                 progress_callback=_on_progress,
+                                user_idea=user_idea.strip(),
                             )
                         except Exception as exc:
                             st.error(f"Pipeline execution failed: {exc}")
@@ -565,6 +572,11 @@ def _render_productize_mode() -> None:
         ["Auto", "Image", "Text", "Video", "File"],
         key="productize_preferred_type",
     )
+    user_idea = st.text_area(
+        "Product Idea (optional)",
+        placeholder="Describe any specific product idea you have in mind...",
+        key="productize_user_idea",
+    )
 
     if st.button(
         "Generate Product Prototype",
@@ -623,6 +635,7 @@ def _render_productize_mode() -> None:
                 llm_client=_get_llm_client(),
                 preferred_type=preferred_label.lower(),
                 progress_callback=_on_progress,
+                user_idea=user_idea.strip(),
             )
         except Exception as exc:
             st.error(f"Productize pipeline failed: {exc}")

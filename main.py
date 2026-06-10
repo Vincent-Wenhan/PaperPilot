@@ -323,6 +323,7 @@ def run_paperpilot(
     goal: str = "minimal training experiment",
     llm_client: LLMClient | None = None,
     progress_callback: Callable[[str], None] | None = None,
+    user_idea: str = "",
 ) -> dict[str, Any]:
     """Run the PaperPilot analysis pipeline while preserving partial results.
 
@@ -335,6 +336,9 @@ def run_paperpilot(
 
     If ``llm_client`` is not provided a default one is created from
     environment variables.
+
+    Optional ``user_idea`` is free-form text passed to LLM agents as
+    additional context so the user can guide the analysis focus.
     """
     result: PipelineResult = {
         "paper_info": "",
@@ -411,8 +415,11 @@ def run_paperpilot(
             if not paper_text_available:
                 result["paper_info"] = _reject_scanned_pdf(result, step_name)
                 continue
+            paper_input = paper_text
+            if user_idea:
+                paper_input += f"\n\n## User Notes\n{user_idea}"
             result["paper_info"] = _run_llm_agent_step(
-                result, factory, llm_client, step_name, paper_text,
+                result, factory, llm_client, step_name, paper_input,
             )
 
         # --- Method Extractor ---
@@ -424,6 +431,8 @@ def run_paperpilot(
                 "paper_info": result["paper_info"],
                 "paper_text_available": paper_text_available,
             }
+            if user_idea:
+                method_input["user_idea"] = user_idea
             result["method_info"] = _run_llm_agent_step(
                 result, factory, llm_client, step_name, method_input,
             )
@@ -465,6 +474,8 @@ def run_paperpilot(
                 "gpu_info": gpu_info or "Not provided",
                 "goal": goal or "Not provided",
             }
+            if user_idea:
+                experiment_context["user_idea"] = user_idea
             result["experiment_plan"] = _run_llm_agent_step(
                 result, factory, llm_client, step_name, experiment_context,
             )
@@ -485,6 +496,8 @@ def run_paperpilot(
                 "repo_path": result["repo_path"],
                 "errors": result["errors"],
             }
+            if user_idea:
+                report_context["user_idea"] = user_idea
             report_draft = _run_llm_agent_step(
                 result, factory, llm_client, step_name, report_context,
             )

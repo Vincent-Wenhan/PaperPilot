@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agents.product_opportunity_agent import ProductOpportunityAgent
-from productize.product_pipeline import run_productize_pipeline
+from pipeline.productize_pipeline import run_productize_pipeline
 from tools.llm_client import LLMClient
 
 

@@ -27,6 +27,7 @@ jobs:
           python -m py_compile app.py main.py config.py
           python -m py_compile agents/*.py
           python -m py_compile tools/*.py
+          python -m py_compile pipeline/*.py
           python -m py_compile productize/*.py
 
       - name: Run tests

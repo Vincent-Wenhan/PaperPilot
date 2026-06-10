@@ -12,9 +12,7 @@ from agents import (
     ProductTestAgent,
     TechAdapterAgent,
 )
-from productize.product_scaffold import scaffold_product
-from productize.product_templates import select_product_template
-from productize.product_tester import inspect_generated_product
+from productize import scaffold_product, select_product_template, inspect_generated_product
 from tools.llm_client import LLMClient
 
 ProductResult = dict[str, Any]
@@ -130,7 +128,7 @@ def run_productize_pipeline(
         }
     )
     if user_idea:
-        result["opportunities_input"] = result["opportunities"]  # preserve original
+        result["opportunities_input"] = result["opportunities"]
         result["opportunities"] += f"\n\n## User's Own Idea\n{user_idea}"
 
     if result["opportunities"]:

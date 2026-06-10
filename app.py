@@ -12,7 +12,7 @@ import streamlit as st
 from agents import DebugAgent, RunnerAgent
 from config import MAIN_GOAL_DEBUG, OUTPUTS_DIR, PROJECT_ROOT
 from main import run_paperpilot
-from productize import run_productize_pipeline
+from pipeline.productize_pipeline import run_productize_pipeline
 from tools.llm_client import LLMClient
 
 

@@ -113,28 +113,22 @@ Open the local address output by Streamlit in your browser. The application entr
 
 ## Mock Mode
 
-The project defaults to `LLM_MOCK_MODE=True`, requiring no API key:
-
-```bash
-export LLM_MOCK_MODE=True
-conda run -n paperpilot streamlit run app.py
-```
+The project defaults to mock mode (no API key needed). Mock mode is controlled via the **Mock Mode** toggle in the Streamlit sidebar.
 
 Mock mode returns fixed text, but PDF parsing, URL validation, repository cloning, scanning, output file generation, and the secure Runner still go through the real local pipeline. The page will not crash without an API key.
 
 ## Real LLM API
 
-`LLMClient` uses the OpenAI-compatible Chat Completions API. Set these before launching:
+`LLMClient` uses the OpenAI-compatible Chat Completions API. Configure credentials directly in the Streamlit **sidebar**:
 
-```bash
-export LLM_MOCK_MODE=False
-export LLM_API_KEY="your-api-key"
-export LLM_MODEL="your-model-name"
-export LLM_BASE_URL="https://your-compatible-endpoint/v1"
-conda run -n paperpilot streamlit run app.py
-```
+| Sidebar Field | Description |
+|---|---|
+| API Key | Your OpenAI-compatible API key (password-masked) |
+| Base URL | Endpoint URL, defaults to `https://api.openai.com/v1` |
+| Model | Model name, defaults to `gpt-4o-mini` |
+| Mock Mode | Toggle on/off — when enabled, no API call is made |
 
-When using the default OpenAI endpoint, `LLM_BASE_URL` can be omitted. Do not write API keys into code or commit them to the repository. When no key is configured, the client returns a clear message instead of crashing.
+Alternatively, you may still use environment variables (`LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_MOCK_MODE`) — sidebar values take precedence. Do not write API keys into code or commit them to the repository.
 
 ## Streamlit Usage
 

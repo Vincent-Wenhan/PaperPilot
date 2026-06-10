@@ -113,28 +113,22 @@ conda run -n paperpilot streamlit run app.py
 
 ## Mock Mode 演示
 
-项目默认 `LLM_MOCK_MODE=True`，无需 API key：
-
-```bash
-export LLM_MOCK_MODE=True
-conda run -n paperpilot streamlit run app.py
-```
+项目默认开启 Mock Mode（无需 API key），通过 Streamlit 侧边栏的 **Mock Mode** 开关控制。
 
 Mock mode 会返回固定文本，但 PDF 解析、URL 校验、仓库 clone、扫描、输出文件生成和安全 Runner 仍走真实本地流程。没有 API key 时页面不会崩溃。
 
 ## 真实 LLM API
 
-`LLMClient` 使用 OpenAI-compatible Chat Completions 接口。启动前设置：
+`LLMClient` 使用 OpenAI-compatible Chat Completions 接口。凭证直接在 Streamlit **侧边栏**中配置：
 
-```bash
-export LLM_MOCK_MODE=False
-export LLM_API_KEY="your-api-key"
-export LLM_MODEL="your-model-name"
-export LLM_BASE_URL="https://your-compatible-endpoint/v1"
-conda run -n paperpilot streamlit run app.py
-```
+| 侧边栏字段 | 说明 |
+|---|---|
+| API Key | OpenAI-compatible API key（密码模式，输入时隐藏） |
+| Base URL | API 端点，默认 `https://api.openai.com/v1` |
+| Model | 模型名，默认 `gpt-4o-mini` |
+| Mock Mode | 开关 — 开启时不调用 LLM |
 
-使用 OpenAI 默认端点时，可不设置 `LLM_BASE_URL`。不要将 API key 写入代码或提交到版本库。未配置 key 时，客户端会返回清晰提示而不是使系统崩溃。
+也可继续使用环境变量（`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_MOCK_MODE`），侧边栏值优先。不要将 API key 写入代码或提交到版本库。
 
 ## Streamlit 使用流程
 

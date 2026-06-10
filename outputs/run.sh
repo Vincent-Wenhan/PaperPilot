@@ -7,13 +7,10 @@ set -e
 # TODO: install dependencies after reviewing the repository files
 # python -m pip install -r requirements.txt
 
-# Safe default checks only.
 python --version
 pip --version
 
 # TODO: run minimal demo or help command
 # TODO: locate an entrypoint and run it with --help
 
-# TODO: prepare datasets or checkpoints manually; do not auto-download them
-# TODO: do not run unknown shell scripts
 # TODO: training commands require explicit user review and confirmation

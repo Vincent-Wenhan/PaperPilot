@@ -12,6 +12,7 @@ import streamlit as st
 from agents import DebugAgent, RunnerAgent
 from config import MAIN_GOAL_DEBUG, OUTPUTS_DIR, PROJECT_ROOT
 from main import run_paperpilot
+from productize import run_productize_pipeline
 from tools.llm_client import LLMClient
 
 
@@ -305,53 +306,54 @@ def _show_debug_section() -> None:
         st.markdown(diagnosis)
 
 
-def main() -> None:
-    """Render the PaperPilot Streamlit application."""
-    st.set_page_config(
-        page_title="PaperPilot: Multi-Agent Paper Reproduction Assistant",
-        layout="wide",
+def _has_productize_context(result: dict[str, Any] | None) -> bool:
+    """Return whether a reproduction result can feed Productize Mode."""
+    required = ("paper_info", "method_info", "repo_info", "repo_path")
+    return bool(
+        result
+        and all(str(result.get(key) or "").strip() for key in required)
     )
 
-    # ------------------------------------------------------------------
-    # Sidebar: LLM API configuration
-    # ------------------------------------------------------------------
-    with st.sidebar:
-        st.header("LLM Configuration")
-        st.session_state.setdefault("llm_api_key", "")
-        st.session_state.setdefault("llm_base_url", "https://api.openai.com/v1")
-        st.session_state.setdefault("llm_model", "gpt-4o-mini")
-        st.session_state.setdefault("llm_mock_mode", True)
 
-        st.session_state["llm_api_key"] = st.text_input(
-            "API Key",
-            value=st.session_state["llm_api_key"],
-            type="password",
-            help="Leave empty to use the LLM_API_KEY environment variable.",
-        )
-        st.session_state["llm_base_url"] = st.text_input(
-            "Base URL",
-            value=st.session_state["llm_base_url"],
-            help="OpenAI-compatible endpoint URL.",
-        )
-        st.session_state["llm_model"] = st.text_input(
-            "Model",
-            value=st.session_state["llm_model"],
-        )
-        st.session_state["llm_mock_mode"] = st.toggle(
-            "Mock Mode",
-            value=st.session_state["llm_mock_mode"],
-            help="When enabled, LLM calls return fixed text (no API key needed).",
-        )
+def _run_analysis_for_productize(
+    pdf_path: str,
+    github_url: str,
+    hardware: str,
+    gpu_info: str,
+    llm_client: LLMClient,
+    progress_callback: Any | None = None,
+) -> dict[str, Any]:
+    """Run the existing repository-analysis path for Productize context."""
+    return run_paperpilot(
+        pdf_path=pdf_path,
+        github_url=github_url,
+        hardware=hardware,
+        gpu_info=gpu_info,
+        goal="run official demo",
+        llm_client=llm_client,
+        progress_callback=progress_callback,
+    )
 
-    st.title("PaperPilot: Multi-Agent Paper Reproduction Assistant")
-    st.caption("Generate executable, inspectable reproduction plans from paper PDFs, with or without an existing code repository.")
+
+def _render_reproduce_mode() -> None:
+    """Render the original PaperPilot reproduction workflow."""
+    st.title("PaperPilot 2.0: Reproduce Paper")
+    st.caption(
+        "Generate executable, inspectable reproduction plans from paper PDFs, "
+        "with or without an existing code repository."
+    )
 
     st.header("Input")
-    uploaded_pdf = st.file_uploader("Upload paper PDF", type=["pdf"])
+    uploaded_pdf = st.file_uploader(
+        "Upload paper PDF",
+        type=["pdf"],
+        key="reproduce_pdf",
+    )
     github_url = st.text_input(
         "GitHub URL (optional)",
         placeholder="https://github.com/owner/repository",
         help="Leave empty to let Code Agent generate a minimal reproduction project from the paper.",
+        key="reproduce_github_url",
     )
 
     hardware_column, gpu_column, goal_column = st.columns(3)
@@ -359,9 +361,14 @@ def main() -> None:
         hardware = st.selectbox(
             "Hardware",
             ["CPU only", "Single GPU", "Multi GPU"],
+            key="reproduce_hardware",
         )
     with gpu_column:
-        gpu_info = st.text_input("GPU model", placeholder="e.g. RTX 4090")
+        gpu_info = st.text_input(
+            "GPU model",
+            placeholder="e.g. RTX 4090",
+            key="reproduce_gpu_info",
+        )
     with goal_column:
         goal = st.selectbox(
             "Goal",
@@ -372,6 +379,7 @@ def main() -> None:
                 "reproduce main experiments",
                 MAIN_GOAL_DEBUG,
             ],
+            key="reproduce_goal",
         )
 
     st.session_state["selected_hardware"] = hardware
@@ -446,6 +454,232 @@ def main() -> None:
     _show_downloads()
     _show_runner_section(result)
     _show_debug_section()
+
+
+def _show_productize_result(result: dict[str, Any]) -> None:
+    errors = result.get("errors", [])
+    if errors:
+        st.warning("The prototype was generated with partial-stage issues.")
+        for error in errors:
+            st.error(error)
+    else:
+        st.success("Product prototype generation completed.")
+
+    tabs = st.tabs(
+        [
+            "Product Opportunities",
+            "MVP Product Spec",
+            "Adapter Plan",
+            "Frontend Plan",
+            "Generated Files",
+            "Product Test Report",
+        ]
+    )
+    with tabs[0]:
+        st.markdown(result.get("opportunities") or "Not generated.")
+    with tabs[1]:
+        st.caption(f"Template type: {result.get('template_type', 'file')}")
+        st.markdown(result.get("product_spec") or "Not generated.")
+    with tabs[2]:
+        st.markdown(result.get("adapter_plan") or "Not generated.")
+    with tabs[3]:
+        st.markdown(result.get("frontend_plan") or "Not generated.")
+    with tabs[4]:
+        scaffold = result.get("scaffold_result", {})
+        output_dir = Path(scaffold.get("output_dir") or "")
+        st.write(f"Output directory: `{output_dir}`")
+        backup_dir = scaffold.get("backup_dir")
+        if backup_dir:
+            st.info(f"Previous product backed up to `{backup_dir}`.")
+        for filename in scaffold.get("files", []):
+            path = output_dir / filename
+            if path.is_file():
+                with st.expander(filename):
+                    st.code(
+                        path.read_text(encoding="utf-8"),
+                        language="python" if path.suffix == ".py" else "markdown",
+                    )
+    with tabs[5]:
+        inspection = result.get("inspection", {})
+        st.json(inspection)
+        st.markdown(result.get("test_report") or "Not generated.")
+
+    st.subheader("How to Run Generated Product")
+    st.code("cd generated_product\nstreamlit run app.py", language="bash")
+
+
+def _render_productize_mode() -> None:
+    """Render Productize Mode with automatic analysis fallback."""
+    st.title("PaperPilot 2.0: Productize Paper")
+    st.caption(
+        "Turn paper and repository analysis into a limited, mock-first "
+        "Streamlit product prototype."
+    )
+
+    existing = st.session_state.get("paperpilot_result")
+    if _has_productize_context(existing):
+        st.success("Reusable paper and repository analysis found in this session.")
+    else:
+        st.info(
+            "No reusable analysis is available. PaperPilot will automatically "
+            "run the existing paper and repository analysis first."
+        )
+
+    st.header("Input")
+    uploaded_pdf = st.file_uploader(
+        "Upload paper PDF",
+        type=["pdf"],
+        key="productize_pdf",
+    )
+    github_url = st.text_input(
+        "GitHub URL (optional)",
+        placeholder="https://github.com/owner/repository",
+        help="Leave empty to generate a minimal repository before productization.",
+        key="productize_github_url",
+    )
+    hardware_column, gpu_column = st.columns(2)
+    with hardware_column:
+        hardware = st.selectbox(
+            "Hardware",
+            ["CPU only", "Single GPU", "Multi GPU"],
+            key="productize_hardware",
+        )
+    with gpu_column:
+        gpu_info = st.text_input(
+            "GPU model",
+            placeholder="e.g. RTX 4090",
+            key="productize_gpu_info",
+        )
+    target_user = st.text_input(
+        "Target user",
+        value="Machine learning learners",
+        key="productize_target_user",
+    )
+    product_goal = st.text_area(
+        "Product goal",
+        value="Turn the paper technology into an interactive course demo.",
+        key="productize_goal",
+    )
+    preferred_label = st.selectbox(
+        "Preferred product type",
+        ["Auto", "Image", "Text", "Video", "File"],
+        key="productize_preferred_type",
+    )
+
+    if st.button(
+        "Generate Product Prototype",
+        type="primary",
+        key="generate_product",
+    ):
+        analysis = st.session_state.get("paperpilot_result")
+        progress_lines: list[str] = []
+        progress_log = st.empty()
+
+        def _on_progress(stage: str) -> None:
+            progress_lines.append(f"- {stage}")
+            progress_log.markdown(
+                "**Productize Progress**\n" + "\n".join(progress_lines)
+            )
+
+        if not _has_productize_context(analysis):
+            if uploaded_pdf is None:
+                st.error(
+                    "Upload a paper PDF so PaperPilot can create the required "
+                    "analysis context."
+                )
+                return
+            try:
+                saved_pdf = save_uploaded_pdf(uploaded_pdf)
+                analysis = _run_analysis_for_productize(
+                    pdf_path=str(saved_pdf),
+                    github_url=github_url.strip(),
+                    hardware=hardware,
+                    gpu_info=gpu_info.strip(),
+                    llm_client=_get_llm_client(),
+                    progress_callback=_on_progress,
+                )
+            except Exception as exc:
+                st.error(f"Automatic paper analysis failed: {exc}")
+                return
+            st.session_state["paperpilot_result"] = analysis
+
+        if not _has_productize_context(analysis):
+            st.error(
+                "PaperPilot could not produce complete paper and repository "
+                "analysis. Review the recorded analysis errors and try again."
+            )
+            if analysis:
+                _show_pipeline_errors(analysis.get("errors", []))
+            return
+
+        try:
+            product_result = run_productize_pipeline(
+                paper_info=analysis["paper_info"],
+                method_info=analysis["method_info"],
+                repo_info=analysis["repo_info"],
+                repo_path=analysis["repo_path"],
+                target_user=target_user.strip(),
+                product_goal=product_goal.strip(),
+                llm_client=_get_llm_client(),
+                preferred_type=preferred_label.lower(),
+                progress_callback=_on_progress,
+            )
+        except Exception as exc:
+            st.error(f"Productize pipeline failed: {exc}")
+        else:
+            st.session_state["productize_result"] = product_result
+
+    product_result = st.session_state.get("productize_result")
+    if product_result:
+        _show_productize_result(product_result)
+    else:
+        st.info("Generate a product prototype to view Productize outputs.")
+
+
+def main() -> None:
+    """Render the PaperPilot 2.0 Streamlit application."""
+    st.set_page_config(
+        page_title="PaperPilot 2.0: Reproduce and Productize",
+        layout="wide",
+    )
+
+    with st.sidebar:
+        st.header("PaperPilot 2.0")
+        mode = st.radio(
+            "Select Mode",
+            ["Reproduce Paper", "Productize Paper"],
+        )
+        st.header("LLM Configuration")
+        st.session_state.setdefault("llm_api_key", "")
+        st.session_state.setdefault("llm_base_url", "https://api.openai.com/v1")
+        st.session_state.setdefault("llm_model", "gpt-4o-mini")
+        st.session_state.setdefault("llm_mock_mode", True)
+
+        st.session_state["llm_api_key"] = st.text_input(
+            "API Key",
+            value=st.session_state["llm_api_key"],
+            type="password",
+            help="Leave empty to use the LLM_API_KEY environment variable.",
+        )
+        st.session_state["llm_base_url"] = st.text_input(
+            "Base URL",
+            value=st.session_state["llm_base_url"],
+            help="OpenAI-compatible endpoint URL.",
+        )
+        st.session_state["llm_model"] = st.text_input(
+            "Model",
+            value=st.session_state["llm_model"],
+        )
+        st.session_state["llm_mock_mode"] = st.toggle(
+            "Mock Mode",
+            value=st.session_state["llm_mock_mode"],
+            help="When enabled, LLM calls return fixed text (no API key needed).",
+        )
+
+    if mode == "Reproduce Paper":
+        _render_reproduce_mode()
+    else:
+        _render_productize_mode()
 
 
 if __name__ == "__main__":

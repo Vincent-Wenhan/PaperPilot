@@ -1,6 +1,7 @@
 # PaperPilot 2.0
 
 [![GitHub](https://img.shields.io/badge/GitHub-Vincent--Wenhan/PaperPilot-181717?logo=github)](https://github.com/Vincent-Wenhan/PaperPilot) · [中文版](README_ZH.md)
+![CI](https://github.com/Vincent-Wenhan/PaperPilot/actions/workflows/ci.yml/badge.svg)
 
 PaperPilot 2.0 is a multi-agent paper reproduction and product prototyping assistant. Users upload a paper PDF and optionally provide a GitHub repository. Reproduce Mode analyzes the method and code to produce an actionable reproduction plan. Productize Mode then identifies realistic applications, recommends an MVP, and generates a limited-scope Streamlit prototype with a unified, mock-first `ModelAdapter`.
 
@@ -12,6 +13,10 @@ This AIGC course project demonstrates how a lightweight, interpretable multi-age
 
 ## Features
 
+PaperPilot combines paper understanding, repository analysis, reproduction planning, and product prototyping in a single workflow. See [`examples/`](examples/sample_outputs/) for sample outputs.
+
+### Reproduce Mode
+
 - Upload and parse paper PDFs
 - Optionally validate and shallow-clone public GitHub repositories
 - Generate a minimal reproduction codebase with Code Agent when no repository URL is available
@@ -22,12 +27,19 @@ This AIGC course project demonstrates how a lightweight, interpretable multi-age
 - Run version checks and `--help` on lightweight candidate commands
 - Automatically analyze Runner failures; also supports manual log pasting for debugging
 - Generate and download reproduction plans, scripts, and course-project reports
+
+### Productize Mode
+
 - Recommend three product ideas and score a feasible MVP
 - Generate product specifications, adapter plans, and frontend plans
 - Select image, text, video, or generic file-analysis templates
 - Generate an isolated Streamlit prototype under `generated_product/`
 - Inspect generated files, Python syntax, mock mode, and run instructions
+
+### Mock Mode
+
 - Full demo via mock mode without any API key
+- Mock-first by default — generated prototypes use safe mock outputs
 
 ## System Architecture
 
@@ -92,9 +104,26 @@ PaperPilot/
 │   ├── run.sh
 │   └── report.md
 ├── generated_product/       # Runtime-generated, gitignored prototype
+├── examples/                # Sample outputs illustrating pipeline results
 ├── requirements.txt
 └── README.md
 ```
+
+## Why Mock-first?
+
+Many research repositories are difficult to run directly because of missing checkpoints,
+large datasets, environment conflicts, or undocumented preprocessing steps.
+
+PaperPilot therefore uses a mock-first productization strategy:
+
+1. **Understand** the paper and optional repository.
+2. **Identify** a feasible product scenario.
+3. **Generate** a clean interface and adapter boundary.
+4. **Mock** by default — prototypes work without the actual model.
+5. **Integrate** later — real model integration is a reviewed engineering step.
+
+This makes the generated prototype safe, fast to run, and suitable for course demos
+or early product validation.
 
 ## Installation
 

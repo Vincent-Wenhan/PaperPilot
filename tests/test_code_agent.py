@@ -69,9 +69,9 @@ class CodeAgentTests(unittest.TestCase):
                 return CodeAgent(llm_client, workspace_dir=temp_dir)
 
             with (
-                patch.object(pipeline, "parse_pdf", return_value="paper text"),
-                patch.object(pipeline, "CodeAgent", side_effect=code_agent_factory),
-                patch.object(pipeline, "_save_output"),
+                patch("pipeline.reproduce_pipeline.parse_pdf", return_value="paper text"),
+                patch("pipeline.reproduce_pipeline.CodeAgent", side_effect=code_agent_factory),
+                patch("pipeline.reproduce_pipeline.save_output"),
             ):
                 result = pipeline.run_paperpilot(
                     pdf_path="paper.pdf",
@@ -89,15 +89,15 @@ class CodeAgentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             Path(temp_dir, "README.md").write_text("# Existing repository\n", encoding="utf-8")
 
-            def fake_clone(result: dict[str, object], github_url: str) -> str:
+            def fake_do_clone(result: dict[str, object], github_url: str) -> str:
                 result["repo_path"] = temp_dir
                 return temp_dir
 
             with (
-                patch.object(pipeline, "parse_pdf", return_value="paper text"),
-                patch.object(pipeline, "_do_clone", side_effect=fake_clone),
-                patch.object(pipeline, "CodeAgent") as code_agent,
-                patch.object(pipeline, "_save_output"),
+                patch("pipeline.reproduce_pipeline.parse_pdf", return_value="paper text"),
+                patch("pipeline.repository_stage.do_clone", side_effect=fake_do_clone),
+                patch("pipeline.reproduce_pipeline.CodeAgent") as code_agent,
+                patch("pipeline.reproduce_pipeline.save_output"),
             ):
                 result = pipeline.run_paperpilot(
                     pdf_path="paper.pdf",

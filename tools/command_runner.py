@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
 
+from schemas.runner_schema import CommandPlan, CommandResult
 from config import PROJECT_ROOT, WORKSPACE_DIR
 
 
@@ -51,6 +53,115 @@ def is_safe_command(command: str) -> tuple[bool, str]:
     if parts not in ALLOWED_COMMANDS:
         return False, "Command is not in the safety allowlist."
     return True, "Command passed safety check."
+
+
+RUNNER_MODES = ("safe", "review")
+
+RISK_PATTERNS: list[tuple[str, str, str]] = [
+    ("blocked", "Shell pipeline or download", r"(\bcurl\b.*\||\bwget\b.*\||\|\s*(bash|sh)\b)"),
+    ("blocked", "Sudo command", r"\bsudo\b"),
+    ("blocked", "Recursive delete or force remove", r"\brm\s+-rf\b"),
+    ("blocked", "Permission modification", r"\bchmod\b"),
+    ("blocked", "Ownership change", r"\bchown\b"),
+    ("blocked", "Filesystem operation", r"\bmkfs\b"),
+    ("blocked", "Shutdown or reboot", r"\bshutdown\b|\breboot\b"),
+    ("blocked", "Fork bomb", r":\(\)\{"),
+    ("high", "Training command", r"\bpython\s+\S*train\S*\.py\b"),
+    ("high", "Download external resource", r"\bcurl\b|\bwget\b"),
+    ("high", "Evaluate or test execution", r"\bpython\s+\S*eval\S*\.py\s(?!.*--help)"),
+    ("medium", "Package installation", r"\bpip\s+install\b"),
+    ("medium", "Conda environment operation", r"\bconda\s+(install|create|env)\b"),
+    ("medium", "Python script execution (no --help)", r"\bpython\s+\S+\.py\b(?!.*--help)"),
+    ("low", "Version check", r"\b(python|pip|conda|git|nvcc)\s+--version\b"),
+    ("low", "Help flag", r"\bpython\s+\S+\.py\s+--help\b"),
+    ("low", "List directory", r"\bls\b|\bdir\b"),
+    ("low", "Read file", r"\bcat\b|\btype\b"),
+]
+
+
+def assess_risk(command: str) -> tuple[str, str]:
+    """Assess the risk level of a command based on pattern matching.
+
+    Returns:
+        Tuple of (risk_level: str, reason: str).
+        Risk level is one of: "low", "medium", "high", "blocked".
+    """
+    if not command or not command.strip():
+        return "blocked", "Empty command."
+    normalized = " ".join(command.lower().split())
+    for risk_level, reason_prefix, pattern in RISK_PATTERNS:
+        if re.search(pattern, normalized):
+            if risk_level == "low":
+                return risk_level, f"Version check or help: {reason_prefix}"
+            return risk_level, f"{reason_prefix} detected."
+    return "medium", "Command does not match known safe patterns."
+
+
+def plan_command(command: str) -> CommandPlan:
+    """Create a CommandPlan by assessing risk and checking the allowlist."""
+    safe, _ = is_safe_command(command)
+    risk_level, reason = assess_risk(command)
+    return CommandPlan(
+        command=command,
+        risk_level=risk_level,
+        requires_confirmation=risk_level in ("medium", "high"),
+        blocked_reason=reason if risk_level == "blocked" else None,
+    )
+
+
+def run_command_review(
+    command: str,
+    cwd: str | Path,
+    timeout: int = 120,
+    mode: str = "safe",
+) -> CommandResult:
+    """Run a command with risk assessment and mode-aware execution.
+
+    In safe mode, only allowlisted commands execute (same as run_command).
+    In review mode, blocked commands are rejected; all others execute.
+    """
+    if mode not in RUNNER_MODES:
+        return CommandResult(
+            command=command,
+            mode=mode,
+            executed=False,
+            blocked_reason=f"Unknown runner mode: {mode}. Use one of {RUNNER_MODES}.",
+            risk_level="blocked",
+        )
+
+    cmd_plan = plan_command(command)
+
+    if cmd_plan.blocked_reason:
+        return CommandResult(
+            command=command,
+            mode=mode,
+            executed=False,
+            risk_level=cmd_plan.risk_level,
+            blocked_reason=cmd_plan.blocked_reason,
+        )
+
+    if mode == "safe":
+        safe, reason = is_safe_command(command)
+        if not safe:
+            return CommandResult(
+                command=command,
+                mode=mode,
+                executed=False,
+                risk_level=cmd_plan.risk_level,
+                blocked_reason=reason,
+            )
+
+    raw = run_command(command, cwd, timeout)
+    return CommandResult(
+        command=raw.get("command", command),
+        mode=mode,
+        executed=True,
+        exit_code=raw.get("returncode"),
+        stdout=raw.get("stdout", ""),
+        stderr=raw.get("stderr", ""),
+        timeout=raw.get("timeout", False),
+        risk_level=cmd_plan.risk_level,
+    )
 
 
 def _is_allowed_cwd(path: Path) -> bool:
@@ -103,6 +214,7 @@ def run_command(
         if isinstance(stdout, bytes):
             stdout = stdout.decode(errors="replace")
         base_result["stdout"] = stdout[-MAX_OUTPUT_CHARS:]
+        base_result["timeout"] = True
         return base_result
     except OSError as exc:
         base_result["stderr"] = f"Failed to start command: {exc}"

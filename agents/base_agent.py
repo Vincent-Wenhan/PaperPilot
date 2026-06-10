@@ -60,6 +60,71 @@ class BaseAgent:
             )
         raise TypeError("Input must be a string or a dict.")
 
+    @staticmethod
+    def parse_json_response(raw_text: str, schema: type[BaseModel]):
+        """Try to parse LLM output as JSON matching a Pydantic schema.
+
+        Returns (parsed_model, None) on success, (None, error_string) on failure.
+        """
+        import json as _json
+        from pydantic import ValidationError
+
+        if not raw_text or not raw_text.strip():
+            return None, "Empty response."
+
+        try:
+            data = _json.loads(raw_text)
+            return schema.model_validate(data), None
+        except (_json.JSONDecodeError, ValidationError) as e:
+            return None, str(e)
+
+    @staticmethod
+    def repair_json_output(raw_text: str, schema: type[BaseModel]):
+        """Retry JSON parsing with simple repairs for common LLM output issues.
+
+        Tries in order:
+        1. Direct parse (via parse_json_response)
+        2. Extract JSON from markdown code blocks (```json ... ```)
+        3. Find first { ... } block in the text
+
+        Returns (parsed_model, None) or (None, error_string).
+        """
+        import json as _json
+        import re
+        from pydantic import ValidationError
+
+        if not raw_text or not raw_text.strip():
+            return None, "Empty response."
+
+        # Attempt 1: direct parse
+        model, error = BaseAgent.parse_json_response(raw_text, schema)
+        if model is not None:
+            return model, None
+
+        # Attempt 2: extract from markdown code blocks
+        code_match = re.search(
+            r"```(?:json)?\s*\n?(.*?)```",
+            raw_text,
+            re.DOTALL,
+        )
+        if code_match:
+            try:
+                data = _json.loads(code_match.group(1).strip())
+                return schema.model_validate(data), None
+            except (_json.JSONDecodeError, ValidationError):
+                pass
+
+        # Attempt 3: find first { ... } block
+        brace_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+        if brace_match:
+            try:
+                data = _json.loads(brace_match.group(0))
+                return schema.model_validate(data), None
+            except (_json.JSONDecodeError, ValidationError):
+                pass
+
+        return None, error
+
     def run(self, input_data: dict[str, Any] | str) -> str:
         """Generate a text result while containing agent-level failures."""
         try:

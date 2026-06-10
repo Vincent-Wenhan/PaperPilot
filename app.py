@@ -164,12 +164,17 @@ def execute_runner_command(
     cwd: str | Path,
     timeout: int = 120,
 ) -> tuple[dict[str, Any], str]:
-    """Run an allowlisted command and automatically debug failures."""
-    raw_result = RunnerAgent().run(
+    """Run a command and automatically debug failures.
+
+    Uses the runner mode from session state (safe/review).
+    """
+    runner_mode = st.session_state.get("runner_mode", "safe")
+    raw_result = RunnerAgent().run_review(
         {
             "command": command,
             "cwd": str(cwd),
             "timeout": timeout,
+            "mode": runner_mode,
         }
     )
     try:
@@ -182,10 +187,14 @@ def execute_runner_command(
             "stdout": "",
             "stderr": raw_result,
             "success": False,
+            "risk_level": "unknown",
         }
+
+    # Only debug if the command actually executed (not blocked)
     diagnosis = ""
-    if not command_result.get("success", False):
-        diagnosis = _debug_command_failure(command_result)
+    if command_result.get("executed", True) and not command_result.get("success", False):
+        if command_result.get("returncode") is not None:
+            diagnosis = _debug_command_failure(command_result)
     return command_result, diagnosis
 
 
@@ -223,13 +232,80 @@ def _show_command_result(command_result: dict[str, Any]) -> None:
     )
 
 
+def _show_command_plan(plan: Any) -> None:
+    """Display a CommandPlan in a structured format."""
+    risk_colors = {
+        "low": "green",
+        "medium": "orange",
+        "high": "red",
+        "blocked": "red",
+    }
+    color = risk_colors.get(plan.risk_level, "gray")
+    st.markdown(f"**Command:** `{plan.command}`")
+    st.markdown(f"**Risk Level:** :{color}[{plan.risk_level.upper()}]")
+    if plan.purpose:
+        st.markdown(f"**Purpose:** {plan.purpose}")
+    if plan.requires_confirmation:
+        st.warning("This command requires your confirmation before execution.")
+    if plan.blocked_reason:
+        st.error(f"**Blocked:** {plan.blocked_reason}")
+
+
+def _show_command_result_structured(command_result: dict[str, Any]) -> None:
+    """Display a command result dict in structured format (like CommandResult)."""
+    risk_colors = {
+        "low": "green",
+        "medium": "orange",
+        "high": "red",
+        "blocked": "red",
+        "unknown": "gray",
+    }
+    risk_level = command_result.get("risk_level", "unknown")
+    color = risk_colors.get(risk_level, "gray")
+    blocked = command_result.get("blocked_reason")
+
+    st.markdown(f"**Command:** `{command_result.get('command', '')}`")
+    st.markdown(f"**CWD:** `{command_result.get('cwd', '')}`")
+    st.markdown(f"**Risk Level:** :{color}[{risk_level.upper()}]")
+    st.markdown(f"**Exit Code:** `{command_result.get('returncode')}`")
+
+    if blocked:
+        st.error(f"**Blocked:** {blocked}")
+    else:
+        st.text_area(
+            "stdout",
+            value=command_result.get("stdout", ""),
+            height=140,
+            disabled=True,
+            key="runner_stdout_structured",
+        )
+        st.text_area(
+            "stderr",
+            value=command_result.get("stderr", ""),
+            height=140,
+            disabled=True,
+            key="runner_stderr_structured",
+        )
+
+
 def _show_runner_section(result: dict[str, Any] | None) -> None:
     st.header("Runner")
-    st.info(
-        "The runner only executes lightweight safe commands. "
-        "It will not run full training, download large datasets, "
-        "or execute unknown shell scripts by default."
+
+    # Runner mode toggle
+    runner_mode = st.selectbox(
+        "Runner Mode",
+        options=["safe", "review"],
+        index=0,
+        key="runner_mode_select",
+        help="Safe: only allowlisted commands execute. Review: you confirm before non-allowlisted commands run.",
     )
+    st.session_state["runner_mode"] = runner_mode
+
+    mode_info = {
+        "safe": "Only allowlisted commands (version checks, --help) are allowed.",
+        "review": "Commands are assessed for risk. Blocked commands never execute. Other commands require your confirmation.",
+    }
+    st.info(mode_info[runner_mode])
 
     repo_path = str((result or {}).get("repo_path") or "")
     commands: list[tuple[str, str, Path]] = [
@@ -241,15 +317,67 @@ def _show_runner_section(result: dict[str, Any] | None) -> None:
         for command in _candidate_help_commands(repo_path)
     )
 
+    # Custom command input (for review mode especially)
+    if runner_mode == "review":
+        custom_command = st.text_input(
+            "Custom command",
+            placeholder="e.g. python demo.py --help",
+            key="custom_runner_command",
+        )
+        if custom_command:
+            commands.append(
+                (f"Run: {custom_command}", custom_command, Path(repo_path) if repo_path else PROJECT_ROOT)
+            )
+
     for index, (label, command, cwd) in enumerate(commands):
         if st.button(label, key=f"runner_command_{index}"):
-            with st.spinner(f"Running safely: {command}"):
-                command_result, diagnosis = execute_runner_command(
-                    command,
-                    cwd,
-                )
-            st.session_state["runner_result"] = command_result
-            st.session_state["runner_debug_result"] = diagnosis
+            if runner_mode == "review":
+                # Plan first, show risk, wait for confirmation
+                from tools.command_runner import plan_command
+
+                cmd_plan = plan_command(command)
+                st.session_state["pending_plan"] = cmd_plan
+                st.session_state["pending_command"] = command
+                st.session_state["pending_cwd"] = str(cwd)
+                st.session_state["pending_key"] = f"confirm_{index}"
+            else:
+                # Safe mode: execute directly
+                with st.spinner(f"Running safely: {command}"):
+                    command_result, diagnosis = execute_runner_command(
+                        command,
+                        cwd,
+                    )
+                st.session_state["runner_result"] = command_result
+                st.session_state["runner_debug_result"] = diagnosis
+
+    # Review mode confirmation dialog
+    pending_plan = st.session_state.get("pending_plan")
+    if pending_plan and runner_mode == "review":
+        st.divider()
+        st.subheader("Command Review")
+        _show_command_plan(pending_plan)
+        col_confirm, col_cancel = st.columns([1, 1])
+        with col_confirm:
+            if st.button("Confirm & Run", key="confirm_run_review"):
+                pending_cmd = st.session_state.get("pending_command", "")
+                pending_cwd = st.session_state.get("pending_cwd", str(PROJECT_ROOT))
+                with st.spinner(f"Running: {pending_cmd}"):
+                    command_result, diagnosis = execute_runner_command(
+                        pending_cmd,
+                        pending_cwd,
+                    )
+                st.session_state["runner_result"] = command_result
+                st.session_state["runner_debug_result"] = diagnosis
+                st.session_state.pop("pending_plan", None)
+                st.session_state.pop("pending_command", None)
+                st.session_state.pop("pending_cwd", None)
+                st.rerun()
+        with col_cancel:
+            if st.button("Cancel", key="cancel_run_review"):
+                st.session_state.pop("pending_plan", None)
+                st.session_state.pop("pending_command", None)
+                st.session_state.pop("pending_cwd", None)
+                st.rerun()
 
     if repo_path and not _candidate_help_commands(repo_path):
         st.caption("No candidate entry points found for `--help` in this repository.")
@@ -258,7 +386,7 @@ def _show_runner_section(result: dict[str, Any] | None) -> None:
 
     command_result = st.session_state.get("runner_result")
     if command_result:
-        _show_command_result(command_result)
+        _show_command_result_structured(command_result)
         if command_result.get("success"):
             st.success("Command executed successfully.")
         else:

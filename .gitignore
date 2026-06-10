@@ -1,1 +1,7 @@
 CLAUDE.md
+__pycache__/
+uploads/
+workspace/
+.venv/
+venv/
+.env

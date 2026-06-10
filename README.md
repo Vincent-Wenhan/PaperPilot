@@ -1,6 +1,8 @@
 # AIGC_PaperPilot / PaperPilot
 
-PaperPilot 是一个面向科研新手的多智能体论文复现助手。传统论文复现通常需要研究者反复阅读论文、查找代码、配置环境、理解实验设置并解决报错，过程复杂且容易失败。本项目将论文复现流程拆分为论文阅读、方法拆解、代码仓库分析、环境配置、实验规划、运行诊断和报告生成等多个阶段，并设计多个专业 Agent 协作完成这些任务。用户只需要上传论文 PDF 并提供 GitHub 仓库链接，系统即可生成结构化的复现路线、实验 checklist、运行命令和 debug 建议，从而降低论文复现的启动成本。
+[![GitHub](https://img.shields.io/badge/GitHub-Vincent--Wenhan/PaperPilot-181717?logo=github)](https://github.com/Vincent-Wenhan/PaperPilot)
+
+PaperPilot 是一个面向科研新手的多智能体论文复现助手。传统论文复现通常需要研究者反复阅读论文、查找代码、配置环境、理解实验设置并解决报错，过程复杂且容易失败。本项目将论文复现流程拆分为论文阅读、方法拆解、代码仓库分析、环境配置、实验规划、运行诊断和报告生成等多个阶段，并设计多个专业 Agent 协作完成这些任务。用户只需要上传论文 PDF 并提供 GitHub 仓库链接，系统即可生成结构化的复现路线、实验 checklist、运行命令和 debug 建议，从而降低论文复现的启动成本。**上传到 GitHub 的版本不包含 CLAUDE.md（本地项目指令）**，该文件仅供 Claude Code 本地使用。
 
 ## 项目定位
 

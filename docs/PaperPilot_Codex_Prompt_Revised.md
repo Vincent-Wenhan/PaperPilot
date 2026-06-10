@@ -1,6 +1,6 @@
-# Codex Prompt：在 WSL 中构建 AIGC_PaperPilot 多智能体论文复现助手
+# Codex Prompt：在 WSL 中构建 PaperPilot 多智能体论文复现助手
 
-你将帮助我在 WSL 环境中从零实现一个课程期末 Project：**PaperPilot：多智能体论文复现助手**。项目根目录必须命名为：`AIGC_PaperPilot/`。
+你将帮助我在 WSL 环境中从零实现一个课程期末 Project：**PaperPilot：多智能体论文复现助手**。项目根目录必须命名为：`PaperPilot/`。
 
 请严格按照本文档要求分阶段完成。  
 **不要一次性把所有代码写完。必须按阶段推进：每完成一个阶段，都要先自检、运行必要测试、输出检查结果。**
@@ -21,8 +21,8 @@ pip 25.3 from /home/fcc/miniforge3/lib/python3.12/site-packages/pip (python 3.12
 
 请按照以下约束开发：
 
-1. 项目根目录必须创建为：`AIGC_PaperPilot/`。
-2. 建议项目路径为：`~/projects/AIGC_PaperPilot` 或当前工作目录下的 `AIGC_PaperPilot/`。不要放在 Windows 挂载盘路径，例如 `/mnt/c/...`。
+1. 项目根目录必须创建为：`PaperPilot/`。
+2. 建议项目路径为：`~/projects/PaperPilot` 或当前工作目录下的 `PaperPilot/`。不要放在 Windows 挂载盘路径，例如 `/mnt/c/...`。
 3. 使用当前 WSL 的 Python 3.12.12 开发。代码必须兼容 Python 3.12。
 4. 不要修改 base/miniforge 全局环境。需要安装依赖时，优先在项目内创建虚拟环境：
 
@@ -176,7 +176,7 @@ MVP 阶段不要使用 LangGraph、CrewAI 等复杂框架。
 请按照下面结构创建项目：
 
 ```text
-AIGC_PaperPilot/
+PaperPilot/
 │
 ├── app.py                         # Streamlit 前端
 ├── main.py                        # 主流程入口
@@ -1042,7 +1042,7 @@ def run_paperpilot(
 
 任务：
 
-1. 创建项目根目录 `AIGC_PaperPilot/`，并在该目录内创建项目结构
+1. 创建项目根目录 `PaperPilot/`，并在该目录内创建项目结构
 2. 创建 `requirements.txt`
 3. 创建 `config.py`
 4. 创建 `README.md`
@@ -1417,7 +1417,7 @@ set -e
 至少实现或手动运行以下检查：
 
 ```bash
-cd AIGC_PaperPilot
+cd PaperPilot
 python -m py_compile app.py main.py config.py
 python -m py_compile agents/*.py
 python -m py_compile tools/*.py

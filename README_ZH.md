@@ -1,4 +1,4 @@
-# AIGC_PaperPilot / PaperPilot
+# PaperPilot / PaperPilot
 
 [English](README.md)
 
@@ -67,7 +67,7 @@ Outputs
 ## 项目结构
 
 ```text
-AIGC_PaperPilot/
+PaperPilot/
 ├── app.py
 ├── main.py
 ├── config.py
@@ -89,7 +89,7 @@ AIGC_PaperPilot/
 项目在 WSL 与 Python 3.12 环境下开发。推荐使用独立 Conda 环境：
 
 ```bash
-cd AIGC_PaperPilot
+cd <path/to/PaperPilot>
 conda create -n paperpilot python=3.12 -y
 conda run -n paperpilot python -m pip install --upgrade pip
 conda run -n paperpilot python -m pip install -r requirements.txt
@@ -105,7 +105,7 @@ conda run -n paperpilot python -c "import fitz, streamlit, openai; print('import
 ## 运行方式
 
 ```bash
-cd AIGC_PaperPilot
+cd <path/to/PaperPilot>
 conda run -n paperpilot streamlit run app.py
 ```
 

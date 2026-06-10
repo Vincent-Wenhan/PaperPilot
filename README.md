@@ -1,4 +1,4 @@
-# AIGC_PaperPilot / PaperPilot
+# PaperPilot / PaperPilot
 
 [![GitHub](https://img.shields.io/badge/GitHub-Vincent--Wenhan/PaperPilot-181717?logo=github)](https://github.com/Vincent-Wenhan/PaperPilot) · [中文版](README_ZH.md)
 
@@ -67,7 +67,7 @@ All LLM agents share `BaseAgent` and a unified OpenAI-compatible `LLMClient`. Co
 ## Project Structure
 
 ```text
-AIGC_PaperPilot/
+PaperPilot/
 ├── app.py
 ├── main.py
 ├── config.py
@@ -89,7 +89,7 @@ AIGC_PaperPilot/
 The project is developed on WSL with Python 3.12. A dedicated Conda environment is recommended:
 
 ```bash
-cd AIGC_PaperPilot
+cd <path/to/PaperPilot>
 conda create -n paperpilot python=3.12 -y
 conda run -n paperpilot python -m pip install --upgrade pip
 conda run -n paperpilot python -m pip install -r requirements.txt
@@ -105,7 +105,7 @@ conda run -n paperpilot python -c "import fitz, streamlit, openai; print('import
 ## Running
 
 ```bash
-cd AIGC_PaperPilot
+cd <path/to/PaperPilot>
 conda run -n paperpilot streamlit run app.py
 ```
 

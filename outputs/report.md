@@ -7,7 +7,7 @@
 方法拆解未生成：论文信息不可用。
 
 ## Code Repository
-- Local path: C:\Users\34217\Desktop\Study\2026Spring\Large AI Models\project\AIGC_PaperPilot\workspace\octocat__Hello-World
+- Local path: C:\Users\34217\Desktop\Study\2026Spring\Large AI Models\project\PaperPilot\workspace\octocat__Hello-World
 
 # PaperPilot Mock Result
 

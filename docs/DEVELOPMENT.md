@@ -107,7 +107,7 @@ User Input → PDF Parser + GitHub Clone + Repo Scanner
 ### 项目结构
 
 ```
-AIGC_PaperPilot/
+PaperPilot/
 ├── app.py              # Streamlit 前端
 ├── main.py             # 主流程编排入口
 ├── config.py           # 环境变量配置

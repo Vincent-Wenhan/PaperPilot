@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from agents import (
+    CodeAgent,
     EnvAgent,
     ExperimentAgent,
     MethodExtractorAgent,
@@ -33,7 +34,7 @@ GOAL_PIPELINE_STEPS: dict[str, list[dict[str, Any]]] = {
     "run official demo": [
         {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
         {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
-        {"agent_factory": None, "step_name": "Repo Clone Agent", "is_deterministic": True, "deterministic_type": "clone"},
+        {"agent_factory": None, "step_name": "Repository Source", "is_deterministic": True, "deterministic_type": "repository"},
         {"agent_factory": RepoAnalyzerAgent, "step_name": "Repo Analyzer Agent"},
         {"agent_factory": EnvAgent, "step_name": "Environment Agent"},
         {"agent_factory": ReportAgent, "step_name": "Report Agent"},
@@ -41,7 +42,7 @@ GOAL_PIPELINE_STEPS: dict[str, list[dict[str, Any]]] = {
     "minimal training experiment": [
         {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
         {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
-        {"agent_factory": None, "step_name": "Repo Clone Agent", "is_deterministic": True, "deterministic_type": "clone"},
+        {"agent_factory": None, "step_name": "Repository Source", "is_deterministic": True, "deterministic_type": "repository"},
         {"agent_factory": RepoAnalyzerAgent, "step_name": "Repo Analyzer Agent"},
         {"agent_factory": EnvAgent, "step_name": "Environment Agent"},
         {"agent_factory": ExperimentAgent, "step_name": "Experiment Planner Agent"},
@@ -50,7 +51,7 @@ GOAL_PIPELINE_STEPS: dict[str, list[dict[str, Any]]] = {
     "reproduce main experiments": [
         {"agent_factory": PaperReaderAgent, "step_name": "Paper Reader Agent"},
         {"agent_factory": MethodExtractorAgent, "step_name": "Method Extractor Agent"},
-        {"agent_factory": None, "step_name": "Repo Clone Agent", "is_deterministic": True, "deterministic_type": "clone"},
+        {"agent_factory": None, "step_name": "Repository Source", "is_deterministic": True, "deterministic_type": "repository"},
         {"agent_factory": RepoAnalyzerAgent, "step_name": "Repo Analyzer Agent"},
         {"agent_factory": EnvAgent, "step_name": "Environment Agent"},
         {"agent_factory": ExperimentAgent, "step_name": "Experiment Planner Agent"},
@@ -59,6 +60,7 @@ GOAL_PIPELINE_STEPS: dict[str, list[dict[str, Any]]] = {
 }
 
 _DEBUG_GOAL = MAIN_GOAL_DEBUG
+MAX_CODE_AGENT_PAPER_CHARS = 60_000
 
 
 def _record_error(result: PipelineResult, step: str, error: object) -> None:
@@ -121,29 +123,35 @@ def _build_reproduction_plan(result: PipelineResult) -> str:
 ## 2. Method Breakdown
 {result["method_info"] or "Not generated."}
 
-## 3. Repository Analysis
+## 3. Code Source
+- Source: {result["repo_source"] or "Not generated."}
+- Local path: {result["repo_path"] or "Not generated."}
+
+{result["code_info"] or "No Code Agent output."}
+
+## 4. Repository Analysis
 {result["repo_info"] or "Not generated."}
 
-## 4. Environment Setup
+## 5. Environment Setup
 {result["env_plan"] or "Not generated."}
 
-## 5. Minimal Reproduction Plan
+## 6. Minimal Reproduction Plan
 {result["experiment_plan"] or "Not generated."}
 
-## 6. Commands
+## 7. Commands
 - `python --version`
 - `pip --version`
 - Run `python <entrypoint> --help` on detected entry points
 - Demo execution requires explicit user confirmation
 
-## 7. Checklist
+## 8. Checklist
 - [ ] Verify Python and dependency environment
-- [ ] Read paper and repository analysis
+- [ ] Review generated code assumptions or repository analysis
 - [ ] Run `--help` on entry points
 - [ ] Prepare minimal data and configuration
 - [ ] Confirm before running demo or training
 
-## 8. Risks
+## 9. Risks
 {errors}
 """
 
@@ -151,7 +159,7 @@ def _build_reproduction_plan(result: PipelineResult) -> str:
 def _build_run_script(repo_scan: dict[str, Any] | None) -> str:
     entrypoints = (repo_scan or {}).get("possible_entrypoints", [])
     help_todos = "\n".join(
-        f"# TODO: cd <cloned-repo> && python {entrypoint} --help"
+        f"# TODO: cd <repository> && python {entrypoint} --help"
         for entrypoint in entrypoints[:5]
     )
     if not help_todos:
@@ -187,7 +195,10 @@ def _build_report(result: PipelineResult, generated_report: str) -> str:
 {result["method_info"] or "Not generated."}
 
 ## Code Repository
+- Source: {result["repo_source"] or "Not generated"}
 - Local path: {result["repo_path"] or "Not generated"}
+
+{result["code_info"] or "No code-generation notes."}
 
 {result["repo_info"] or "Not generated."}
 
@@ -204,7 +215,7 @@ By default only version checks are executed. Entry point `--help`, demo, and tra
 {errors}
 
 ## Difference from Original Paper
-The current output is a reproduction plan and does not represent full alignment with the original paper's experimental setup or metrics.
+The current output is a reproduction plan. Model-generated code is an independent approximation, not the official implementation, and does not demonstrate alignment with the paper's reported metrics.
 
 ## Next Steps
 {result["experiment_plan"] or "Please resolve the errors above and re-run."}
@@ -251,16 +262,72 @@ def _do_clone(result: PipelineResult, github_url: str) -> str:
         return ""
 
 
+def _do_generate_code(
+    result: PipelineResult,
+    llm_client: LLMClient,
+    context: dict[str, Any],
+) -> str:
+    try:
+        generated = CodeAgent(llm_client).generate_repository(context)
+        result["repo_path"] = str(generated["repo_path"])
+        result["repo_source"] = "Generated by Code Agent"
+        generated_files = "\n".join(
+            f"- `{path}`" for path in generated.get("files", [])
+        )
+        result["code_info"] = (
+            f"{generated.get('summary', 'Code Agent generated a reproduction project.')}"
+            f"\n\nGenerated files:\n{generated_files}"
+        )
+        return result["repo_path"]
+    except Exception as exc:
+        _record_error(result, "Code Agent", exc)
+        return ""
+
+
+def _prepare_repository(
+    result: PipelineResult,
+    github_url: str,
+    llm_client: LLMClient,
+    code_context: dict[str, Any],
+    progress_callback: Callable[[str], None] | None,
+) -> dict[str, Any] | None:
+    if github_url.strip():
+        if progress_callback:
+            progress_callback("Repo Clone Agent cloning repository")
+        repo_path = _do_clone(result, github_url.strip())
+        if repo_path:
+            result["repo_source"] = "GitHub repository"
+    else:
+        if progress_callback:
+            progress_callback("Code Agent generating reproduction code")
+        repo_path = _do_generate_code(result, llm_client, code_context)
+
+    if not repo_path:
+        return None
+    try:
+        repo_scan = scan_repo(repo_path)
+    except Exception as exc:
+        _record_error(result, "Repo Scanner", exc)
+        return None
+    repo_scan["repository_source"] = result["repo_source"]
+    if result["code_info"]:
+        repo_scan["code_generation"] = result["code_info"]
+    return repo_scan
+
+
 def run_paperpilot(
     pdf_path: str,
-    github_url: str,
-    hardware: str,
-    gpu_info: str,
-    goal: str,
+    github_url: str = "",
+    hardware: str = "Not provided",
+    gpu_info: str = "",
+    goal: str = "minimal training experiment",
     llm_client: LLMClient | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Run the PaperPilot analysis pipeline while preserving partial results.
+
+    The ``github_url`` parameter is optional. If omitted, Code Agent generates
+    a minimal reproduction repository from the paper analysis.
 
     The ``goal`` parameter controls which agents are executed.  When a
     ``progress_callback`` is provided it is called with the name of
@@ -273,6 +340,8 @@ def run_paperpilot(
         "paper_info": "",
         "method_info": "",
         "repo_path": "",
+        "repo_source": "",
+        "code_info": "",
         "repo_info": "",
         "env_plan": "",
         "experiment_plan": "",
@@ -304,28 +373,31 @@ def run_paperpilot(
     paper_text_available = bool(paper_text.strip())
 
     # ------------------------------------------------------------------
-    # Clone + scan — run early if the goal needs them
+    # Repository acquisition runs after paper and method analysis.
     # ------------------------------------------------------------------
     repo_scan: dict[str, Any] | None = None
-    needs_repo = any(
-        step.get("is_deterministic") for step in steps
-    )
-
-    if needs_repo:
-        if progress_callback:
-            progress_callback("Repo Clone Agent cloning repository")
-        repo_path = _do_clone(result, github_url)
-        if result["repo_path"]:
-            try:
-                repo_scan = scan_repo(result["repo_path"])
-            except Exception as exc:
-                _record_error(result, "Repo Scanner", exc)
 
     # ------------------------------------------------------------------
     # Agent steps
     # ------------------------------------------------------------------
     for step in steps:
         if step.get("is_deterministic"):
+            if step.get("deterministic_type") == "repository":
+                code_context = {
+                    "paper_info": result["paper_info"],
+                    "method_info": result["method_info"],
+                    "paper_text_excerpt": paper_text[:MAX_CODE_AGENT_PAPER_CHARS],
+                    "hardware": hardware or "Not provided",
+                    "gpu_info": gpu_info or "Not provided",
+                    "goal": goal or "Not provided",
+                }
+                repo_scan = _prepare_repository(
+                    result,
+                    github_url,
+                    llm_client,
+                    code_context,
+                    progress_callback,
+                )
             continue
 
         factory = step["agent_factory"]
@@ -359,7 +431,7 @@ def run_paperpilot(
         # --- Repo Analyzer ---
         elif factory is RepoAnalyzerAgent:
             if not repo_scan:
-                result["repo_info"] = "Repository analysis skipped: clone or scan failed."
+                result["repo_info"] = "Repository analysis skipped: code acquisition or scan failed."
                 continue
             result["repo_info"] = _run_llm_agent_step(
                 result, factory, llm_client, step_name, repo_scan,
@@ -373,6 +445,8 @@ def run_paperpilot(
                 "goal": goal or "Not provided",
                 "repository_scan": repo_scan or {},
                 "repository_analysis": result["repo_info"],
+                "repository_source": result["repo_source"],
+                "code_generation": result["code_info"],
             }
             result["env_plan"] = _run_llm_agent_step(
                 result, factory, llm_client, step_name, hardware_context,
@@ -384,6 +458,8 @@ def run_paperpilot(
                 "paper_info": result["paper_info"],
                 "method_info": result["method_info"],
                 "repo_info": result["repo_info"],
+                "repo_source": result["repo_source"],
+                "code_info": result["code_info"],
                 "env_plan": result["env_plan"],
                 "hardware": hardware or "Not provided",
                 "gpu_info": gpu_info or "Not provided",
@@ -399,6 +475,8 @@ def run_paperpilot(
                 "paper_info": result["paper_info"],
                 "method_info": result["method_info"],
                 "repo_info": result["repo_info"],
+                "repo_source": result["repo_source"],
+                "code_info": result["code_info"],
                 "env_plan": result["env_plan"],
                 "experiment_plan": result["experiment_plan"],
                 "hardware": hardware or "Not provided",

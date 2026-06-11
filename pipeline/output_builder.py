@@ -23,7 +23,7 @@ def build_reproduction_plan(result: dict[str, Any]) -> str:
 - Source: {result["repo_source"] or "Not generated."}
 - Local path: {result["repo_path"] or "Not generated."}
 
-{result["code_info"] or "No Code Agent output."}
+{result["code_info"] or "No additional code context."}
 
 ## 4. Repository Analysis
 {result["repo_info"] or "Not generated."}
@@ -81,7 +81,7 @@ pip --version
 """
 
 
-def build_report(result: dict[str, Any], generated_report: str) -> str:
+def build_report(result: dict[str, Any], diagnosis: str = "") -> str:
     """Assemble the final reproduction report."""
     errors = "\n".join(f"- {error}" for error in result["errors"]) or "- None"
     return f"""# PaperPilot Reproduction Report
@@ -112,14 +112,16 @@ By default only version checks are executed. Entry point `--help`, demo, and tra
 ## Debug Notes
 {errors}
 
+{diagnosis or "No commands have been executed yet."}
+
 ## Difference from Original Paper
-The current output is a reproduction plan. Model-generated code is an independent approximation, not the official implementation, and does not demonstrate alignment with the paper's reported metrics.
+The current output is a reproduction plan. It does not demonstrate alignment with the paper's reported metrics.
 
 ## Next Steps
 {result["experiment_plan"] or "Please resolve the errors above and re-run."}
 
-## Generated Report Draft
-{generated_report or "Report Agent did not generate additional content."}
+## Report Builder
+This report was assembled deterministically from structured Reproduce artifacts.
 """
 
 

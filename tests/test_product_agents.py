@@ -3,121 +3,42 @@ from __future__ import annotations
 import unittest
 
 from agents import (
-    FrontendBuilderAgent,
-    ProductDesignerAgent,
-    ProductOpportunityAgent,
-    ProductTestAgent,
-    TechAdapterAgent,
+    ProductEvaluatorAgent,
+    ProductPlannerAgent,
+    PrototypeBuilderAgent,
+    ResearchSynthesizerAgent,
 )
 from tools.llm_client import LLMClient
 
 
 class ProductAgentTests(unittest.TestCase):
-    def test_product_agents_load_prompts_and_run_in_mock_mode(self) -> None:
-        cases = [
-            (
-                ProductOpportunityAgent,
-                {
-                    "paper_info": "paper",
-                    "method_info": "method",
-                    "repo_info": "repo",
-                    "target_user": "student",
-                    "product_goal": "demo",
-                },
-            ),
-            (
-                ProductDesignerAgent,
-                {
-                    "opportunities": "ideas",
-                    "paper_info": "paper",
-                    "method_info": "method",
-                    "repo_info": "repo",
-                },
-            ),
-            (
-                TechAdapterAgent,
-                {
-                    "repo_info": "repo",
-                    "repo_path": "/tmp/repo",
-                    "product_spec": "spec",
-                    "template_type": "file",
-                },
-            ),
-            (
-                FrontendBuilderAgent,
-                {
-                    "product_spec": "spec",
-                    "template_type": "file",
-                    "adapter_plan": "adapter",
-                },
-            ),
-            (
-                ProductTestAgent,
-                {
-                    "generated_product_dir": "generated_product",
-                    "template_type": "file",
-                    "files": ["app.py"],
-                },
-            ),
-        ]
+    def test_only_four_high_level_product_agents_run_product_reasoning(self) -> None:
         client = LLMClient(mock_mode=True)
-        for agent_type, input_data in cases:
-            with self.subTest(agent_type=agent_type.__name__):
-                agent = agent_type(client)
-                self.assertTrue(agent.system_prompt)
-                self.assertTrue(agent.prompt_path.is_file())
-                output = agent.run(input_data)
-                self.assertTrue(output.startswith("#"))
-
-    def test_mock_agents_return_productize_specific_sections(self) -> None:
-        client = LLMClient(mock_mode=True)
-        outputs = {
-            "opportunity": ProductOpportunityAgent(client).run(
-                {
-                    "paper_info": "paper",
-                    "method_info": "method",
-                    "repo_info": "repo",
-                    "target_user": "student",
-                    "product_goal": "demo",
-                }
-            ),
-            "designer": ProductDesignerAgent(client).run(
-                {
-                    "opportunities": "ideas",
-                    "paper_info": "paper",
-                    "method_info": "method",
-                    "repo_info": "repo",
-                }
-            ),
-            "adapter": TechAdapterAgent(client).run(
-                {
-                    "repo_info": "repo",
-                    "repo_path": "/tmp/repo",
-                    "product_spec": "spec",
-                    "template_type": "file",
-                }
-            ),
-            "frontend": FrontendBuilderAgent(client).run(
-                {
-                    "product_spec": "spec",
-                    "template_type": "file",
-                    "adapter_plan": "adapter",
-                }
-            ),
-            "test": ProductTestAgent(client).run(
-                {
-                    "generated_product_dir": "generated_product",
-                    "template_type": "file",
-                    "files": ["app.py"],
-                }
-            ),
-        }
-        self.assertIn("| Product idea |", outputs["opportunity"])
-        self.assertIn("## Recommended MVP", outputs["opportunity"])
-        self.assertIn("## MVP Boundary", outputs["designer"])
-        self.assertIn("## Mock Fallback", outputs["adapter"])
-        self.assertIn("## Input Components", outputs["frontend"])
-        self.assertIn("## File Completeness", outputs["test"])
+        synthesis = ResearchSynthesizerAgent(client).run_structured(
+            {"papers": [{"paper_id": "p1", "paper_info": "paper", "method_info": "method"}]}
+        )
+        product = ProductPlannerAgent(client).run_structured(
+            {
+                "research_synthesis": synthesis.model_dump(),
+                "target_user": "Students",
+                "product_goal": "Demo",
+            }
+        )
+        prototype = PrototypeBuilderAgent(client).run_structured(
+            {"product_plan": product.model_dump(), "template_type": "file"}
+        )
+        evaluation = ProductEvaluatorAgent(client).run_structured(
+            {
+                "research_synthesis": synthesis.model_dump(),
+                "product_plan": product.model_dump(),
+                "prototype_plan": prototype.model_dump(),
+                "inspection": {"syntax_ok": True, "can_run_mock": True},
+            }
+        )
+        self.assertTrue(synthesis.capability_cards)
+        self.assertTrue(product.prd.core_features)
+        self.assertTrue(prototype.mock_first)
+        self.assertGreaterEqual(evaluation.overall_score, 4)
 
 
 if __name__ == "__main__":

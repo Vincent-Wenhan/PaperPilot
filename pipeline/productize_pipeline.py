@@ -13,8 +13,8 @@ from agents import (
     PrototypeBuilderAgent,
     ResearchSynthesizerAgent,
 )
-from agents.schema_display import opportunities_to_markdown
 from productize import inspect_generated_product, scaffold_product, select_product_template
+from pipeline.productize_renderers import render_opportunities
 from schemas.composition_schema import ResearchSynthesis
 from schemas.evaluation_schema import ProductEvaluation
 from schemas.product_schema import (
@@ -257,7 +257,7 @@ def run_productize_pipeline(
     result["product_plan"] = product_plan.model_dump(mode="json")
     result["prd"] = result["product_plan"]["prd"]
     result["mvp_scope"] = result["product_plan"]["mvp_scope"]
-    result["opportunities"] = opportunities_to_markdown(
+    result["opportunities"] = render_opportunities(
         ProductOpportunityList(opportunities=product_plan.opportunities)
     )
     if user_idea:

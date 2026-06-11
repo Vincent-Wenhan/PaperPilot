@@ -19,13 +19,13 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 
 - Upload and parse paper PDFs
 - Optionally validate and shallow-clone public GitHub repositories
-- Generate a minimal reproduction codebase with Code Agent when no repository URL is available
+- Continue with explicit paper-only planning when no repository URL is available
 - Scan README, dependency files, configurations, and candidate entry points
 - Generate paper summaries and engineering-oriented method breakdowns
 - Plan environments based on CPU, single-GPU, or multi-GPU
 - Generate hierarchical experiment roadmaps, checklists, and safe `run.sh`
 - Run version checks and `--help` on lightweight candidate commands
-- Automatically analyze Runner failures; also supports manual log pasting for debugging
+- Execute commands through deterministic Runner tools and analyze failures with the Execution & Diagnosis Agent
 - Generate and download reproduction plans, scripts, and course-project reports
 
 ### Productize Mode
@@ -49,10 +49,11 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 Paper PDF(s) + GitHub URL(s) (optional)
 ↓
 Reproduce Mode
-├── Paper and method analysis
-├── Repository acquisition and analysis
-├── Environment and experiment planning
-└── Reproduction outputs
+├── Research Understanding Agent
+├── Repository Understanding Agent
+├── Reproduction Planner Agent
+├── Execution & Diagnosis Agent
+└── Deterministic Report Builder
 ↓
 Productize Mode
 ├── Research Synthesizer Agent
@@ -73,22 +74,16 @@ generated_product/
 
 | Agent | Responsibility |
 | --- | --- |
-| Paper Reader Agent | Extract task, contributions, datasets, metrics, and experimental settings |
-| Method Extractor Agent | Decompose method into implementable modules, training and inference pipelines |
-| Repo Clone Agent | Deterministically call GitHub clone tool; does not execute repository code |
-| Code Agent | Generate a minimal, inspectable reproduction project when no GitHub URL is provided |
-| Repo Analyzer Agent | Analyze repository structure, dependencies, configurations, and entry points |
-| Environment Agent | Generate environment recommendations based on dependency evidence and hardware |
-| Experiment Planner Agent | Generate Level 0 to Level 4 hierarchical reproduction roadmaps |
-| Runner Agent | Deterministically invoke the safe command runner |
-| Debug Agent | Analyze command, stdout, stderr, and environment information |
-| Report Agent | Aggregate stage results and generate the reproduction report |
+| Research Understanding Agent | Merge paper reading and method extraction into one structured artifact |
+| Repository Understanding Agent | Interpret static repository scans and environment evidence |
+| Reproduction Planner Agent | Plan environment, data, experiments, safe commands, risks, and fallbacks |
+| Execution & Diagnosis Agent | Interpret command results and logs without executing commands |
 | Research Synthesizer Agent | Build capability cards, relationships, and method composition plans |
 | Product Planner Agent | Apply JTBD, Value Proposition, PRD, MVP, and MoSCoW |
 | Prototype Builder Agent | Define the Streamlit flow, mock result, and adapter boundary |
 | Product Evaluator Agent | Score paper faithfulness, coherence, safety, and demo readiness |
 
-Legacy Productize agents remain available for compatibility, but the upgraded pipeline uses the four high-level agents above. All LLM agents share `BaseAgent` and a unified OpenAI-compatible `LLMClient`. Command execution and repository cloning are not LLM-decided.
+These are the only active reasoning agents. Fragmented predecessor agents are isolated under `agents/legacy/` and are not imported by active pipelines. Repository cloning/scanning, command execution, report writing, product scaffolding, and static inspection are deterministic tools or builders.
 
 ## Project Structure
 
@@ -97,7 +92,8 @@ PaperPilot/
 ├── app.py
 ├── main.py
 ├── config.py
-├── agents/
+├── agents/                  # Eight active high-level agents
+│   └── legacy/              # Inactive migration-reference agents
 ├── guidelines/              # Product, composition, UI, and safety rules
 ├── schemas/                 # Structured paper, composition, product, and evaluation models
 ├── productize/
@@ -180,7 +176,7 @@ Alternatively, you may still use environment variables (`LLM_API_KEY`, `LLM_BASE
 ## Reproduce Mode
 
 1. Upload a paper PDF.
-2. Optionally enter a repository URL in `https://github.com/owner/repository` format. Leave it empty to generate code from the paper.
+2. Optionally enter a repository URL in `https://github.com/owner/repository` format. Leave it empty for paper-only planning.
 3. Select `CPU only`, `Single GPU`, or `Multi GPU`; optionally enter a GPU model.
 4. Select a goal: understand the paper, run the official demo, minimal training experiment, reproduce main experiments, or debug errors.
 5. Click `Analyze` to view agent status and stage results.
@@ -268,7 +264,7 @@ The Runner will not execute full training, demo bodies, unknown shell scripts, o
 
 ## Debug Capabilities
 
-When a Runner command fails, the system automatically forwards the command, cwd, return code, stdout, and stderr to the Debug Agent. Users can also manually paste commands, logs, and environment information. The Debug Agent outputs the direct cause, possible root cause, verification method, fix suggestions, and next steps. Mock mode also returns presentable mock diagnostics.
+When a deterministic Runner command fails, the system forwards the command, cwd, return code, stdout, and stderr to the Execution & Diagnosis Agent. Users can also paste logs manually. The agent explains the direct cause, possible root causes, bounded fixes, and next actions; it never executes commands itself.
 
 ## Output Files
 
@@ -285,7 +281,7 @@ gitignored. The main application displays their contents after generation.
 
 - Scanned PDFs without OCR may yield no extractable text.
 - LLM output quality depends on the model, context length, and paper text quality.
-- Code Agent output is an independent approximation and is not the paper's official implementation.
+- Paper-only planning cannot provide repository-specific implementation evidence.
 - Repository analysis is based on static file scanning and may not automatically understand all custom entry points.
 - The system does not verify whether full training achieves the original paper's metrics.
 - The Runner intentionally uses a strict allowlist and does not provide arbitrary terminal capabilities.

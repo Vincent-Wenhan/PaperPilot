@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.schema_display import repo_analysis_to_markdown
+from agents.legacy.schema_display import repo_analysis_to_markdown
 from schemas.repo_schema import RepoAnalysis
 from tools.llm_client import LLMClient
 

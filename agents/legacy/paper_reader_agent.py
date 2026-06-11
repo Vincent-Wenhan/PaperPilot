@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.schema_display import paper_summary_to_markdown
+from agents.legacy.schema_display import paper_summary_to_markdown
 from schemas.paper_schema import PaperSummary
 from tools.llm_client import LLMClient
 

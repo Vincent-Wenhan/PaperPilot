@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from agents.base_agent import BaseAgent
-from agents.product_mock_outputs import PRODUCT_OPPORTUNITY_MOCK
-from agents.schema_display import opportunities_to_markdown
+from agents.legacy.product_mock_outputs import PRODUCT_OPPORTUNITY_MOCK
+from agents.legacy.schema_display import opportunities_to_markdown
 from schemas.product_schema import ProductOpportunityList
 from tools.llm_client import LLMClient
 

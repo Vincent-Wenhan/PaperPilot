@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.structured_product_agent import StructuredProductAgent
+from agents.structured_agent import StructuredAgent
 from schemas.composition_schema import ResearchSynthesis
 from schemas.product_schema import (
     MVPScope,
@@ -16,7 +16,7 @@ from schemas.product_schema import (
 from tools.llm_client import LLMClient
 
 
-class ProductPlannerAgent(StructuredProductAgent[ProductPlan]):
+class ProductPlannerAgent(StructuredAgent[ProductPlan]):
     """Turn research synthesis into JTBD, PRD, and bounded MVP scope."""
 
     def __init__(self, llm_client: LLMClient | None = None) -> None:

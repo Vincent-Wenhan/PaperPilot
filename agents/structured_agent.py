@@ -1,4 +1,4 @@
-"""Base class for guideline-backed structured Productize agents."""
+"""Base class for guideline-backed structured reasoning agents."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from tools.llm_client import LLMClient
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 
-class StructuredProductAgent(BaseAgent, ABC, Generic[SchemaT]):
-    """Return schema-valid output and use deterministic mock fallbacks."""
+class StructuredAgent(BaseAgent, ABC, Generic[SchemaT]):
+    """Return schema-valid artifacts with deterministic mock fallbacks."""
 
     def __init__(
         self,
@@ -40,11 +40,10 @@ class StructuredProductAgent(BaseAgent, ABC, Generic[SchemaT]):
         """Build a deterministic schema-valid fallback."""
 
     def run_structured(self, input_data: dict[str, Any]) -> SchemaT:
-        """Run the agent and always return a schema-valid artifact."""
+        """Run the reasoning stage and always return a schema-valid artifact."""
         self._format_input(input_data)
         if self.llm_client.mock_mode:
             return self.build_mock(input_data)
-
         raw = super().run(input_data)
         parsed, _ = self.repair_json_output(raw, self.schema_type)
         if parsed is not None:

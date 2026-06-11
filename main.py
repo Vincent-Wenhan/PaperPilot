@@ -31,6 +31,10 @@ def run_paperpilot(
     """
     if goal == MAIN_GOAL_DEBUG:
         result: PipelineResult = {
+            "research_understanding": {},
+            "repository_understanding": {},
+            "reproduction_plan": {},
+            "execution_diagnosis": {},
             "paper_info": "",
             "method_info": "",
             "repo_path": "",

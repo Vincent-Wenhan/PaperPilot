@@ -5,13 +5,13 @@ from __future__ import annotations
 from statistics import mean
 from typing import Any
 
-from agents.structured_product_agent import StructuredProductAgent
+from agents.structured_agent import StructuredAgent
 from schemas.composition_schema import ResearchSynthesis
 from schemas.evaluation_schema import ProductEvaluation
 from tools.llm_client import LLMClient
 
 
-class ProductEvaluatorAgent(StructuredProductAgent[ProductEvaluation]):
+class ProductEvaluatorAgent(StructuredAgent[ProductEvaluation]):
     """Evaluate paper faithfulness, MVP quality, mock behavior, and safety."""
 
     def __init__(self, llm_client: LLMClient | None = None) -> None:

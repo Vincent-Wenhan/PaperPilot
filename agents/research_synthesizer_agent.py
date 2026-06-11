@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.structured_product_agent import StructuredProductAgent
+from agents.structured_agent import StructuredAgent
 from schemas.composition_schema import (
     MethodCompositionPlan,
     PaperCapabilityCard,
@@ -19,7 +19,7 @@ def _short_evidence(value: object, fallback: str) -> str:
     return text[:240] if text else fallback
 
 
-class ResearchSynthesizerAgent(StructuredProductAgent[ResearchSynthesis]):
+class ResearchSynthesizerAgent(StructuredAgent[ResearchSynthesis]):
     """Create capability cards and an evidence-backed composition plan."""
 
     def __init__(self, llm_client: LLMClient | None = None) -> None:

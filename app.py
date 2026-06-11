@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, BinaryIO
 from uuid import uuid4
 
 import streamlit as st
 
-from agents import DebugAgent, RunnerAgent
+from agents import ExecutionDiagnosisAgent
 from config import MAIN_GOAL_DEBUG, OUTPUTS_DIR, PROJECT_ROOT
 from main import run_paperpilot
 from pipeline.productize_pipeline import run_productize_pipeline
+from pipeline.reproduce_renderers import render_execution_diagnosis
+from tools.command_runner import run_command_review
 from tools.llm_client import LLMClient
 
 
@@ -89,7 +90,7 @@ def _show_outputs(result: dict[str, Any]) -> None:
             st.caption(f"Local repository: {repo_path}")
         code_info = result.get("code_info")
         if code_info:
-            st.subheader("Code Agent Output")
+            st.subheader("Additional Code Context")
             st.markdown(code_info)
         st.subheader("Repository Analysis")
         st.markdown(result.get("repo_info") or "Repository analysis not yet generated.")
@@ -136,15 +137,11 @@ def _get_llm_client() -> LLMClient:
 
 
 def _debug_command_failure(command_result: dict[str, Any]) -> str:
-    """Ask Debug Agent to diagnose one failed deterministic command."""
+    """Ask Execution & Diagnosis Agent to interpret a command failure."""
     try:
-        return DebugAgent(_get_llm_client()).run(
+        diagnosis = ExecutionDiagnosisAgent(_get_llm_client()).run_structured(
             {
-                "command": command_result.get("command", ""),
-                "cwd": command_result.get("cwd", ""),
-                "returncode": command_result.get("returncode"),
-                "stdout": command_result.get("stdout", ""),
-                "stderr": command_result.get("stderr", ""),
+                "command_results": [command_result],
                 "hardware": st.session_state.get(
                     "selected_hardware",
                     "Not provided",
@@ -155,8 +152,9 @@ def _debug_command_failure(command_result: dict[str, Any]) -> str:
                 ),
             }
         )
+        return render_execution_diagnosis(diagnosis)
     except Exception as exc:
-        return f"Debug Agent execution failed: {exc}"
+        return f"Execution & Diagnosis Agent failed: {exc}"
 
 
 def execute_runner_command(
@@ -169,32 +167,25 @@ def execute_runner_command(
     Uses the runner mode from session state (safe/review).
     """
     runner_mode = st.session_state.get("runner_mode", "safe")
-    raw_result = RunnerAgent().run_review(
-        {
-            "command": command,
-            "cwd": str(cwd),
-            "timeout": timeout,
-            "mode": runner_mode,
-        }
+    model = run_command_review(
+        command=command,
+        cwd=cwd,
+        timeout=timeout,
+        mode=runner_mode,
     )
-    try:
-        command_result = json.loads(raw_result)
-    except (TypeError, ValueError):
-        command_result = {
-            "command": command,
-            "cwd": str(Path(cwd).resolve()),
-            "returncode": None,
-            "stdout": "",
-            "stderr": raw_result,
-            "success": False,
-            "risk_level": "unknown",
-        }
+    command_result = model.model_dump(mode="json")
+    command_result["cwd"] = str(Path(cwd).expanduser().resolve())
+    command_result["returncode"] = command_result.get("exit_code")
+    command_result["success"] = bool(
+        command_result.get("executed")
+        and command_result.get("exit_code") == 0
+        and not command_result.get("blocked_reason")
+    )
 
     # Only debug if the command actually executed (not blocked)
     diagnosis = ""
-    if command_result.get("executed", True) and not command_result.get("success", False):
-        if command_result.get("returncode") is not None:
-            diagnosis = _debug_command_failure(command_result)
+    if command_result.get("executed") and not command_result.get("success", False):
+        diagnosis = _debug_command_failure(command_result)
     return command_result, diagnosis
 
 
@@ -414,9 +405,9 @@ def _show_debug_section() -> None:
         if not debug_log.strip():
             st.error("Please paste error logs first.")
             return
-        with st.spinner("Debug Agent is analyzing the error"):
+        with st.spinner("Execution & Diagnosis Agent is analyzing the error"):
             try:
-                diagnosis = DebugAgent(_get_llm_client()).run(
+                structured = ExecutionDiagnosisAgent(_get_llm_client()).run_structured(
                     {
                         "error_log": debug_log,
                         "hardware": st.session_state.get(
@@ -429,13 +420,14 @@ def _show_debug_section() -> None:
                         ),
                     }
                 )
+                diagnosis = render_execution_diagnosis(structured)
             except Exception as exc:
-                diagnosis = f"Debug Agent execution failed: {exc}"
+                diagnosis = f"Execution & Diagnosis Agent failed: {exc}"
         st.session_state["debug_result"] = diagnosis
 
     diagnosis = st.session_state.get("debug_result")
     if diagnosis:
-        st.subheader("Debug Agent Diagnosis")
+        st.subheader("Execution & Diagnosis")
         st.markdown(diagnosis)
 
 
@@ -520,7 +512,7 @@ def _render_reproduce_mode() -> None:
     github_url = st.text_input(
         "GitHub URL (optional)",
         placeholder="https://github.com/owner/repository",
-        help="Leave empty to let Code Agent generate a minimal reproduction project from the paper.",
+        help="Leave empty to continue with paper-only reproduction planning.",
         key="reproduce_github_url",
     )
 
@@ -724,8 +716,8 @@ def _render_productize_mode() -> None:
             "Use one shared URL, or enter exactly one URL per paper on separate lines."
         ),
         help=(
-            "Leave empty for paper-only product planning. The existing analysis "
-            "pipeline may generate a minimal mock-oriented repository context."
+            "Leave empty for paper-only product planning. Repositories are "
+            "cloned and scanned only when explicitly provided."
         ),
         key="productize_github_url",
     )

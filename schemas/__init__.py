@@ -8,6 +8,12 @@ from schemas.composition_schema import (
 )
 from schemas.evaluation_schema import ProductEvaluation
 from schemas.repo_schema import RepoAnalysis
+from schemas.reproduction_schema import (
+    ExecutionDiagnosis,
+    PaperUnderstanding,
+    RepositoryUnderstanding,
+    ReproductionPlan,
+)
 from schemas.product_schema import (
     MVPScope,
     PRD,
@@ -26,6 +32,10 @@ __all__ = [
     "MethodCompositionPlan",
     "ResearchSynthesis",
     "RepoAnalysis",
+    "PaperUnderstanding",
+    "RepositoryUnderstanding",
+    "ReproductionPlan",
+    "ExecutionDiagnosis",
     "ProductOpportunity",
     "ProductOpportunityList",
     "ValueProposition",

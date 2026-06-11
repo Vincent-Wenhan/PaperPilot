@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.structured_product_agent import StructuredProductAgent
+from agents.structured_agent import StructuredAgent
 from schemas.product_schema import ProductPlan, PrototypePlan
 from tools.llm_client import LLMClient
 
 
-class PrototypeBuilderAgent(StructuredProductAgent[PrototypePlan]):
+class PrototypeBuilderAgent(StructuredAgent[PrototypePlan]):
     """Define the bounded Streamlit prototype and adapter boundary."""
 
     def __init__(self, llm_client: LLMClient | None = None) -> None:

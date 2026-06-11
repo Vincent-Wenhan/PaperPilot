@@ -24,6 +24,7 @@ def run_paperpilot(
     llm_client: LLMClient | None = None,
     progress_callback: Callable[[str], None] | None = None,
     user_idea: str = "",
+    paper_name: str = "",
 ) -> dict[str, Any]:
     """Run the PaperPilot analysis pipeline.
 
@@ -63,4 +64,5 @@ def run_paperpilot(
         llm_client=llm_client,
         progress_callback=progress_callback,
         user_idea=user_idea,
+        paper_name=paper_name,
     )

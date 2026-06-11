@@ -85,6 +85,7 @@ def _save_outputs(
     result: PipelineResult,
     repo_scan: dict[str, Any] | None,
     diagnosis_text: str,
+    output_dir: Path = OUTPUTS_DIR,
 ) -> None:
     reproduction_plan = build_reproduction_plan(result)
     result["run_sh"] = build_run_script(repo_scan)
@@ -94,19 +95,19 @@ def _save_outputs(
             "Failed to save reproduction_plan.md",
             save_markdown,
             reproduction_plan,
-            OUTPUTS_DIR / "reproduction_plan.md",
+            output_dir / "reproduction_plan.md",
         ),
         (
             "Failed to save run.sh",
             save_shell_script,
             result["run_sh"],
-            OUTPUTS_DIR / "run.sh",
+            output_dir / "run.sh",
         ),
         (
             "Failed to save report.md",
             save_markdown,
             result["report"],
-            OUTPUTS_DIR / "report.md",
+            output_dir / "report.md",
         ),
     ):
         save_output(result, step, writer, content, path)
@@ -121,13 +122,18 @@ def run_reproduce_pipeline(
     llm_client: LLMClient | None = None,
     progress_callback: Callable[[str], None] | None = None,
     user_idea: str = "",
+    paper_name: str = "",
 ) -> PipelineResult:
     """Run the four high-level Reproduce reasoning stages.
 
     Repository acquisition, scanning, command execution, and artifact writing
     remain deterministic tools. No legacy fragmented agent is called.
+
+    When ``paper_name`` is provided, output files are written to
+    ``outputs/<paper_name>/`` instead of the root ``outputs/`` directory.
     """
     result = _initial_result()
+    output_dir = OUTPUTS_DIR / paper_name if paper_name else OUTPUTS_DIR
     if goal == MAIN_GOAL_DEBUG:
         result["errors"].append(
             "Pipeline skipped under debug goal. Please paste logs in the Debug section."
@@ -146,7 +152,7 @@ def run_reproduce_pipeline(
             "Research Understanding Agent",
             "No extractable paper text is available; provide a text-based or OCR PDF.",
         )
-        _save_outputs(result, None, "Execution diagnosis skipped.")
+        _save_outputs(result, None, "Execution diagnosis skipped.", output_dir=output_dir)
         return result
 
     if progress_callback:
@@ -225,5 +231,5 @@ def run_reproduce_pipeline(
     )
     result["execution_diagnosis"] = diagnosis.model_dump(mode="json")
     diagnosis_text = render_execution_diagnosis(diagnosis)
-    _save_outputs(result, repo_scan, diagnosis_text)
+    _save_outputs(result, repo_scan, diagnosis_text, output_dir=output_dir)
     return result

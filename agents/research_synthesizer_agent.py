@@ -15,7 +15,7 @@ from tools.llm_client import LLMClient
 
 
 def _short_evidence(value: object, fallback: str) -> str:
-    text = str(value or "").strip().replace("\n", " ")
+    text = str(value or "").strip().replace("\n", " ").replace("\\n", " ")
     return text[:240] if text else fallback
 
 

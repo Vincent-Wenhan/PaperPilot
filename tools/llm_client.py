@@ -29,7 +29,7 @@ class LLMClient:
             if model is not None
             else os.getenv("LLM_MODEL", "gpt-4o-mini")
         )
-        mock_env = os.getenv("LLM_MOCK_MODE", "true").lower()
+        mock_env = os.getenv("LLM_MOCK_MODE", "false").lower()
         self.mock_mode = (
             mock_mode
             if mock_mode is not None

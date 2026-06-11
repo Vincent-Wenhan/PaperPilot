@@ -18,6 +18,7 @@ from schemas.product_schema import (
     ProductOpportunity,
     ProductOpportunityList,
     ProductPlan,
+    ProductProposal,
     PrototypePlan,
     ValueProposition,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "PRD",
     "MVPScope",
     "ProductPlan",
+    "ProductProposal",
     "PrototypePlan",
     "ProductEvaluation",
     "CommandPlan",

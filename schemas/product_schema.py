@@ -80,3 +80,16 @@ class PrototypePlan(BaseModel):
     real_integration_placeholder: str = ""
     adapter_boundary: list[str] = Field(default_factory=list)
     mock_first: bool = True
+
+
+class ProductProposal(BaseModel):
+    """One complete product proposal, used in the proposal review stage."""
+    product_name: str = ""
+    target_user: str = ""
+    product_goal: str = ""
+    jtbd: str = ""
+    opportunities: list[ProductOpportunity] = Field(default_factory=list)
+    value_proposition: ValueProposition = Field(default_factory=ValueProposition)
+    prd: PRD = Field(default_factory=PRD)
+    mvp_scope: MVPScope = Field(default_factory=MVPScope)
+    risks: list[str] = Field(default_factory=list)

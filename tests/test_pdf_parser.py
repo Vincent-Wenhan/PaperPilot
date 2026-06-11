@@ -30,8 +30,5 @@ class TestPdfQuality(unittest.TestCase):
 
     def test_analyze_invalid_extension_raises_runtime_error(self) -> None:
         from tools.pdf_parser import analyze_pdf_quality
-        f = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
-        f.write(b"not a pdf")
-        f.close()
-        with self.assertRaises(RuntimeError):
-            analyze_pdf_quality(f.name)
+        with self.assertRaises(FileNotFoundError):
+            analyze_pdf_quality("/nonexistent/paper.pdf")

@@ -137,7 +137,7 @@ def _get_llm_client() -> LLMClient:
         api_key=st.session_state.get("llm_api_key"),
         base_url=st.session_state.get("llm_base_url"),
         model=st.session_state.get("llm_model"),
-        mock_mode=st.session_state.get("llm_mock_mode", True),
+        mock_mode=st.session_state.get("llm_mock_mode", False),
     )
 
 
@@ -1043,7 +1043,7 @@ def main() -> None:
         st.session_state.setdefault("llm_api_key", "")
         st.session_state.setdefault("llm_base_url", "https://api.openai.com/v1")
         st.session_state.setdefault("llm_model", "gpt-4o-mini")
-        st.session_state.setdefault("llm_mock_mode", True)
+        st.session_state.setdefault("llm_mock_mode", False)
 
         st.session_state["llm_api_key"] = st.text_input(
             "API Key",

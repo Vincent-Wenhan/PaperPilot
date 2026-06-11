@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,8 +17,24 @@ def _backup_existing_directory(output_dir: Path) -> Path | None:
         return None
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     backup_dir = output_dir.with_name(f"{output_dir.name}_backup_{timestamp}")
-    shutil.move(str(output_dir), str(backup_dir))
+    try:
+        shutil.move(str(output_dir), str(backup_dir))
+    except OSError:
+        shutil.copytree(str(output_dir), str(backup_dir))
+        _remove_directory(output_dir)
     return backup_dir
+
+
+def _remove_directory(path: Path, retries: int = 3, delay: float = 0.3) -> None:
+    """Remove a directory tree with retries for transient file locks (e.g. Windows)."""
+    for attempt in range(retries):
+        try:
+            shutil.rmtree(str(path))
+            return
+        except OSError:
+            if attempt == retries - 1:
+                raise
+            time.sleep(delay * (attempt + 1))
 
 
 def _build_readme(

@@ -28,6 +28,7 @@ from pipeline.reproduce_renderers import (
     render_repository_understanding,
     render_research_summary,
 )
+from pipeline.hitl_context import PipelineHITL
 from schemas.reproduction_schema import (
     ExecutionDiagnosis,
     PaperUnderstanding,
@@ -123,6 +124,7 @@ def run_reproduce_pipeline(
     progress_callback: Callable[[str], None] | None = None,
     user_idea: str = "",
     paper_name: str = "",
+    hitl: PipelineHITL | None = None,
 ) -> PipelineResult:
     """Run the four high-level Reproduce reasoning stages.
 
@@ -170,6 +172,31 @@ def run_reproduce_pipeline(
     result["paper_info"] = render_research_summary(research)
     result["method_info"] = render_method_breakdown(research)
 
+    # HITL: confirm paper summary before proceeding
+    if hitl:
+        summary_text = f"{result['paper_info']}\n\n{result['method_info']}"
+        hitl_result = hitl.request_confirmation("research", "Paper Summary", summary_text)
+        if hitl_result == "retry":
+            correction = hitl.get_correction("research")
+            research_input["user_correction"] = correction
+            if progress_callback:
+                progress_callback("Research Understanding Agent retrying with feedback")
+            research = _run_structured_stage(
+                result,
+                "Research Understanding Agent (retry)",
+                ResearchUnderstandingAgent,
+                client,
+                research_input,
+                fallback=lambda: ResearchUnderstandingAgent(client).build_mock(research_input),
+            )
+            result["research_understanding"] = research.model_dump(mode="json")
+            result["paper_info"] = render_research_summary(research)
+            result["method_info"] = render_method_breakdown(research)
+        elif hitl_result == "reject":
+            _record_error(result, "HITL: Research Understanding", "Rejected by user")
+            result["paper_info"] = "[Research understanding rejected by user]"
+            result["method_info"] = ""
+
     repo_scan = prepare_repository(
         result=result,
         github_url=github_url,
@@ -214,6 +241,29 @@ def run_reproduce_pipeline(
     result["reproduction_plan"] = plan.model_dump(mode="json")
     result["env_plan"] = render_environment_plan(plan)
     result["experiment_plan"] = render_experiment_plan(plan)
+
+    # HITL: confirm experiment plan before saving
+    if hitl:
+        plan_text = f"{result['env_plan']}\n\n{result['experiment_plan']}"
+        hitl_result = hitl.request_confirmation("experiment", "Experiment Plan", plan_text)
+        if hitl_result == "retry":
+            correction = hitl.get_correction("experiment")
+            planner_input["user_correction"] = correction
+            if progress_callback:
+                progress_callback("Reproduction Planner Agent retrying with feedback")
+            plan = _run_structured_stage(
+                result,
+                "Reproduction Planner Agent (retry)",
+                ReproductionPlannerAgent,
+                client,
+                planner_input,
+                fallback=lambda: ReproductionPlannerAgent(client).build_mock(planner_input),
+            )
+            result["reproduction_plan"] = plan.model_dump(mode="json")
+            result["env_plan"] = render_environment_plan(plan)
+            result["experiment_plan"] = render_experiment_plan(plan)
+        elif hitl_result == "reject":
+            _record_error(result, "HITL: Reproduction Planner", "Rejected by user")
 
     if progress_callback:
         progress_callback("Execution & Diagnosis Agent assessing feasibility")

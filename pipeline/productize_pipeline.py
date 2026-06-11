@@ -15,6 +15,8 @@ from agents import (
 )
 from productize import inspect_generated_product, scaffold_product, select_product_template
 from pipeline.productize_renderers import render_opportunities
+from pipeline.hitl_context import PipelineHITL
+from pipeline.hitl_renderers import render_capability_cards
 from schemas.composition_schema import ResearchSynthesis
 from schemas.evaluation_schema import ProductEvaluation
 from schemas.product_schema import (
@@ -231,6 +233,7 @@ def generate_proposals(
     llm_client: LLMClient,
     user_idea: str = "",
     progress_callback: Callable[[str], None] | None = None,
+    hitl: PipelineHITL | None = None,
 ) -> list[ProductProposal]:
     """Run ResearchSynthesizerAgent + ProductPlannerAgent and return proposals.
 
@@ -261,6 +264,33 @@ def generate_proposals(
         ),
     )
     synthesis_dict = synthesis.model_dump(mode="json")
+
+    # HITL: confirm capability cards before product planning
+    if hitl:
+        cards_text = render_capability_cards(synthesis)
+        hitl_result = hitl.request_confirmation("capabilities", "Capability Cards", cards_text)
+        if hitl_result == "retry":
+            correction = hitl.get_correction("capabilities")
+            progress("Research Synthesizer Agent retrying with feedback")
+            synthesis = _run_structured_stage(
+                dummy_result,
+                "Research Synthesizer Agent (retry)",
+                ResearchSynthesizerAgent,
+                llm_client,
+                {
+                    "papers": normalized_papers,
+                    "target_domain": product_goal,
+                    "user_goal": user_idea,
+                    "user_correction": correction,
+                },
+                fallback=lambda: ResearchSynthesizerAgent(llm_client).build_mock(
+                    {"papers": normalized_papers}
+                ),
+            )
+            synthesis_dict = synthesis.model_dump(mode="json")
+        elif hitl_result == "reject":
+            _record_error(dummy_result, "HITL: Research Synthesis", "Rejected by user")
+            synthesis_dict = {"capability_cards": [], "capability_map": {}, "composition_plan": {}, "summary": ""}
 
     progress("Product Planner Agent building PRD and MVP")
     product_plan = _run_structured_stage(
@@ -326,6 +356,7 @@ def execute_proposal(
     output_dir: str | Path = "generated_product",
     llm_client: LLMClient | None = None,
     progress_callback: Callable[[str], None] | None = None,
+    hitl: PipelineHITL | None = None,
 ) -> ProductResult:
     """Execute the full product generation for a selected proposal.
 
@@ -432,6 +463,38 @@ def execute_proposal(
     result["prototype_plan"] = prototype_plan.model_dump(mode="json")
     result["adapter_plan"] = _prototype_plan_to_markdown(prototype_plan)
     result["frontend_plan"] = result["adapter_plan"]
+
+    # HITL: confirm prototype plan before generating scaffold
+    if hitl:
+        plan_text = result["adapter_plan"]
+        hitl_result = hitl.request_confirmation("prototype", "Prototype Plan", plan_text)
+        if hitl_result == "retry":
+            correction = hitl.get_correction("prototype")
+            progress("Prototype Builder Agent retrying with feedback")
+            prototype_plan = _run_structured_stage(
+                result,
+                "Prototype Builder Agent (retry)",
+                PrototypeBuilderAgent,
+                client,
+                {
+                    "product_plan": product_plan_dict,
+                    "template_type": result["template_type"],
+                    "user_correction": correction,
+                },
+                fallback=lambda: PrototypeBuilderAgent(client).build_mock(
+                    {
+                        "product_plan": product_plan_dict,
+                        "template_type": result["template_type"],
+                    }
+                ),
+            )
+            result["prototype_plan"] = prototype_plan.model_dump(mode="json")
+            result["adapter_plan"] = _prototype_plan_to_markdown(prototype_plan)
+            result["frontend_plan"] = result["adapter_plan"]
+        elif hitl_result == "reject":
+            _record_error(result, "HITL: Prototype Builder", "Rejected by user")
+            result["errors"].append("Prototype generation skipped — user rejected the prototype plan.")
+            return result
 
     progress("Generating product scaffold")
     try:

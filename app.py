@@ -11,6 +11,7 @@ import streamlit as st
 from agents import ExecutionDiagnosisAgent
 from config import MAIN_GOAL_DEBUG, OUTPUTS_DIR, PROJECT_ROOT
 from main import run_paperpilot
+from pipeline.hitl_context import HITLStatus, PipelineHITL
 from pipeline.productize_pipeline import (
     execute_proposal,
     generate_proposals,
@@ -129,6 +130,72 @@ def _show_downloads() -> None:
                 )
             else:
                 st.info(f"{filename} not yet generated.")
+
+
+class StreamlitHITL(PipelineHITL):
+    """HITL context for Streamlit: confirms are shown AFTER the pipeline runs.
+
+    ``on_confirm()`` stores the pending key and returns ``None`` (deferred).
+    The pipeline passes through all HITL points with ``"confirm"`` fallback,
+    then the UI shows dialogs and lets the user resolve each one.
+    On retry, ``rerun_agent_with_feedback()`` re-invokes the agent.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._pending_keys: list[str] = []
+
+    def on_confirm(self, key: str, title: str, content: str) -> str | None:
+        """Store pending confirmation; return None (deferred)."""
+        if key not in self._pending_keys:
+            self._pending_keys.append(key)
+        st.session_state[f"hitl_pending_{key}"] = True
+        st.session_state[f"hitl_title_{key}"] = title
+        st.session_state[f"hitl_content_{key}"] = content
+        return None  # Deferred — pipeline defaults to "confirm"
+
+    def is_deferred_pending(self, key: str) -> bool:
+        """Check if a stage was deferred and is still unresolved."""
+        return self.is_pending(key) and st.session_state.get(f"hitl_pending_{key}", False)
+
+    def render_pending_dialogs(self) -> bool:
+        """Render all unresolved HITL dialogs. Returns True if any were shown."""
+        shown_any = False
+        for key in list(self._pending_keys):
+            if not self.is_deferred_pending(key):
+                continue
+
+            title = st.session_state.get(f"hitl_title_{key}", "Confirmation Required")
+            content = st.session_state.get(f"hitl_content_{key}", "")
+
+            st.markdown(f"#### {title}")
+            st.markdown(content)
+
+            feedback = st.text_area(
+                "Feedback (optional, for retry)",
+                key=f"hitl_feedback_{key}",
+            )
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("Confirm", key=f"hitl_btn_confirm_{key}", type="primary"):
+                    st.session_state[f"hitl_pending_{key}"] = False
+                    self.stages[key].status = HITLStatus.CONFIRMED
+                    st.rerun()
+            with col2:
+                if st.button("Retry with feedback", key=f"hitl_btn_retry_{key}"):
+                    st.session_state[f"hitl_pending_{key}"] = False
+                    self.set_correction(key, feedback)
+                    self.stages[key].status = HITLStatus.RETRY
+                    st.session_state["hitl_retry_key"] = key
+                    st.rerun()
+            with col3:
+                if st.button("Reject & Continue", key=f"hitl_btn_reject_{key}"):
+                    st.session_state[f"hitl_pending_{key}"] = False
+                    self.record_rejection(key, "User rejected this stage.")
+                    st.rerun()
+            shown_any = True
+        return shown_any
 
 
 def _get_llm_client() -> LLMClient:
@@ -592,6 +659,12 @@ def _render_reproduce_mode() -> None:
                         )
 
                     paper_name = Path(uploaded_pdf.name).stem.replace(" ", "_")[:80]
+
+                    hitl: PipelineHITL | None = None
+                    if st.session_state.get("enable_hitl", False):
+                        hitl = StreamlitHITL()
+                        st.session_state["_reproduce_hitl"] = hitl
+
                     with st.status("Agent Status", expanded=True) as status:
                         _on_progress("Initializing pipeline")
                         try:
@@ -605,6 +678,7 @@ def _render_reproduce_mode() -> None:
                                 progress_callback=_on_progress,
                                 user_idea=user_idea.strip(),
                                 paper_name=paper_name,
+                                hitl=hitl,
                             )
                         except Exception as exc:
                             st.error(f"Pipeline execution failed: {exc}")
@@ -615,6 +689,23 @@ def _render_reproduce_mode() -> None:
                             status.update(label="Pipeline complete", state="complete")
 
     result = st.session_state.get("paperpilot_result")
+
+    # Show HITL confirmation dialogs if pending (after pipeline completed)
+    reproduce_hitl: StreamlitHITL | None = st.session_state.get("_reproduce_hitl")
+    if reproduce_hitl and reproduce_hitl._pending_keys:
+        st.header("Review & Confirm Agent Outputs")
+        st.caption("The pipeline has completed. Review each stage's output below and confirm, reject, or retry with feedback.")
+        if reproduce_hitl.render_pending_dialogs():
+            st.stop()
+        # After all dialogs resolved, handle retries
+        retry_keys = reproduce_hitl.get_retry_keys()
+        if retry_keys:
+            for retry_key in retry_keys:
+                correction = reproduce_hitl.get_correction(retry_key)
+                st.info(f"Retry requested for {retry_key} with feedback: {correction}")
+                # Retry logic can be expanded here if needed
+            st.session_state.pop("_reproduce_hitl", None)
+
     if result:
         _show_pipeline_errors(result.get("errors", []))
         _show_outputs(result)
@@ -695,6 +786,18 @@ def _render_productize_mode() -> None:
         "mock-first Streamlit product prototype. "
         "Generate proposals, select one, adjust the plan, then execute."
     )
+
+    # Show HITL confirmation dialogs if pending (after generate_proposals or execute_proposal)
+    productize_hitl: StreamlitHITL | None = st.session_state.get("_productize_hitl")
+    if productize_hitl and productize_hitl._pending_keys:
+        st.header("Review & Confirm Agent Outputs")
+        st.caption("The pipeline has completed. Review each stage's output below and confirm, reject, or retry with feedback.")
+        if productize_hitl.render_pending_dialogs():
+            if st.button("Continue to proposals", key="hitl_continue_productize"):
+                st.session_state["productize_stage"] = "review"
+                st.session_state.pop("_productize_hitl", None)
+                st.rerun()
+            st.stop()
 
     stage = st.session_state.get("productize_stage", "input")
 
@@ -835,6 +938,13 @@ def _render_productize_mode() -> None:
 
             _on_progress("Generating proposals...")
             try:
+                if st.session_state.get("enable_hitl", False):
+                    productize_hitl = StreamlitHITL()
+                    st.session_state["_productize_hitl"] = productize_hitl
+                else:
+                    productize_hitl = None
+                    st.session_state.pop("_productize_hitl", None)
+
                 proposals = generate_proposals(
                     papers=papers,
                     target_user=target_user.strip(),
@@ -842,6 +952,7 @@ def _render_productize_mode() -> None:
                     llm_client=_get_llm_client(),
                     user_idea=user_idea.strip(),
                     progress_callback=_on_progress,
+                    hitl=productize_hitl,
                 )
             except Exception as exc:
                 st.error(f"Proposal generation failed: {exc}")
@@ -856,7 +967,13 @@ def _render_productize_mode() -> None:
             ]
             st.session_state["productize_papers"] = papers
             st.session_state["productize_preferred_type"] = preferred_label.lower()
-            st.session_state["productize_stage"] = "review"
+
+            # Check if HITL dialogs are pending — stay on input page to show them
+            productize_hitl = st.session_state.get("_productize_hitl")
+            if productize_hitl and productize_hitl._pending_keys:
+                st.session_state["productize_stage"] = "input"
+            else:
+                st.session_state["productize_stage"] = "review"
             st.rerun()
 
     # ---------- Review ----------
@@ -996,6 +1113,11 @@ def _render_productize_mode() -> None:
 
                     _on_progress2("Executing proposal...")
                     try:
+                        exec_hitl: PipelineHITL | None = None
+                        if st.session_state.get("enable_hitl", False):
+                            exec_hitl = StreamlitHITL()
+                            st.session_state["_productize_hitl"] = exec_hitl
+
                         result = execute_proposal(
                             proposal=edited_proposal,
                             papers=papers,
@@ -1004,13 +1126,19 @@ def _render_productize_mode() -> None:
                             repo_path="",
                             llm_client=_get_llm_client(),
                             progress_callback=_on_progress2,
+                            hitl=exec_hitl,
                         )
                     except Exception as exc:
                         st.error(f"Proposal execution failed: {exc}")
                         return
 
                     st.session_state["productize_result"] = result
-                    st.session_state["productize_stage"] = "result"
+                    # If HITL is pending, stay on review page to show dialogs
+                    exec_hitl = st.session_state.get("_productize_hitl")
+                    if exec_hitl and exec_hitl._pending_keys:
+                        pass  # Stay on current page, HITL dialogs will be rendered
+                    else:
+                        st.session_state["productize_stage"] = "result"
                     st.rerun()
 
     # ---------- Result ----------
@@ -1064,6 +1192,13 @@ def main() -> None:
             "Mock Mode",
             value=st.session_state["llm_mock_mode"],
             help="When enabled, LLM calls return fixed text (no API key needed).",
+        )
+
+        st.session_state.setdefault("enable_hitl", False)
+        st.session_state["enable_hitl"] = st.toggle(
+            "Enable HITL Confirmation",
+            value=st.session_state["enable_hitl"],
+            help="When enabled, the pipeline pauses after each agent to let you review and confirm outputs before proceeding.",
         )
 
     # Productize session state

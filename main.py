@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from config import MAIN_GOAL_DEBUG
+from pipeline.hitl_context import PipelineHITL
 from pipeline.reproduce_pipeline import run_reproduce_pipeline
 from tools.llm_client import LLMClient
 
@@ -25,6 +26,7 @@ def run_paperpilot(
     progress_callback: Callable[[str], None] | None = None,
     user_idea: str = "",
     paper_name: str = "",
+    hitl: PipelineHITL | None = None,
 ) -> dict[str, Any]:
     """Run the PaperPilot analysis pipeline.
 
@@ -65,4 +67,5 @@ def run_paperpilot(
         progress_callback=progress_callback,
         user_idea=user_idea,
         paper_name=paper_name,
+        hitl=hitl,
     )

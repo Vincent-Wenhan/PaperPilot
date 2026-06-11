@@ -9,7 +9,7 @@ The project extends **Paper-to-Reproduce** into **Paper-to-Product** without pre
 
 ## Project Positioning
 
-This AIGC course project demonstrates how a lightweight, interpretable multi-agent pipeline can assist both paper reproduction and bounded application prototyping. It does not promise automatic full training, paper-result equivalence, or production-ready model integration.
+This Large AI Models course project demonstrates how a lightweight, interpretable multi-agent pipeline can assist both paper reproduction and bounded application prototyping. It does not promise automatic full training, paper-result equivalence, or production-ready model integration.
 
 ## Features
 

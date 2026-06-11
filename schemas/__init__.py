@@ -1,5 +1,4 @@
 """Pydantic schemas for structured agent output."""
-from schemas.paper_schema import PaperSummary
 from schemas.composition_schema import (
     MethodCompositionPlan,
     PaperCapabilityCard,
@@ -7,7 +6,6 @@ from schemas.composition_schema import (
     ResearchSynthesis,
 )
 from schemas.evaluation_schema import ProductEvaluation
-from schemas.repo_schema import RepoAnalysis
 from schemas.reproduction_schema import (
     ExecutionDiagnosis,
     PaperUnderstanding,
@@ -26,12 +24,10 @@ from schemas.product_schema import (
 from schemas.runner_schema import CommandPlan, CommandResult
 
 __all__ = [
-    "PaperSummary",
     "PaperCapabilityCard",
     "PaperRelationship",
     "MethodCompositionPlan",
     "ResearchSynthesis",
-    "RepoAnalysis",
     "PaperUnderstanding",
     "RepositoryUnderstanding",
     "ReproductionPlan",

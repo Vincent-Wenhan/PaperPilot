@@ -39,6 +39,7 @@
 | `config` | 配置相关 |
 | `security` | 安全策略 |
 | `productize` | 产品机会、模板、scaffold、检查与产品管线 |
+| `reproduce` | 复现管线相关 |
 
 ### subject
 

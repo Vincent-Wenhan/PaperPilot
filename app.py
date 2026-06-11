@@ -11,8 +11,13 @@ import streamlit as st
 from agents import ExecutionDiagnosisAgent
 from config import MAIN_GOAL_DEBUG, OUTPUTS_DIR, PROJECT_ROOT
 from main import run_paperpilot
-from pipeline.productize_pipeline import run_productize_pipeline
+from pipeline.productize_pipeline import (
+    execute_proposal,
+    generate_proposals,
+    run_productize_pipeline,
+)
 from pipeline.reproduce_renderers import render_execution_diagnosis
+from schemas.product_schema import ProductProposal
 from tools.command_runner import run_command_review
 from tools.llm_client import LLMClient
 
@@ -586,6 +591,7 @@ def _render_reproduce_mode() -> None:
                             "**Agent Progress**\n" + "\n".join(progress_lines)
                         )
 
+                    paper_name = Path(uploaded_pdf.name).stem.replace(" ", "_")[:80]
                     with st.status("Agent Status", expanded=True) as status:
                         _on_progress("Initializing pipeline")
                         try:
@@ -598,6 +604,7 @@ def _render_reproduce_mode() -> None:
                                 llm_client=_get_llm_client(),
                                 progress_callback=_on_progress,
                                 user_idea=user_idea.strip(),
+                                paper_name=paper_name,
                             )
                         except Exception as exc:
                             st.error(f"Pipeline execution failed: {exc}")
@@ -681,182 +688,342 @@ def _show_productize_result(result: dict[str, Any]) -> None:
 
 
 def _render_productize_mode() -> None:
-    """Render multi-paper Productize Mode with automatic analysis fallback."""
+    """Render multi-paper Productize Mode with three-stage proposal flow."""
     st.title("PaperPilot 2.0: Productize Paper")
     st.caption(
         "Combine one or more paper capabilities into a theory-guided, "
-        "mock-first Streamlit product prototype."
+        "mock-first Streamlit product prototype. "
+        "Generate proposals, select one, adjust the plan, then execute."
     )
 
-    existing_analyses = st.session_state.get("paperpilot_results") or []
-    existing_single = st.session_state.get("paperpilot_result")
-    if not existing_analyses and _has_productize_context(existing_single):
-        existing_analyses = [existing_single]
-    if existing_analyses:
-        st.success(
-            f"Reusable analysis found for {len(existing_analyses)} paper(s). "
-            "Upload new papers to replace it for this run."
-        )
-    else:
-        st.info(
-            "No reusable analysis is available. PaperPilot will automatically "
-            "analyze each uploaded paper first."
-        )
+    stage = st.session_state.get("productize_stage", "input")
 
-    st.header("Input")
-    uploaded_pdfs = st.file_uploader(
-        "Upload one or more paper PDFs",
-        type=["pdf"],
-        accept_multiple_files=True,
-        key="productize_pdf",
-    )
-    github_urls = st.text_area(
-        "GitHub URL(s) (optional)",
-        placeholder=(
-            "Use one shared URL, or enter exactly one URL per paper on separate lines."
-        ),
-        help=(
-            "Leave empty for paper-only product planning. Repositories are "
-            "cloned and scanned only when explicitly provided."
-        ),
-        key="productize_github_url",
-    )
-    hardware_column, gpu_column = st.columns(2)
-    with hardware_column:
-        hardware = st.selectbox(
-            "Hardware",
-            ["CPU only", "Single GPU", "Multi GPU"],
-            key="productize_hardware",
-        )
-    with gpu_column:
-        gpu_info = st.text_input(
-            "GPU model",
-            placeholder="e.g. RTX 4090",
-            key="productize_gpu_info",
-        )
-    target_user = st.text_input(
-        "Target user",
-        value="Machine learning learners",
-        key="productize_target_user",
-    )
-    product_goal = st.text_area(
-        "Product goal",
-        value="Turn the paper technology into an interactive course demo.",
-        key="productize_goal",
-    )
-    preferred_label = st.selectbox(
-        "Preferred product type",
-        ["Auto", "Image", "Text", "Video", "File"],
-        key="productize_preferred_type",
-    )
-    user_idea = st.text_area(
-        "Product Idea (optional)",
-        placeholder="Describe any specific product idea you have in mind...",
-        key="productize_user_idea",
-    )
-
-    if st.button(
-        "Generate Product Prototype",
-        type="primary",
-        key="generate_product",
-    ):
-        progress_lines: list[str] = []
-        progress_log = st.empty()
-
-        def _on_progress(stage: str) -> None:
-            progress_lines.append(f"- {stage}")
-            progress_log.markdown(
-                "**Productize Progress**\n" + "\n".join(progress_lines)
+    # ---------- Input ----------
+    with st.expander("Input", expanded=(stage == "input")):
+        existing_analyses = st.session_state.get("paperpilot_results") or []
+        existing_single = st.session_state.get("paperpilot_result")
+        if not existing_analyses and _has_productize_context(existing_single):
+            existing_analyses = [existing_single]
+        if existing_analyses:
+            st.success(
+                f"Reusable analysis found for {len(existing_analyses)} paper(s). "
+                "Upload new papers to replace it for this run."
+            )
+        else:
+            st.info(
+                "No reusable analysis is available. PaperPilot will automatically "
+                "analyze each uploaded paper first."
             )
 
-        analyses: list[dict[str, Any]] = []
-        titles: list[str] = []
-        if uploaded_pdfs:
-            try:
-                assigned_urls = _assign_repo_urls(github_urls, len(uploaded_pdfs))
-            except ValueError as exc:
-                st.error(str(exc))
-                return
-            for index, (uploaded_pdf, assigned_url) in enumerate(
-                zip(uploaded_pdfs, assigned_urls, strict=True),
-                1,
-            ):
-                _on_progress(f"Analyzing paper {index}: {uploaded_pdf.name}")
+        uploaded_pdfs = st.file_uploader(
+            "Upload one or more paper PDFs",
+            type=["pdf"],
+            accept_multiple_files=True,
+            key="productize_pdf",
+        )
+        github_urls = st.text_area(
+            "GitHub URL(s) (optional)",
+            placeholder=(
+                "Use one shared URL, or enter exactly one URL per paper on separate lines."
+            ),
+            help=(
+                "Leave empty for paper-only product planning. Repositories are "
+                "cloned and scanned only when explicitly provided."
+            ),
+            key="productize_github_url",
+        )
+        hw_col, gpu_col = st.columns(2)
+        with hw_col:
+            hardware = st.selectbox(
+                "Hardware",
+                ["CPU only", "Single GPU", "Multi GPU"],
+                key="productize_hardware",
+            )
+        with gpu_col:
+            gpu_info = st.text_input(
+                "GPU model",
+                placeholder="e.g. RTX 4090",
+                key="productize_gpu_info",
+            )
+        target_user = st.text_input(
+            "Target user",
+            value="Machine learning learners",
+            key="productize_target_user",
+        )
+        product_goal = st.text_area(
+            "Product goal",
+            value="Turn the paper technology into an interactive course demo.",
+            key="productize_goal",
+        )
+        preferred_label = st.selectbox(
+            "Preferred product type",
+            ["Auto", "Image", "Text", "Video", "File"],
+            key="productize_preferred_type",
+        )
+        user_idea = st.text_area(
+            "Product Idea (optional)",
+            placeholder="Describe any specific product idea you have in mind...",
+            key="productize_user_idea",
+        )
+
+        if st.button("Generate Proposals", type="primary", key="generate_proposals_btn"):
+            progress_lines: list[str] = []
+            progress_log = st.empty()
+
+            def _on_progress(msg: str) -> None:
+                progress_lines.append(f"- {msg}")
+                progress_log.markdown(
+                    "**Progress**\n" + "\n".join(progress_lines)
+                )
+
+            analyses: list[dict[str, Any]] = []
+            titles: list[str] = []
+            if uploaded_pdfs:
                 try:
-                    saved_pdf = save_uploaded_pdf(uploaded_pdf)
-                    analysis = _run_analysis_for_productize(
-                        pdf_path=str(saved_pdf),
-                        github_url=assigned_url,
-                        hardware=hardware,
-                        gpu_info=gpu_info.strip(),
-                        llm_client=_get_llm_client(),
-                        progress_callback=_on_progress,
-                    )
-                except Exception as exc:
-                    st.error(f"Automatic analysis failed for {uploaded_pdf.name}: {exc}")
+                    assigned_urls = _assign_repo_urls(github_urls, len(uploaded_pdfs))
+                except ValueError as exc:
+                    st.error(str(exc))
                     return
-                analyses.append(analysis)
-                titles.append(Path(uploaded_pdf.name).stem)
-            st.session_state["paperpilot_results"] = analyses
-            st.session_state["paperpilot_result"] = analyses[0]
-        else:
-            analyses = list(existing_analyses)
-            titles = [f"Paper {index}" for index in range(1, len(analyses) + 1)]
+                for index, (uploaded_pdf, assigned_url) in enumerate(
+                    zip(uploaded_pdfs, assigned_urls, strict=True), 1
+                ):
+                    _on_progress(f"Analyzing paper {index}: {uploaded_pdf.name}")
+                    try:
+                        saved_pdf = save_uploaded_pdf(uploaded_pdf)
+                        analysis = _run_analysis_for_productize(
+                            pdf_path=str(saved_pdf),
+                            github_url=assigned_url,
+                            hardware=hardware,
+                            gpu_info=gpu_info.strip(),
+                            llm_client=_get_llm_client(),
+                            progress_callback=_on_progress,
+                        )
+                    except Exception as exc:
+                        st.error(f"Automatic analysis failed for {uploaded_pdf.name}: {exc}")
+                        return
+                    analyses.append(analysis)
+                    titles.append(Path(uploaded_pdf.name).stem)
+                st.session_state["paperpilot_results"] = analyses
+                st.session_state["paperpilot_result"] = analyses[0]
+            else:
+                analyses = list(existing_analyses)
+                titles = [f"Paper {index}" for index in range(1, len(analyses) + 1)]
 
-        if not analyses:
-            st.error("Upload at least one paper PDF or run Reproduce Mode first.")
+            if not analyses:
+                st.error("Upload at least one paper PDF or run Reproduce Mode first.")
+                return
+            incomplete = [
+                idx
+                for idx, analysis in enumerate(analyses, 1)
+                if not _has_productize_context(analysis)
+            ]
+            if incomplete:
+                st.error(
+                    "PaperPilot could not produce paper and method analysis for "
+                    f"paper(s): {', '.join(map(str, incomplete))}."
+                )
+                for analysis in analyses:
+                    _show_pipeline_errors(analysis.get("errors", []))
+                return
+
+            papers = [
+                _analysis_to_productize_paper(
+                    analysis, index=idx, title=titles[idx - 1]
+                )
+                for idx, analysis in enumerate(analyses, 1)
+            ]
+
+            _on_progress("Generating proposals...")
+            try:
+                proposals = generate_proposals(
+                    papers=papers,
+                    target_user=target_user.strip(),
+                    product_goal=product_goal.strip(),
+                    llm_client=_get_llm_client(),
+                    user_idea=user_idea.strip(),
+                    progress_callback=_on_progress,
+                )
+            except Exception as exc:
+                st.error(f"Proposal generation failed: {exc}")
+                return
+
+            if not proposals:
+                st.error("No proposals were generated. Please try different inputs.")
+                return
+
+            st.session_state["productize_proposals"] = [
+                p.model_dump(mode="json") for p in proposals
+            ]
+            st.session_state["productize_papers"] = papers
+            st.session_state["productize_preferred_type"] = preferred_label.lower()
+            st.session_state["productize_stage"] = "review"
+            st.rerun()
+
+    # ---------- Review ----------
+    if stage == "review":
+        proposals_data = st.session_state.get("productize_proposals", [])
+        papers = st.session_state.get("productize_papers", [])
+        preferred_type = st.session_state.get("productize_preferred_type", "auto")
+
+        if not proposals_data:
+            st.error("No proposals available. Go back to input.")
+            if st.button("Back to input"):
+                st.session_state["productize_stage"] = "input"
+                st.rerun()
             return
-        incomplete = [
-            index
-            for index, analysis in enumerate(analyses, 1)
-            if not _has_productize_context(analysis)
-        ]
-        if incomplete:
-            st.error(
-                "PaperPilot could not produce paper and method analysis for "
-                f"paper(s): {', '.join(map(str, incomplete))}."
-            )
-            for analysis in analyses:
-                _show_pipeline_errors(analysis.get("errors", []))
-            return
 
-        papers = [
-            _analysis_to_productize_paper(
-                analysis,
-                index=index,
-                title=titles[index - 1],
-            )
-            for index, analysis in enumerate(analyses, 1)
-        ]
-        primary = papers[0]
-        primary_repo_path = next(
-            (str(paper["repo_path"]) for paper in papers if paper["repo_path"]),
-            "",
-        )
-        try:
-            product_result = run_productize_pipeline(
-                paper_info=str(primary["paper_info"]),
-                method_info=str(primary["method_info"]),
-                repo_info=str(primary["repo_info"]),
-                repo_path=primary_repo_path,
-                target_user=target_user.strip(),
-                product_goal=product_goal.strip(),
-                llm_client=_get_llm_client(),
-                preferred_type=preferred_label.lower(),
-                progress_callback=_on_progress,
-                user_idea=user_idea.strip(),
-                papers=papers,
-            )
-        except Exception as exc:
-            st.error(f"Productize pipeline failed: {exc}")
+        selected_data = st.session_state.get("productize_selected_proposal")
+        if selected_data is None:
+            # Show proposals in tabs
+            proposal_names = [
+                p.get("product_name") or f"Proposal {i+1}"
+                for i, p in enumerate(proposals_data)
+            ]
+            tabs = st.tabs(proposal_names)
+            for i, (tab, prop) in enumerate(zip(tabs, proposals_data)):
+                with tab:
+                    st.subheader(prop.get("product_name", "Untitled"))
+                    st.markdown(f"**Target User:** {prop.get('target_user', 'N/A')}")
+                    st.markdown(f"**Product Goal:** {prop.get('product_goal', 'N/A')}")
+                    st.markdown(f"**JTBD:** {prop.get('jtbd', 'N/A')}")
+
+                    # Opportunities
+                    opps = prop.get("opportunities", [])
+                    if opps:
+                        st.markdown("**Product Opportunities:**")
+                        for opp in opps:
+                            st.markdown(
+                                f"- **{opp.get('idea_name', 'Idea')}** "
+                                f"(Score: {opp.get('overall_score', 'N/A')}/5) — "
+                                f"{opp.get('core_value', '')}"
+                            )
+
+                    # PRD
+                    prd = prop.get("prd", {})
+                    with st.expander("PRD", expanded=True):
+                        st.markdown(f"**Problem:** {prd.get('problem_statement', 'N/A')}")
+                        st.markdown("**Core Features:**")
+                        for feat in prd.get("core_features", []):
+                            st.markdown(f"- {feat}")
+                        st.markdown("**User Flow:**")
+                        for step_text in prd.get("user_flow", []):
+                            st.markdown(f"- {step_text}")
+
+                    # MVP Scope
+                    mvp = prop.get("mvp_scope", {})
+                    with st.expander("MVP / MoSCoW"):
+                        for label, key in [("Must Have", "must_have"), ("Should Have", "should_have"),
+                                          ("Could Have", "could_have"), ("Won't Have", "wont_have")]:
+                            items = mvp.get(key, [])
+                            st.markdown(f"**{label}:**")
+                            for item in items:
+                                st.markdown(f"- {item}")
+
+                    # Risks
+                    risks = prop.get("risks", [])
+                    if risks:
+                        with st.expander("Risks"):
+                            for r in risks:
+                                st.markdown(f"- {r}")
+
+                    if st.button("Select This Proposal", key=f"select_proposal_{i}"):
+                        st.session_state["productize_selected_proposal"] = prop
+                        st.rerun()
         else:
-            st.session_state["productize_result"] = product_result
+            # Proposal selected — show editable view
+            st.subheader(f"Selected: {selected_data.get('product_name', 'Untitled')}")
+            st.markdown(f"**Target User:** {selected_data.get('target_user', 'N/A')}")
+            st.markdown(f"**JTBD:** {selected_data.get('jtbd', 'N/A')}")
 
-    product_result = st.session_state.get("productize_result")
-    if product_result:
-        _show_productize_result(product_result)
-    else:
-        st.info("Generate a product prototype to view Productize outputs.")
+            # Editable fields
+            prd = selected_data.get("prd", {})
+            st.markdown("### Edit PRD & MVP")
+            edited_core_features = st.text_area(
+                "Core Features (one per line)",
+                value="\n".join(prd.get("core_features", [])),
+                height=100,
+                key="edit_core_features",
+            )
+            edited_must_have = st.text_area(
+                "Must Have (one per line)",
+                value="\n".join(selected_data.get("mvp_scope", {}).get("must_have", [])),
+                height=80,
+                key="edit_must_have",
+            )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Back to proposals", key="back_to_proposals"):
+                    st.session_state["productize_selected_proposal"] = None
+                    st.rerun()
+            with col2:
+                if st.button("Execute Proposal", type="primary", key="execute_proposal_btn"):
+                    # Apply edits
+                    prd["core_features"] = [
+                        l.strip() for l in edited_core_features.split("\n") if l.strip()
+                    ]
+                    selected_data["mvp_scope"]["must_have"] = [
+                        l.strip() for l in edited_must_have.split("\n") if l.strip()
+                    ]
+
+                    # Rebuild ProductProposal
+                    from schemas.product_schema import PRD as PRDModel, MVPScope as MVPScopeModel
+                    edited_proposal = ProductProposal(
+                        product_name=selected_data.get("product_name", ""),
+                        target_user=selected_data.get("target_user", ""),
+                        product_goal=selected_data.get("product_goal", ""),
+                        jtbd=selected_data.get("jtbd", ""),
+                        opportunities=[
+                            ProductProposal.__pydantic_fields__["opportunities"].__class__(
+                                **opp
+                            ) if isinstance(opp, dict) else opp
+                            for opp in selected_data.get("opportunities", [])
+                        ],
+                        value_proposition=selected_data.get("value_proposition", {}),
+                        prd=PRDModel(**prd),
+                        mvp_scope=MVPScopeModel(**selected_data.get("mvp_scope", {})),
+                        risks=selected_data.get("risks", []),
+                    )
+
+                    progress_lines = []
+                    progress_log = st.empty()
+
+                    def _on_progress2(msg: str) -> None:
+                        progress_lines.append(f"- {msg}")
+                        progress_log.markdown(
+                            "**Execution Progress**\n" + "\n".join(progress_lines)
+                        )
+
+                    _on_progress2("Executing proposal...")
+                    try:
+                        result = execute_proposal(
+                            proposal=edited_proposal,
+                            papers=papers,
+                            research_synthesis={},
+                            preferred_type=preferred_type,
+                            repo_path="",
+                            llm_client=_get_llm_client(),
+                            progress_callback=_on_progress2,
+                        )
+                    except Exception as exc:
+                        st.error(f"Proposal execution failed: {exc}")
+                        return
+
+                    st.session_state["productize_result"] = result
+                    st.session_state["productize_stage"] = "result"
+                    st.rerun()
+
+    # ---------- Result ----------
+    if stage == "result":
+        result = st.session_state.get("productize_result")
+        if result:
+            _show_productize_result(result)
+        if st.button("Start over", key="productize_start_over"):
+            st.session_state["productize_stage"] = "input"
+            st.session_state["productize_proposals"] = []
+            st.session_state["productize_selected_proposal"] = None
+            st.session_state["productize_result"] = None
+            st.rerun()
 
 
 def main() -> None:
@@ -898,6 +1065,14 @@ def main() -> None:
             value=st.session_state["llm_mock_mode"],
             help="When enabled, LLM calls return fixed text (no API key needed).",
         )
+
+    # Productize session state
+    st.session_state.setdefault("productize_stage", "input")
+    st.session_state.setdefault("productize_proposals", [])
+    st.session_state.setdefault("productize_selected_proposal", None)
+    st.session_state.setdefault("productize_result", None)
+    st.session_state.setdefault("productize_papers", [])
+    st.session_state.setdefault("productize_preferred_type", "auto")
 
     if mode == "Reproduce Paper":
         _render_reproduce_mode()

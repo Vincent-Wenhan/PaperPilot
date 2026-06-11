@@ -56,18 +56,21 @@ Reproduce Mode
 └── Deterministic Report Builder
 ↓
 Productize Mode
-├── Research Synthesizer Agent
-│   ├── Capability Cards and Capability Map
-│   └── Method Composition Plan
-├── Product Planner Agent
-│   ├── JTBD and Value Proposition
-│   └── PRD, MVP, and MoSCoW
-├── Prototype Builder Agent
-├── Template selection and deterministic scaffold
-├── Product Evaluator Agent
-└── Static inspection and rubric evaluation
+├── [Phase 1] generate_proposals()
+│   ├── Research Synthesizer Agent
+│   │   ├── Capability Cards and Capability Map
+│   │   └── Method Composition Plan
+│   └── Product Planner Agent
+│       ├── JTBD and Value Proposition
+│       └── PRD, MVP, and MoSCoW
+├── [Review] User selects & edits a proposal
+├── [Phase 2] execute_proposal()
+│   ├── Prototype Builder Agent
+│   ├── Template selection and deterministic scaffold
+│   ├── Product Evaluator Agent
+│   └── Static inspection and rubric evaluation
 ↓
-generated_product/
+generated_product/<product_name>/
 ```
 
 ## Agent Overview
@@ -101,12 +104,12 @@ PaperPilot/
 ├── prompts/
 ├── uploads/
 ├── workspace/
-├── outputs/
+├── outputs/                   # Per-paper outputs (outputs/<paper_name>/)
 │   ├── reproduction_plan.md
 │   ├── run.sh
 │   └── report.md
-├── generated_product/       # Runtime-generated, gitignored prototype
-├── examples/                # Sample outputs illustrating pipeline results
+├── generated_product/         # Runtime-generated prototypes (generated_product/<product_name>/)
+├── examples/                  # Sample outputs illustrating pipeline results
 ├── requirements.txt
 └── README.md
 ```
@@ -197,18 +200,23 @@ product generation.
 3. Optionally provide one shared GitHub URL or one URL per paper on separate lines.
 4. Enter the target user and product goal.
 5. Choose `Auto`, `Image`, `Text`, `Video`, or `File`.
-6. Click **Generate Product Prototype**.
-7. Review capability cards, composition plan, opportunities, PRD/MVP, prototype plan, generated files, and rubric evaluation.
+6. Click **Generate Proposals** to produce one or more product proposals.
+7. Review proposals in tabs — each shows the full product plan (PRD, MVP/MoSCoW, risks, opportunities).
+8. Select a proposal and optionally edit the core features and must-have scope.
+9. Click **Execute Proposal** to generate the Streamlit prototype.
+10. Review capability cards, composition plan, opportunities, PRD/MVP, prototype plan, generated files, and rubric evaluation.
 
-The Productize pipeline returns structured artifacts for downstream use:
-`capability_cards`, `capability_map`, `composition_plan`, `product_plan`,
-`prd`, `mvp_scope`, `prototype_plan`, and `evaluation`. Existing single-paper
-callers of `run_productize_pipeline()` remain supported.
+The Productize pipeline is split into two phases:
+
+- **`generate_proposals()`** — runs Research Synthesizer + Product Planner, returns a list of `ProductProposal` instances (one per identified opportunity).
+- **`execute_proposal()`** — runs Prototype Builder + Template Selection + Scaffold + Product Evaluator for a single selected proposal.
+
+Existing single-paper callers of `run_productize_pipeline()` remain supported.
 
 The generated bundle contains:
 
 ```text
-generated_product/
+generated_product/<product_name>/
 ├── app.py
 ├── adapter.py
 ├── README.md
@@ -217,13 +225,10 @@ generated_product/
 └── outputs/
 ```
 
-Existing output is moved to a timestamped `generated_product_backup_*`
-directory before a replacement is written.
-
 Run the prototype:
 
 ```bash
-cd generated_product
+cd generated_product/<product_name>
 pip install -r requirements.txt
 streamlit run app.py
 ```
@@ -268,13 +273,14 @@ When a deterministic Runner command fails, the system forwards the command, cwd,
 
 ## Output Files
 
-- `outputs/reproduction_plan.md`: paper, method, repository, environment, experiment roadmap, checklist, and risks
-- `outputs/run.sh`: contains only safe default commands and TODO comments
-- `outputs/report.md`: structured reproduction report suitable for course project presentation
+- `outputs/<paper_name>/reproduction_plan.md`: paper, method, repository, environment, experiment roadmap, checklist, and risks
+- `outputs/<paper_name>/run.sh`: contains only safe default commands and TODO comments
+- `outputs/<paper_name>/report.md`: structured reproduction report suitable for course project presentation
 
-Mock example outputs are provided in the repository. Each pipeline run overwrites these files.
+Each paper's outputs are saved in a separate directory named after the PDF filename.
+Mock example outputs are provided in the repository (`outputs/` root fallback when no paper name is available).
 
-Product prototypes are runtime artifacts under `generated_product/` and are
+Product prototypes are runtime artifacts under `generated_product/<product_name>/` and are
 gitignored. The main application displays their contents after generation.
 
 ## Limitations

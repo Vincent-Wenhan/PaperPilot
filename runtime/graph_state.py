@@ -38,6 +38,12 @@ class ReproduceState(TypedDict, total=False):
     paper_text: str
     paper_name: str
     github_url: str
+    hardware: str
+    gpu_info: str
+    goal: str
+    user_idea: str
+    generate_code: bool
+    implementation_model: str
     repo_path: str
     repo_scan: dict[str, Any]
     research_understanding: dict[str, Any]

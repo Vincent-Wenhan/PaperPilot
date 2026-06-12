@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO
 from uuid import uuid4
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import streamlit as st
 
 from agents import ExecutionDiagnosisAgent
-from config import MAIN_GOAL_DEBUG, OUTPUTS_DIR, PROJECT_ROOT
+from config import (
+    LLM_BASE_URL,
+    LLM_MOCK_MODE,
+    LLM_MODEL,
+    MAIN_GOAL_DEBUG,
+    OUTPUTS_DIR,
+    PROJECT_ROOT,
+)
 from main import run_paperpilot
 from pipeline.productize_pipeline import run_productize_pipeline
 from pipeline.reproduce_renderers import render_execution_diagnosis
 from tools.command_runner import run_command_review
-from tools.llm_client import LLMClient
+from tools.llm_client import LLMClient, LLMClientError
 
 
 UPLOADS_DIR = PROJECT_ROOT / "uploads"
@@ -55,13 +64,41 @@ def save_uploaded_pdf(uploaded_file: BinaryIO) -> Path:
     return destination
 
 
-def _show_pipeline_errors(errors: list[str]) -> None:
+def _show_pipeline_errors(
+    errors: list[str],
+    pipeline_status: str = "complete",
+) -> None:
     if not errors:
         st.success("Analysis complete. No errors recorded.")
         return
-    st.warning("Analysis completed, but some steps encountered issues:")
+    if pipeline_status == "failed":
+        st.error(
+            "LLM analysis failed. The visible outputs are fallback placeholders, "
+            "not a real reading of the paper."
+        )
+    else:
+        st.warning("Analysis completed, but some steps encountered issues:")
     for error in errors:
         st.error(error)
+
+
+def _build_generated_code_zip(repo_path: str, files: list[str]) -> bytes:
+    """Build an in-memory ZIP from the validated generated-file manifest."""
+    root = Path(repo_path).expanduser().resolve()
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+        for filename in files:
+            path = (root / filename).resolve()
+            try:
+                path.relative_to(root)
+            except ValueError as exc:
+                raise ValueError(f"Generated file is outside repository: {filename}") from exc
+            if path.is_file():
+                archive.write(path, arcname=filename)
+        manifest = root / "CODE_AGENT_MANIFEST.json"
+        if manifest.is_file():
+            archive.write(manifest, arcname=manifest.name)
+    return buffer.getvalue()
 
 
 def _show_outputs(result: dict[str, Any]) -> None:
@@ -78,20 +115,51 @@ def _show_outputs(result: dict[str, Any]) -> None:
         ]
     )
     with tabs[0]:
+        paper_context = result.get("paper_context") or {}
+        if paper_context:
+            st.caption(
+                "PDF context sent to Research Understanding Agent: "
+                f"{paper_context.get('characters', 0):,} characters across "
+                f"{paper_context.get('pages', 0)} page(s); "
+                f"truncated: {paper_context.get('truncated', False)}"
+            )
         st.markdown(result.get("paper_info") or "Paper summary not yet generated.")
     with tabs[1]:
         st.markdown(result.get("method_info") or "Method breakdown not yet generated.")
     with tabs[2]:
         repo_path = result.get("repo_path")
         repo_source = result.get("repo_source")
+        generated_repo_path = result.get("generated_repo_path")
         if repo_source:
             st.caption(f"Code source: {repo_source}")
         if repo_path:
             st.caption(f"Local repository: {repo_path}")
+        if generated_repo_path:
+            st.caption(f"Generated reproduction repository: {generated_repo_path}")
+        implementation_model = result.get("implementation_model")
+        if implementation_model:
+            st.caption(f"Implementation model: {implementation_model}")
         code_info = result.get("code_info")
         if code_info:
             st.subheader("Additional Code Context")
             st.markdown(code_info)
+        generated_files = result.get("generated_files") or []
+        if generated_repo_path and generated_files:
+            st.subheader("Generated Code")
+            st.download_button(
+                label="Download generated reproduction code",
+                data=_build_generated_code_zip(generated_repo_path, generated_files),
+                file_name="paperpilot_generated_reproduction.zip",
+                mime="application/zip",
+                key="download_generated_reproduction",
+            )
+            generated_root = Path(generated_repo_path)
+            for filename in generated_files:
+                path = generated_root / filename
+                if path.is_file():
+                    with st.expander(filename):
+                        language = "python" if path.suffix == ".py" else "text"
+                        st.code(path.read_text(encoding="utf-8"), language=language)
         st.subheader("Repository Analysis")
         st.markdown(result.get("repo_info") or "Repository analysis not yet generated.")
     with tabs[3]:
@@ -128,11 +196,30 @@ def _show_downloads() -> None:
 
 def _get_llm_client() -> LLMClient:
     """Build an LLMClient from sidebar session state (falling back to env vars)."""
+    api_key = str(st.session_state.get("llm_api_key") or "").strip() or None
+    base_url = str(st.session_state.get("llm_base_url") or "").strip() or None
+    model = str(st.session_state.get("llm_model") or "").strip() or None
     return LLMClient(
-        api_key=st.session_state.get("llm_api_key"),
-        base_url=st.session_state.get("llm_base_url"),
-        model=st.session_state.get("llm_model"),
-        mock_mode=st.session_state.get("llm_mock_mode", True),
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        mock_mode=st.session_state.get("llm_mock_mode", LLM_MOCK_MODE),
+    )
+
+
+def _get_implementation_llm_client() -> LLMClient:
+    """Build the optional code-generation client from sidebar session state."""
+    client = _get_llm_client()
+    implementation_model = str(
+        st.session_state.get("llm_implementation_model") or ""
+    ).strip()
+    if not implementation_model or implementation_model == client.model:
+        return client
+    return LLMClient(
+        api_key=client.api_key,
+        base_url=client.base_url,
+        model=implementation_model,
+        mock_mode=client.mock_mode,
     )
 
 
@@ -492,6 +579,7 @@ def _run_analysis_for_productize(
         goal="run official demo",
         llm_client=llm_client,
         progress_callback=progress_callback,
+        generate_code=False,
     )
 
 
@@ -502,6 +590,17 @@ def _render_reproduce_mode() -> None:
         "Generate executable, inspectable reproduction plans from paper PDFs, "
         "with or without an existing code repository."
     )
+    configured_client = _get_llm_client()
+    if configured_client.mock_mode:
+        st.warning(
+            "Mock Mode is enabled. The PDF will be parsed, but no LLM will read "
+            "or analyze the paper."
+        )
+    elif not configured_client.api_key:
+        st.warning(
+            "No LLM API key is configured. Add one in the sidebar or through "
+            "LLM_API_KEY before running a real paper analysis."
+        )
 
     st.header("Input")
     uploaded_pdf = st.file_uploader(
@@ -547,6 +646,15 @@ def _render_reproduce_mode() -> None:
         placeholder="Any specific focus areas, concerns, or ideas you want the analysis to consider...",
         key="reproduce_user_idea",
     )
+    generate_code = st.checkbox(
+        "Generate a minimal reproduction code project",
+        value=True,
+        help=(
+            "Creates a separate, inspectable code project with a synthetic smoke "
+            "test. Generated code is never executed automatically."
+        ),
+        key="reproduce_generate_code",
+    )
 
     st.session_state["selected_hardware"] = hardware
     st.session_state["selected_gpu_info"] = gpu_info
@@ -561,8 +669,14 @@ def _render_reproduce_mode() -> None:
             st.session_state.pop("paperpilot_result", None)
         else:
             validation_errors: list[str] = []
+            analysis_client = _get_llm_client()
             if uploaded_pdf is None:
                 validation_errors.append("Please upload a paper PDF.")
+            if not analysis_client.mock_mode and not analysis_client.api_key:
+                validation_errors.append(
+                    "Configure an LLM API key for real analysis, or explicitly "
+                    "enable Mock Mode for a pipeline-only demo."
+                )
             if validation_errors:
                 for error in validation_errors:
                     st.error(error)
@@ -595,21 +709,43 @@ def _render_reproduce_mode() -> None:
                                 hardware=hardware,
                                 gpu_info=gpu_info.strip(),
                                 goal=goal,
-                                llm_client=_get_llm_client(),
+                                llm_client=analysis_client,
                                 progress_callback=_on_progress,
                                 user_idea=user_idea.strip(),
+                                generate_code=generate_code,
+                                implementation_model=st.session_state.get(
+                                    "llm_implementation_model",
+                                    "",
+                                ),
                             )
                         except Exception as exc:
                             st.error(f"Pipeline execution failed: {exc}")
                             status.update(label="Analysis failed", state="error")
                         else:
                             st.session_state["paperpilot_result"] = result
-                            _on_progress("Analysis complete")
-                            status.update(label="Pipeline complete", state="complete")
+                            pipeline_status = result.get("pipeline_status", "complete")
+                            if pipeline_status == "failed":
+                                _on_progress("Analysis failed; fallback outputs generated")
+                                status.update(label="Pipeline failed", state="error")
+                            elif pipeline_status == "degraded":
+                                _on_progress("Analysis completed with issues")
+                                status.update(
+                                    label="Pipeline completed with issues",
+                                    state="error",
+                                )
+                            elif pipeline_status == "mock":
+                                _on_progress("Mock pipeline complete")
+                                status.update(label="Mock pipeline complete", state="complete")
+                            else:
+                                _on_progress("Analysis complete")
+                                status.update(label="Pipeline complete", state="complete")
 
     result = st.session_state.get("paperpilot_result")
     if result:
-        _show_pipeline_errors(result.get("errors", []))
+        _show_pipeline_errors(
+            result.get("errors", []),
+            result.get("pipeline_status", "complete"),
+        )
         _show_outputs(result)
     elif st.session_state.get("debug_goal_selected"):
         st.info(
@@ -626,7 +762,13 @@ def _render_reproduce_mode() -> None:
 def _show_productize_result(result: dict[str, Any]) -> None:
     errors = result.get("errors", [])
     if errors:
-        st.warning("The prototype was generated with partial-stage issues.")
+        if result.get("pipeline_status") == "failed":
+            st.error(
+                "LLM product analysis failed. The generated prototype uses "
+                "fallback placeholder planning."
+            )
+        else:
+            st.warning("The prototype was generated with partial-stage issues.")
         for error in errors:
             st.error(error)
     else:
@@ -874,9 +1016,13 @@ def main() -> None:
         )
         st.header("LLM Configuration")
         st.session_state.setdefault("llm_api_key", "")
-        st.session_state.setdefault("llm_base_url", "https://api.openai.com/v1")
-        st.session_state.setdefault("llm_model", "gpt-4o-mini")
-        st.session_state.setdefault("llm_mock_mode", True)
+        st.session_state.setdefault(
+            "llm_base_url",
+            LLM_BASE_URL or "https://api.openai.com/v1",
+        )
+        st.session_state.setdefault("llm_model", LLM_MODEL)
+        st.session_state.setdefault("llm_implementation_model", "")
+        st.session_state.setdefault("llm_mock_mode", LLM_MOCK_MODE)
 
         st.session_state["llm_api_key"] = st.text_input(
             "API Key",
@@ -893,11 +1039,48 @@ def main() -> None:
             "Model",
             value=st.session_state["llm_model"],
         )
+        st.session_state["llm_implementation_model"] = st.text_input(
+            "Implementation Model (optional)",
+            value=st.session_state["llm_implementation_model"],
+            help=(
+                "Use a stronger model only for generated reproduction code. "
+                "Leave empty to reuse the main model. Only use a dedicated model "
+                "after Test Implementation Model succeeds."
+            ),
+        )
+        if "mediem" in st.session_state["llm_implementation_model"].lower():
+            st.error(
+                "Implementation Model contains `mediem`. Check whether the exact "
+                "provider model name should use `medium`."
+            )
         st.session_state["llm_mock_mode"] = st.toggle(
             "Mock Mode",
             value=st.session_state["llm_mock_mode"],
             help="When enabled, LLM calls return fixed text (no API key needed).",
         )
+        if st.button("Test LLM Connection", use_container_width=True):
+            try:
+                connection_result = _get_llm_client().test_connection()
+            except LLMClientError as exc:
+                st.error(str(exc))
+            except Exception as exc:
+                st.error(f"Unexpected LLM connection test failure: {exc}")
+            else:
+                st.success(f"LLM connection succeeded: {connection_result}")
+        if st.session_state["llm_implementation_model"].strip() and st.button(
+            "Test Implementation Model",
+            use_container_width=True,
+        ):
+            try:
+                connection_result = _get_implementation_llm_client().test_connection()
+            except LLMClientError as exc:
+                st.error(str(exc))
+            except Exception as exc:
+                st.error(f"Unexpected implementation-model test failure: {exc}")
+            else:
+                st.success(
+                    f"Implementation model connection succeeded: {connection_result}"
+                )
 
     if mode == "Reproduce Paper":
         _render_reproduce_mode()

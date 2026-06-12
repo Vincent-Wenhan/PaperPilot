@@ -19,9 +19,12 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 
 - Upload and parse paper PDFs
 - Optionally validate and shallow-clone public GitHub repositories
-- Continue with explicit paper-only planning when no repository URL is available
+- Generate an independent minimal reproduction project when requested
 - Scan README, dependency files, configurations, and candidate entry points
 - Generate paper summaries and engineering-oriented method breakdowns
+- Reconstruct module dataflow, objectives, experiment findings, and an implementation blueprint
+- Generate a separate runnable reproduction project with synthetic smoke tests
+- Generate a reviewed, dry-run-first Python downloader when exact dataset or checkpoint HTTPS links are found in paper or repository evidence
 - Plan environments based on CPU, single-GPU, or multi-GPU
 - Generate hierarchical experiment roadmaps, checklists, and safe `run.sh`
 - Run version checks and `--help` on lightweight candidate commands
@@ -52,6 +55,7 @@ Reproduce Mode
 ├── Research Understanding Agent
 ├── Repository Understanding Agent
 ├── Reproduction Planner Agent
+├── Reproduction Implementation Agent
 ├── Execution & Diagnosis Agent
 └── Deterministic Report Builder
 ↓
@@ -77,6 +81,7 @@ generated_product/
 | Research Understanding Agent | Merge paper reading and method extraction into one structured artifact |
 | Repository Understanding Agent | Interpret static repository scans and environment evidence |
 | Reproduction Planner Agent | Plan environment, data, experiments, safe commands, risks, and fallbacks |
+| Reproduction Implementation Agent | Generate a bounded runnable implementation and smoke tests |
 | Execution & Diagnosis Agent | Interpret command results and logs without executing commands |
 | Research Synthesizer Agent | Build capability cards, relationships, and method composition plans |
 | Product Planner Agent | Apply JTBD, Value Proposition, PRD, MVP, and MoSCoW |
@@ -92,7 +97,7 @@ PaperPilot/
 ├── app.py
 ├── main.py
 ├── config.py
-├── agents/                  # Eight active high-level agents
+├── agents/                  # Nine active high-level agents
 │   └── legacy/              # Inactive migration-reference agents
 ├── guidelines/              # Product, composition, UI, and safety rules
 ├── schemas/                 # Structured paper, composition, product, and evaluation models
@@ -156,9 +161,12 @@ Open the local address output by Streamlit in your browser. The application entr
 
 ## Mock Mode
 
-The project defaults to mock mode (no API key needed). Mock mode is controlled via the **Mock Mode** toggle in the Streamlit sidebar.
+Real LLM analysis is the default. Mock mode must be explicitly enabled with the
+**Mock Mode** toggle in the Streamlit sidebar.
 
-Mock mode returns fixed text, but PDF parsing, URL validation, repository cloning, scanning, output file generation, and the secure Runner still go through the real local pipeline. The page will not crash without an API key.
+Mock mode validates PDF parsing, URL validation, repository cloning, scanning,
+output generation, and the secure Runner, but no LLM reads the paper. Paper
+analysis outputs are clearly labeled as placeholders.
 
 ## Real LLM API
 
@@ -169,18 +177,24 @@ Mock mode returns fixed text, but PDF parsing, URL validation, repository clonin
 | API Key | Your OpenAI-compatible API key (password-masked) |
 | Base URL | Endpoint URL, defaults to `https://api.openai.com/v1` |
 | Model | Model name, defaults to `gpt-4o-mini` |
+| Implementation Model | Optional stronger model used only for generated reproduction code |
 | Mock Mode | Toggle on/off — when enabled, no API call is made |
+
+Use **Test LLM Connection** in the sidebar before analysis to validate the
+runtime dependency, Base URL, API key, model, and network/proxy path. Connection
+failures stop repeated agent requests and are reported directly instead of
+being mislabeled as invalid JSON.
 
 Alternatively, you may still use environment variables (`LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_MOCK_MODE`) — sidebar values take precedence. Do not write API keys into code or commit them to the repository.
 
 ## Reproduce Mode
 
 1. Upload a paper PDF.
-2. Optionally enter a repository URL in `https://github.com/owner/repository` format. Leave it empty for paper-only planning.
+2. Optionally enter a repository URL in `https://github.com/owner/repository` format.
 3. Select `CPU only`, `Single GPU`, or `Multi GPU`; optionally enter a GPU model.
 4. Select a goal: understand the paper, run the official demo, minimal training experiment, reproduce main experiments, or debug errors.
 5. Click `Analyze` to view agent status and stage results.
-6. Download `reproduction_plan.md`, `run.sh`, and `report.md`.
+6. Review and download the generated reproduction code ZIP, `reproduction_plan.md`, `run.sh`, and `report.md`.
 7. In the Runner section, click safe commands manually; automatic debugging appears on failure.
 8. In the Debug section, paste logs for independent diagnosis.
 
@@ -261,6 +275,11 @@ Security measures include:
 - stdout and stderr are truncated to the last 4000 characters
 
 The Runner will not execute full training, demo bodies, unknown shell scripts, or download large datasets by default.
+
+Generated reproduction projects may include `scripts/download_data.py` only
+when PaperPilot finds exact HTTPS dataset or checkpoint links in paper or
+repository evidence. The script prints its plan by default, requires explicit
+`--execute` for network access, and is never run automatically.
 
 ## Debug Capabilities
 

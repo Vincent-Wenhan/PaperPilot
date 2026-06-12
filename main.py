@@ -24,6 +24,8 @@ def run_paperpilot(
     llm_client: LLMClient | None = None,
     progress_callback: Callable[[str], None] | None = None,
     user_idea: str = "",
+    generate_code: bool = True,
+    implementation_model: str = "",
 ) -> dict[str, Any]:
     """Run the PaperPilot analysis pipeline.
 
@@ -31,14 +33,24 @@ def run_paperpilot(
     """
     if goal == MAIN_GOAL_DEBUG:
         result: PipelineResult = {
+            "pipeline_status": "skipped",
+            "llm_attempts": 0,
+            "llm_failures": 0,
+            "llm_unavailable_clients": [],
             "research_understanding": {},
             "repository_understanding": {},
             "reproduction_plan": {},
             "execution_diagnosis": {},
+            "implementation_bundle": {},
+            "implementation_model": "",
+            "resource_links": [],
+            "paper_context": {},
             "paper_info": "",
             "method_info": "",
             "repo_path": "",
             "repo_source": "",
+            "generated_repo_path": "",
+            "generated_files": [],
             "code_info": "",
             "repo_info": "",
             "env_plan": "",
@@ -63,4 +75,6 @@ def run_paperpilot(
         llm_client=llm_client,
         progress_callback=progress_callback,
         user_idea=user_idea,
+        generate_code=generate_code,
+        implementation_model=implementation_model,
     )

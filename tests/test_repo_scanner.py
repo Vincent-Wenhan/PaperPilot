@@ -39,6 +39,13 @@ class TestRepoScanner(unittest.TestCase):
         result = scan_repo(str(self.root))
         self.assertIn("train.py", result["possible_entrypoints"])
 
+    def test_scanner_detects_descriptive_entrypoint_names(self) -> None:
+        (self.root / "train_lpwm.py").write_text("def main(): pass")
+        (self.root / "generate_video_prediction.py").write_text("def main(): pass")
+        result = scan_repo(str(self.root))
+        self.assertIn("train_lpwm.py", result["possible_entrypoints"])
+        self.assertIn("generate_video_prediction.py", result["possible_entrypoints"])
+
     def test_scanner_skips_pycache(self) -> None:
         result = scan_repo(str(self.root))
         all_files = result["important_files"]
@@ -53,6 +60,30 @@ class TestRepoScanner(unittest.TestCase):
     def test_scanner_detects_important_directories(self) -> None:
         result = scan_repo(str(self.root))
         self.assertIn("notebooks", result["important_directories"])
+
+    def test_scanner_extracts_evidence_backed_resource_links(self) -> None:
+        (self.root / "README.md").write_text(
+            "# Test Repo\nDownload the dataset from https://example.com/data.zip"
+        )
+        result = scan_repo(str(self.root))
+
+        self.assertEqual(len(result["resource_links"]), 1)
+        self.assertEqual(result["resource_links"][0]["url"], "https://example.com/data.zip")
+        self.assertEqual(result["resource_links"][0]["source"], "repository README")
+
+    def test_scanner_extracts_resource_links_from_docs(self) -> None:
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "checkpoints.md").write_text(
+            "Download pretrained weights from https://example.com/model.ckpt"
+        )
+        result = scan_repo(str(self.root))
+
+        self.assertEqual(len(result["resource_links"]), 1)
+        self.assertEqual(result["resource_links"][0]["url"], "https://example.com/model.ckpt")
+        self.assertEqual(
+            result["resource_links"][0]["source"],
+            "repository docs/checkpoints.md",
+        )
 
     def test_scanner_raises_on_nonexistent_dir(self) -> None:
         with self.assertRaises(NotADirectoryError):

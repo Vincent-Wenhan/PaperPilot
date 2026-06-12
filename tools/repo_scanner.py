@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from tools.resource_links import extract_resource_links
 
 IMPORTANT_NAMES = {
     "README.md",
@@ -23,7 +24,30 @@ IMPORTANT_NAMES = {
 }
 IMPORTANT_DIRECTORIES = {"scripts", "configs", "examples", "notebooks"}
 ENTRYPOINT_NAMES = {"train.py", "main.py", "eval.py", "test.py", "demo.py", "run.py", "inference.py", "app.py", "server.py"}
+ENTRYPOINT_KEYWORDS = {
+    "train",
+    "eval",
+    "test",
+    "demo",
+    "run",
+    "infer",
+    "predict",
+    "generate",
+    "app",
+    "server",
+}
 CONFIG_SUFFIXES = {".yaml", ".yml", ".json", ".toml", ".ini", ".cfg"}
+RESOURCE_DOC_SUFFIXES = {".md", ".rst", ".txt"}
+RESOURCE_DOC_KEYWORDS = {
+    "data",
+    "dataset",
+    "download",
+    "checkpoint",
+    "pretrained",
+    "weights",
+    "model",
+}
+MAX_RESOURCE_DOCS = 32
 SKIPPED_DIRECTORIES = {".git", "__pycache__", ".venv", "venv", "node_modules"}
 
 FRAMEWORK_PATTERNS: dict[str, list[str]] = {
@@ -61,6 +85,57 @@ def _relative_paths(paths: list[Path], root: Path) -> list[str]:
     return sorted(path.relative_to(root).as_posix() for path in paths)
 
 
+def _looks_like_entrypoint(path: Path, root: Path) -> bool:
+    if path.suffix.lower() != ".py":
+        return False
+    relative = path.relative_to(root)
+    if path.name in ENTRYPOINT_NAMES:
+        return True
+    allowed_locations = len(relative.parts) == 1 or relative.parts[0] in {
+        "scripts",
+        "examples",
+        "docs",
+    }
+    stem_tokens = path.stem.lower().replace("-", "_").split("_")
+    return allowed_locations and any(
+        any(token.startswith(keyword) for keyword in ENTRYPOINT_KEYWORDS)
+        for token in stem_tokens
+    )
+
+
+def _extract_repo_resource_links(
+    files: list[Path],
+    root: Path,
+    max_file_chars: int,
+) -> list[dict[str, str]]:
+    """Extract links from bounded repository documentation without executing it."""
+    candidates = [
+        path
+        for path in files
+        if path.suffix.lower() in RESOURCE_DOC_SUFFIXES
+        and (
+            path.name.lower().startswith("readme")
+            or "docs" in {part.lower() for part in path.relative_to(root).parts[:-1]}
+            or any(keyword in path.stem.lower() for keyword in RESOURCE_DOC_KEYWORDS)
+        )
+    ]
+    links: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    for path in sorted(candidates)[:MAX_RESOURCE_DOCS]:
+        relative = path.relative_to(root).as_posix()
+        source = (
+            "repository README"
+            if path.name.lower().startswith("readme")
+            else f"repository {relative}"
+        )
+        for link in extract_resource_links(_read_text(path, max_file_chars), source):
+            if link.url in seen_urls:
+                continue
+            seen_urls.add(link.url)
+            links.append(link.model_dump(mode="json"))
+    return links
+
+
 def scan_repo(
     repo_path: str | Path,
     max_file_chars: int = 12_000,
@@ -94,12 +169,7 @@ def scan_repo(
     entrypoints = [
         path
         for path in files
-        if path.name in ENTRYPOINT_NAMES
-        or (
-            len(path.relative_to(root).parts) >= 2
-            and path.relative_to(root).parts[0] == "examples"
-            and path.name.endswith(".py")
-        )
+        if _looks_like_entrypoint(path, root)
     ]
     config_files = [
         path
@@ -146,6 +216,7 @@ def scan_repo(
         "setup_content": (
             _read_text(setup_file, max_file_chars) if setup_file else ""
         ),
+        "resource_links": _extract_repo_resource_links(files, root, max_file_chars),
     }
 
 
@@ -217,7 +288,10 @@ def _has_training_code(entrypoints: list[str]) -> bool:
 
 def _has_inference_code(entrypoints: list[str]) -> bool:
     combined = " ".join(entrypoints)
-    return any(kw in combined for kw in ["infer", "eval", "test", "demo", "app", "predict"])
+    return any(
+        kw in combined
+        for kw in ["infer", "eval", "test", "demo", "app", "predict", "generate"]
+    )
 
 
 def scan_repo_detailed(

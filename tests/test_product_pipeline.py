@@ -7,7 +7,19 @@ from unittest.mock import patch
 
 from agents.research_synthesizer_agent import ResearchSynthesizerAgent
 from pipeline.productize_pipeline import run_productize_pipeline
-from tools.llm_client import LLMClient
+from tools.llm_client import LLMClient, LLMConnectionError
+
+
+class FailingLLMClient:
+    mock_mode = False
+
+    def __init__(self) -> None:
+        self.generate_calls = 0
+
+    def generate(self, system_prompt: str, user_prompt: str) -> str:
+        del system_prompt, user_prompt
+        self.generate_calls += 1
+        raise LLMConnectionError("Could not connect to product endpoint.")
 
 
 class ProductPipelineTests(unittest.TestCase):
@@ -79,6 +91,25 @@ class ProductPipelineTests(unittest.TestCase):
             self.assertIn("# Product Plan", result["product_spec"])
             self.assertTrue(result["scaffold_result"]["success"])
             self.assertTrue(result["inspection"]["can_run_mock"])
+
+    def test_connection_failure_stops_repeated_product_llm_requests(self) -> None:
+        client = FailingLLMClient()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = run_productize_pipeline(
+                paper_info="paper",
+                method_info="method",
+                repo_info="",
+                repo_path="",
+                target_user="Students",
+                product_goal="Demo",
+                llm_client=client,
+                output_dir=Path(temp_dir) / "generated_product",
+            )
+
+        self.assertEqual(client.generate_calls, 1)
+        self.assertEqual(result["pipeline_status"], "failed")
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertNotIn("invalid structured output", result["errors"][0])
 
     def test_multi_paper_pipeline_builds_composition_and_prd(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

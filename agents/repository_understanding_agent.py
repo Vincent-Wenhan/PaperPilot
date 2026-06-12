@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from agents.structured_agent import StructuredAgent
-from schemas.reproduction_schema import RepositoryUnderstanding
+from schemas.reproduction_schema import RepositoryUnderstanding, ResourceLink
 from tools.llm_client import LLMClient
 
 
@@ -56,7 +56,14 @@ class RepositoryUnderstandingAgent(StructuredAgent[RepositoryUnderstanding]):
             config_files=list(scan.get("config_files", [])),
             training_entrypoints=_entrypoints(scan, ("train",)),
             evaluation_entrypoints=_entrypoints(scan, ("eval", "test")),
-            demo_entrypoints=_entrypoints(scan, ("demo", "app", "infer", "main")),
+            demo_entrypoints=_entrypoints(
+                scan,
+                ("demo", "app", "infer", "main", "generate", "predict"),
+            ),
+            resource_links=[
+                ResourceLink.model_validate(item)
+                for item in scan.get("resource_links", [])
+            ],
             risk_signals=list(scan.get("risk_signals", [])),
             minimal_runnable_candidates=possible[:5],
             environment_evidence=list(scan.get("notes", [])),

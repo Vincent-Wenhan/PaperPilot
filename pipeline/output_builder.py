@@ -11,6 +11,14 @@ from tools.markdown_writer import save_markdown, save_shell_script
 def build_reproduction_plan(result: dict[str, Any]) -> str:
     """Assemble the reproduction plan markdown from pipeline results."""
     errors = "\n".join(f"- {error}" for error in result["errors"]) or "- None found."
+    smoke_command = (
+        result.get("implementation_bundle", {}).get("smoke_test_command")
+        or "Not generated."
+    )
+    download_command = (
+        result.get("implementation_bundle", {}).get("data_download_command")
+        or "Not generated because no evidence-backed link was found."
+    )
     return f"""# Reproduction Plan
 
 ## 1. Paper Summary
@@ -38,6 +46,8 @@ def build_reproduction_plan(result: dict[str, Any]) -> str:
 - `python --version`
 - `pip --version`
 - Run `python <entrypoint> --help` on detected entry points
+- Generated data download command: `{download_command}`
+- Generated implementation smoke test: `{smoke_command}`
 - Demo execution requires explicit user confirmation
 
 ## 8. Checklist
@@ -52,7 +62,10 @@ def build_reproduction_plan(result: dict[str, Any]) -> str:
 """
 
 
-def build_run_script(repo_scan: dict[str, Any] | None) -> str:
+def build_run_script(
+    repo_scan: dict[str, Any] | None,
+    implementation_bundle: dict[str, Any] | None = None,
+) -> str:
     """Build a safe run script with TODO placeholders."""
     entrypoints = (repo_scan or {}).get("possible_entrypoints", [])
     help_todos = "\n".join(
@@ -61,6 +74,22 @@ def build_run_script(repo_scan: dict[str, Any] | None) -> str:
     )
     if not help_todos:
         help_todos = "# TODO: locate an entrypoint and run it with --help"
+    smoke_command = str(
+        (implementation_bundle or {}).get("smoke_test_command") or ""
+    ).strip()
+    download_command = str(
+        (implementation_bundle or {}).get("data_download_command") or ""
+    ).strip()
+    smoke_todo = (
+        f"# TODO: cd <generated-reproduction-directory> && {smoke_command}"
+        if smoke_command
+        else "# TODO: no generated implementation smoke test is available"
+    )
+    download_todo = (
+        f"# TODO: review URLs, then cd <generated-reproduction-directory> && {download_command}"
+        if download_command
+        else "# No evidence-backed resource URL was found; no download script generated"
+    )
 
     return f"""#!/usr/bin/env bash
 set -e
@@ -77,6 +106,12 @@ pip --version
 # TODO: run minimal demo or help command
 {help_todos}
 
+# TODO: review and run the generated implementation smoke test
+{smoke_todo}
+
+# TODO: review and explicitly run the generated data download script
+{download_todo}
+
 # TODO: training commands require explicit user review and confirmation
 """
 
@@ -84,6 +119,10 @@ pip --version
 def build_report(result: dict[str, Any], diagnosis: str = "") -> str:
     """Assemble the final reproduction report."""
     errors = "\n".join(f"- {error}" for error in result["errors"]) or "- None"
+    download_command = (
+        result.get("implementation_bundle", {}).get("data_download_command")
+        or "No evidence-backed dataset or checkpoint link was found."
+    )
     return f"""# PaperPilot Reproduction Report
 
 ## Paper Information
@@ -104,7 +143,11 @@ def build_report(result: dict[str, Any], diagnosis: str = "") -> str:
 {result["env_plan"] or "Not generated."}
 
 ## Data Preparation
-Prepare data manually based on the paper, repository README, and experiment plan. The system will not download large datasets by default.
+PaperPilot only generates a downloader for exact HTTPS links found near dataset or
+checkpoint evidence in the paper or repository documentation. The generated downloader is
+dry-run by default and requires manual review plus `--execute`.
+
+- Reviewed download command: `{download_command}`
 
 ## Commands
 By default only version checks are executed. Entry point `--help`, demo, and training commands require user review.

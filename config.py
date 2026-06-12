@@ -15,7 +15,7 @@ GUIDELINES_DIR = PROJECT_ROOT / "guidelines"
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
-LLM_MOCK_MODE = os.getenv("LLM_MOCK_MODE", "true").lower() in {
+LLM_MOCK_MODE = os.getenv("LLM_MOCK_MODE", "false").lower() in {
     "1",
     "true",
     "yes",

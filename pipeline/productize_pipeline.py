@@ -22,7 +22,7 @@ from schemas.product_schema import (
     ProductPlan,
     PrototypePlan,
 )
-from tools.llm_client import LLMClient
+from tools.llm_client import LLMClient, LLMClientError
 
 ProductResult = dict[str, Any]
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
@@ -30,6 +30,10 @@ SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 def _record_error(result: ProductResult, stage: str, error: object) -> None:
     result["errors"].append(f"[{stage}] {error}")
+
+
+def _llm_client_key(client: LLMClient) -> str:
+    return f"{getattr(client, 'base_url', '')}|{getattr(client, 'model', '')}"
 
 
 def _run_structured_stage(
@@ -40,8 +44,29 @@ def _run_structured_stage(
     input_data: dict[str, Any],
     fallback: Callable[[], SchemaT],
 ) -> SchemaT:
+    client_key = _llm_client_key(llm_client)
+    unavailable_clients = result["llm_unavailable_clients"]
+    if client_key in unavailable_clients and not llm_client.mock_mode:
+        return fallback()
+    if not llm_client.mock_mode:
+        result["llm_attempts"] += 1
     try:
         return agent_factory(llm_client).run_structured(input_data)
+    except LLMClientError as exc:
+        result["llm_failures"] += 1
+        if exc.blocks_client and client_key not in unavailable_clients:
+            unavailable_clients.append(client_key)
+        fallback_note = (
+            "Remaining stages using the same endpoint and model used fallback outputs."
+            if exc.blocks_client
+            else "This stage used a fallback output; later stages will continue."
+        )
+        _record_error(
+            result,
+            stage,
+            f"{exc} {fallback_note}",
+        )
+        return fallback()
     except Exception as exc:
         _record_error(result, stage, exc)
         return fallback()
@@ -172,6 +197,10 @@ def run_productize_pipeline(
     ``papers`` with paper, method, and optional repository context per item.
     """
     result: ProductResult = {
+        "pipeline_status": "initializing",
+        "llm_attempts": 0,
+        "llm_failures": 0,
+        "llm_unavailable_clients": [],
         "papers": [],
         "research_synthesis": {},
         "capability_cards": [],
@@ -355,4 +384,12 @@ def run_productize_pipeline(
     )
     result["evaluation"] = evaluation.model_dump(mode="json")
     result["test_report"] = _evaluation_to_markdown(evaluation)
+    if client.mock_mode:
+        result["pipeline_status"] = "mock"
+    elif result["llm_failures"] and result["llm_failures"] == result["llm_attempts"]:
+        result["pipeline_status"] = "failed"
+    elif result["errors"]:
+        result["pipeline_status"] = "degraded"
+    else:
+        result["pipeline_status"] = "complete"
     return result

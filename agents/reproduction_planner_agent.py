@@ -63,6 +63,14 @@ class ReproductionPlannerAgent(StructuredAgent[ReproductionPlan]):
         )
         return ReproductionPlan(
             goal=goal,
+            implementation_strategy=(
+                "Build a minimal modular vertical slice with synthetic data, then "
+                "replace approximations using verified paper and repository evidence."
+            ),
+            architecture_plan=[
+                "Separate data generation/loading, method modules, evaluation, and CLI entry points.",
+                "Keep module interfaces inspectable and covered by a smoke test.",
+            ],
             environment_plan=[
                 f"Use an isolated Python environment for {hardware}.",
                 "Review dependency files before installing packages.",
@@ -83,6 +91,16 @@ class ReproductionPlannerAgent(StructuredAgent[ReproductionPlan]):
                 "Run a small smoke test before full experiments.",
                 "Compare outputs and metrics with the paper.",
             ],
+            acceptance_criteria=[
+                "The generated project imports successfully.",
+                "The safe smoke-test command completes on synthetic data.",
+                "README documents paper evidence, assumptions, and omitted scope.",
+            ],
+            validation_plan=[
+                "Run syntax and import checks.",
+                "Run the synthetic end-to-end smoke test.",
+                "Compare data-contract shapes at every module boundary.",
+            ],
             command_plans=commands,
             risks=repository.risk_signals
             or ["Repository and asset availability require verification."],
@@ -91,3 +109,21 @@ class ReproductionPlannerAgent(StructuredAgent[ReproductionPlan]):
                 "Scale down data and compute before attempting full reproduction.",
             ],
         )
+
+    def validate_structured_result(
+        self,
+        result: ReproductionPlan,
+        input_data: dict[str, Any],
+    ) -> str | None:
+        del input_data
+        required = (
+            ("implementation strategy", result.implementation_strategy),
+            ("architecture plan", result.architecture_plan),
+            ("minimal reproduction steps", result.minimal_reproduction_steps),
+            ("acceptance criteria", result.acceptance_criteria),
+            ("validation plan", result.validation_plan),
+        )
+        missing = [name for name, value in required if not value]
+        if missing:
+            return f"implementation-ready reproduction plan is missing: {', '.join(missing)}"
+        return None

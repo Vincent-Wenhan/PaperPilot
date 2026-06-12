@@ -1,13 +1,65 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
+from zipfile import ZipFile
+from io import BytesIO
 
 import app
 from tools.llm_client import LLMClient
 
 
 class ProductizeUiTests(unittest.TestCase):
+    def test_build_generated_code_zip_uses_manifest_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "main.py").write_text("print('ok')\n", encoding="utf-8")
+            data = app._build_generated_code_zip(str(root), ["main.py"])
+        with ZipFile(BytesIO(data)) as archive:
+            self.assertEqual(archive.namelist(), ["main.py"])
+
+    def test_blank_sidebar_values_fall_back_to_environment(self) -> None:
+        state = {
+            "llm_api_key": "",
+            "llm_base_url": "",
+            "llm_model": "",
+            "llm_mock_mode": False,
+        }
+        with (
+            patch.object(app.st, "session_state", state),
+            patch.dict(
+                "os.environ",
+                {
+                    "LLM_API_KEY": "env-key",
+                    "LLM_BASE_URL": "https://example.test/v1",
+                    "LLM_MODEL": "test-model",
+                },
+            ),
+        ):
+            client = app._get_llm_client()
+
+        self.assertEqual(client.api_key, "env-key")
+        self.assertEqual(client.base_url, "https://example.test/v1")
+        self.assertEqual(client.model, "test-model")
+        self.assertFalse(client.mock_mode)
+
+    def test_implementation_client_uses_optional_model(self) -> None:
+        state = {
+            "llm_api_key": "key",
+            "llm_base_url": "https://example.test/v1",
+            "llm_model": "main-model",
+            "llm_implementation_model": "code-model",
+            "llm_mock_mode": False,
+        }
+        with patch.object(app.st, "session_state", state):
+            client = app._get_implementation_llm_client()
+
+        self.assertEqual(client.model, "code-model")
+        self.assertEqual(client.base_url, "https://example.test/v1")
+        self.assertEqual(client.api_key, "key")
+
     def test_has_productize_context_allows_paper_only_analysis(self) -> None:
         complete = {
             "paper_info": "paper",
@@ -84,6 +136,7 @@ class ProductizeUiTests(unittest.TestCase):
             goal="run official demo",
             llm_client=client,
             progress_callback=None,
+            generate_code=False,
         )
 
 

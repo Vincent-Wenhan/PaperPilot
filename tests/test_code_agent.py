@@ -72,6 +72,7 @@ class CodeAgentTests(unittest.TestCase):
                 gpu_info="",
                 goal="minimal training experiment",
                 llm_client=LLMClient(mock_mode=True),
+                generate_code=False,
             )
 
         self.assertEqual(result["repo_source"], "Paper only")
@@ -95,6 +96,7 @@ class CodeAgentTests(unittest.TestCase):
                     pdf_path="paper.pdf",
                     github_url="https://github.com/owner/repository",
                     llm_client=LLMClient(mock_mode=True),
+                    generate_code=False,
                 )
 
             self.assertEqual(result["repo_source"], "GitHub repository")

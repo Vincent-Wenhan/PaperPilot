@@ -6,8 +6,23 @@ import re
 from pathlib import Path
 
 
-def parse_pdf(pdf_path: str | Path, max_chars: int = 50_000) -> str:
-    """Extract text from a PDF and truncate it to ``max_chars`` characters."""
+DEFAULT_MAX_CHARS = 120_000
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+    """Keep both the paper body opening and ending when truncation is required."""
+    if len(text) <= max_chars:
+        return text
+    marker = "\n\n[... PDF text truncated by PaperPilot ...]\n\n"
+    if max_chars <= len(marker):
+        return text[:max_chars]
+    available = max_chars - len(marker)
+    head_chars = int(available * 0.75)
+    return f"{text[:head_chars]}{marker}{text[-(available - head_chars):]}"
+
+
+def parse_pdf(pdf_path: str | Path, max_chars: int = DEFAULT_MAX_CHARS) -> str:
+    """Extract page-marked PDF text within the configured context budget."""
     path = Path(pdf_path).expanduser()
     if max_chars <= 0:
         raise ValueError("max_chars must be a positive integer.")
@@ -27,7 +42,10 @@ def parse_pdf(pdf_path: str | Path, max_chars: int = 50_000) -> str:
         with fitz.open(path) as document:
             if document.needs_pass:
                 raise ValueError(f"PDF is encrypted and cannot be parsed: {path}")
-            text = "\n".join(page.get_text("text") for page in document)
+            text = "\n\n".join(
+                f"[Page {page_number}]\n{page.get_text('text')}"
+                for page_number, page in enumerate(document, 1)
+            )
     except ValueError:
         raise
     except Exception as exc:
@@ -36,7 +54,7 @@ def parse_pdf(pdf_path: str | Path, max_chars: int = 50_000) -> str:
     cleaned_text = text.strip()
     if not cleaned_text:
         raise ValueError(f"No text could be extracted from the PDF; it may be a scanned document: {path}")
-    return cleaned_text[:max_chars]
+    return _truncate_text(cleaned_text, max_chars)
 
 
 def analyze_pdf_quality(pdf_path: str | Path) -> dict[str, object]:
@@ -84,7 +102,7 @@ SECTION_KEYWORDS: dict[str, tuple[str, int]] = {
 
 def extract_pdf_sections(
     pdf_path: str | Path,
-    max_chars: int = 50_000,
+    max_chars: int = DEFAULT_MAX_CHARS,
 ) -> dict[str, object]:
     """Extract text from PDF with section-specific caption blocks.
 
@@ -125,7 +143,7 @@ def extract_pdf_sections(
         if avg_chars < 100:
             warnings.append("Very low text density; may be a scanned document. Consider OCR.")
 
-        cleaned = all_text.strip()[:max_chars]
+        cleaned = _truncate_text(all_text.strip(), max_chars)
         result: dict[str, object] = {
             "main_text": cleaned if cleaned else "",
             "warnings": warnings,

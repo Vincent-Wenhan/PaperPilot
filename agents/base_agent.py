@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from config import PROMPTS_DIR
-from tools.llm_client import LLMClient
+from tools.llm_client import LLMClient, LLMClientError
 
 
 class BaseAgent:
@@ -61,6 +61,11 @@ class BaseAgent:
         raise TypeError("Input must be a string or a dict.")
 
     @staticmethod
+    def _load_json_lenient(raw_text: str) -> Any:
+        """Parse JSON while tolerating unescaped control characters in strings."""
+        return json.loads(raw_text, strict=False)
+
+    @staticmethod
     def parse_json_response(raw_text: str, schema: type[BaseModel]):
         """Try to parse LLM output as JSON matching a Pydantic schema.
 
@@ -73,7 +78,7 @@ class BaseAgent:
             return None, "Empty response."
 
         try:
-            data = _json.loads(raw_text)
+            data = BaseAgent._load_json_lenient(raw_text)
             return schema.model_validate(data), None
         except (_json.JSONDecodeError, ValidationError) as e:
             return None, str(e)
@@ -109,7 +114,7 @@ class BaseAgent:
         )
         if code_match:
             try:
-                data = _json.loads(code_match.group(1).strip())
+                data = BaseAgent._load_json_lenient(code_match.group(1).strip())
                 return schema.model_validate(data), None
             except (_json.JSONDecodeError, ValidationError):
                 pass
@@ -118,7 +123,7 @@ class BaseAgent:
         brace_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
         if brace_match:
             try:
-                data = _json.loads(brace_match.group(0))
+                data = BaseAgent._load_json_lenient(brace_match.group(0))
                 return schema.model_validate(data), None
             except (_json.JSONDecodeError, ValidationError):
                 pass
@@ -133,5 +138,7 @@ class BaseAgent:
             if not isinstance(result, str) or not result.strip():
                 return f"{self.name} failed: LLM returned an empty result."
             return result
+        except LLMClientError:
+            raise
         except Exception as exc:
             return f"{self.name} failed: {exc}"

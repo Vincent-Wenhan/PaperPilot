@@ -27,7 +27,7 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 - Generate a reviewed, dry-run-first Python downloader when exact dataset or checkpoint HTTPS links are found in paper or repository evidence
 - Plan environments based on CPU, single-GPU, or multi-GPU
 - Generate hierarchical experiment roadmaps, checklists, and safe `run.sh`
-- Run version checks and `--help` on lightweight candidate commands
+- Classify candidate commands as safe, review, or blocked without executing them
 - Execute commands through deterministic Runner tools and analyze failures with the Execution & Diagnosis Agent
 - Generate and download reproduction plans, scripts, and course-project reports
 
@@ -52,27 +52,27 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 Paper PDF(s) + GitHub URL(s) (optional)
 ↓
 Reproduce Mode
-├── Research Understanding Agent
-├── Repository Understanding Agent
-├── Reproduction Planner Agent
+├── LangGraph: parse paper
+├── [parallel] Research Understanding + repository preparation
+├── Repository Understanding Agent (joined evidence)
+├── Reproduction Planner Agent + command risk routing
 ├── Reproduction Implementation Agent
 ├── Execution & Diagnosis Agent
 └── Deterministic Report Builder
 ↓
 Productize Mode
-├── [Phase 1] generate_proposals()
-│   ├── Research Synthesizer Agent
+├── [Phase 1] LangGraph generate_proposals()
+│   ├── Research Synthesizer Agent fan-out per paper
 │   │   ├── Capability Cards and Capability Map
 │   │   └── Method Composition Plan
 │   └── Product Planner Agent
 │       ├── JTBD and Value Proposition
 │       └── PRD, MVP, and MoSCoW
 ├── [Review] User selects & edits a proposal
-├── [Phase 2] execute_proposal()
+├── [Phase 2] LangGraph execute_proposal()
 │   ├── Prototype Builder Agent
-│   ├── Template selection and deterministic scaffold
-│   ├── Product Evaluator Agent
-│   └── Static inspection and rubric evaluation
+│   ├── Product Evaluator Agent + bounded revision routing
+│   └── Final deterministic scaffold and static inspection
 ↓
 generated_product/<product_name>/
 ```
@@ -102,6 +102,8 @@ PaperPilot/
 ├── config.py
 ├── agents/                  # Nine active high-level agents
 │   └── legacy/              # Inactive migration-reference agents
+├── graphs/                  # Productize and Reproduce LangGraph workflows
+├── runtime/                 # Graph state, routing, checkpoints, and tool runtime
 ├── guidelines/              # Product, composition, UI, and safety rules
 ├── schemas/                 # Structured paper, composition, product, and evaluation models
 ├── productize/
@@ -150,7 +152,7 @@ Verify dependencies:
 
 ```bash
 conda run -n paperpilot python -m pip check
-conda run -n paperpilot python -c "import fitz, streamlit, openai; print('imports ok')"
+conda run -n paperpilot python -c "import fitz, langgraph, openai, streamlit, yaml; print('imports ok')"
 ```
 
 ## Running
@@ -201,6 +203,11 @@ Alternatively, you may still use environment variables (`LLM_API_KEY`, `LLM_BASE
 7. In the Runner section, click safe commands manually; automatic debugging appears on failure.
 8. In the Debug section, paste logs for independent diagnosis.
 
+The Reproduce graph parses the paper once, prepares research and repository
+evidence in parallel, then joins both branches for planning. Planned commands
+are risk-classified and recorded as `executed=False`; the graph never runs them
+automatically. Execution remains an explicit action in the Runner UI.
+
 ## Productize Mode
 
 Productize Mode reuses current-session paper analysis when available. It also
@@ -220,12 +227,14 @@ product generation.
 9. Click **Execute Proposal** to generate the Streamlit prototype.
 10. Review capability cards, composition plan, opportunities, PRD/MVP, prototype plan, generated files, and rubric evaluation.
 
-The Productize pipeline is split into two phases:
+The Productize pipeline is split into two backward-compatible LangGraph phases:
 
-- **`generate_proposals()`** — runs Research Synthesizer + Product Planner, returns a list of `ProductProposal` instances (one per identified opportunity).
-- **`execute_proposal()`** — runs Prototype Builder + Template Selection + Scaffold + Product Evaluator for a single selected proposal.
+- **`generate_proposals()`** — fans out capability extraction per paper, synthesizes the merged evidence, and returns one `ProductProposal` per opportunity.
+- **`execute_proposal()`** — evaluates and revises the selected plan at most once by default, then performs one final scaffold and inspection.
 
 Existing single-paper callers of `run_productize_pipeline()` remain supported.
+Existing Reproduce and Productize result keys also remain stable; graph-specific
+trace, issue, revision, and command-review metadata are additive.
 
 The generated bundle contains:
 

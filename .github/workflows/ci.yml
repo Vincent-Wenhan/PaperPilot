@@ -32,6 +32,9 @@ jobs:
           python -m py_compile pipeline/*.py
           python -m py_compile productize/*.py
           python -m py_compile schemas/*.py
+          python -m py_compile runtime/*.py
+          python -m py_compile graphs/*.py
+          python -m py_compile graphs/subgraphs/*.py
 
       - name: Run tests
         run: |

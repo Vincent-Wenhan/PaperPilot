@@ -1,5 +1,9 @@
 # LangGraph Phase 1-4 Implementation Plan
 
+**Status (2026-06-12):** Implemented on
+`codex/langgraph-deep-refactor-phase1-4`. Runtime/tool, Productize, Reproduce,
+compatibility, CI, documentation, and validation tasks are complete.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Introduce LangGraph orchestration, a safety-aware deterministic tool runtime, Productize fan-out/revision graphs, and a parallel Reproduce graph without breaking PaperPilot's public APIs.

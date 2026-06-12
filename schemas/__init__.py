@@ -23,6 +23,7 @@ from schemas.product_schema import (
     ValueProposition,
 )
 from schemas.runner_schema import CommandPlan, CommandResult
+from schemas.tool_schema import ToolCall, ToolResult, ToolSpec
 
 __all__ = [
     "PaperCapabilityCard",
@@ -44,4 +45,7 @@ __all__ = [
     "ProductEvaluation",
     "CommandPlan",
     "CommandResult",
+    "ToolSpec",
+    "ToolCall",
+    "ToolResult",
 ]

@@ -168,6 +168,12 @@ class LLMClient:
             f"LLM request to `{endpoint}` failed ({status}){detail}"
         )
 
+    @staticmethod
+    def _uses_max_completion_tokens(model: str) -> bool:
+        """Recent o-series models use max_completion_tokens instead of max_tokens."""
+        known_prefixes = ("o1", "o3", "o4", "gpt-5")
+        return any(model.startswith(prefix) for prefix in known_prefixes)
+
     def _create_completion(
         self,
         messages: list[dict[str, str]],
@@ -179,7 +185,10 @@ class LLMClient:
             "messages": messages,
         }
         if max_tokens is not None:
-            options["max_tokens"] = max_tokens
+            if self._uses_max_completion_tokens(self.model):
+                options["max_completion_tokens"] = max_tokens
+            else:
+                options["max_tokens"] = max_tokens
         try:
             return self._get_client().chat.completions.create(**options)
         except LLMClientError:

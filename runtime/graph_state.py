@@ -8,7 +8,11 @@ from typing import Annotated, Any, TypedDict
 
 class ProductizeState(TypedDict, total=False):
     papers: list[dict[str, Any]]
+    target_user: str
+    product_goal: str
+    user_idea: str
     capability_jobs: list[dict[str, Any]]
+    capability_job: dict[str, Any]
     capability_cards: Annotated[list[dict[str, Any]], operator.add]
     research_synthesis: dict[str, Any]
     proposals: list[dict[str, Any]]

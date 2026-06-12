@@ -13,6 +13,12 @@ from agents import (
     PrototypeBuilderAgent,
     ResearchSynthesizerAgent,
 )
+from graphs.productize_graph import (
+    ProductizeExecutionDependencies,
+    ProductizeProposalDependencies,
+    build_productize_execution_graph,
+    build_productize_proposal_graph,
+)
 from productize import inspect_generated_product, scaffold_product, select_product_template
 from pipeline.productize_renderers import render_opportunities
 from pipeline.hitl_context import PipelineHITL
@@ -251,7 +257,7 @@ def _product_plan_to_proposal(
     )
 
 
-def generate_proposals(
+def _legacy_generate_proposals(
     papers: list[dict[str, Any]],
     target_user: str,
     product_goal: str,
@@ -372,7 +378,7 @@ def generate_proposals(
     return proposals
 
 
-def execute_proposal(
+def _legacy_execute_proposal(
     proposal: ProductProposal,
     papers: list[dict[str, Any]],
     research_synthesis: dict[str, Any],
@@ -593,6 +599,551 @@ def execute_proposal(
     return result
 
 
+def _new_product_result() -> ProductResult:
+    return {
+        "pipeline_status": "initializing",
+        "llm_attempts": 0,
+        "llm_failures": 0,
+        "llm_unavailable_clients": [],
+        "papers": [],
+        "research_synthesis": {},
+        "capability_cards": [],
+        "capability_map": {},
+        "composition_plan": {},
+        "opportunities": "",
+        "product_plan": {},
+        "prd": {},
+        "mvp_scope": {},
+        "product_spec": "",
+        "template_type": "",
+        "prototype_plan": {},
+        "adapter_plan": "",
+        "frontend_plan": "",
+        "scaffold_result": {},
+        "inspection": {},
+        "evaluation": {},
+        "test_report": "",
+        "revision_history": [],
+        "graph_trace": [],
+        "issues": [],
+        "errors": [],
+    }
+
+
+def _invoke_proposal_graph(
+    papers: list[dict[str, Any]],
+    target_user: str,
+    product_goal: str,
+    llm_client: LLMClient,
+    user_idea: str = "",
+    progress_callback: Callable[[str], None] | None = None,
+    hitl: PipelineHITL | None = None,
+    result: ProductResult | None = None,
+) -> tuple[list[ProductProposal], ProductResult]:
+    compatibility_result = result or _new_product_result()
+    normalized_papers = _normalize_papers(papers, "", "", "", "")
+    compatibility_result["papers"] = normalized_papers
+
+    def progress(stage: str) -> None:
+        if progress_callback:
+            progress_callback(stage)
+
+    def extract_capability(paper: dict[str, Any]):
+        progress(
+            "Research Synthesizer Agent extracting capability "
+            f"for {paper.get('title') or paper.get('paper_id')}"
+        )
+        synthesis = _run_structured_stage(
+            compatibility_result,
+            f"Research Synthesizer Agent [{paper.get('paper_id', 'paper')}]",
+            ResearchSynthesizerAgent,
+            llm_client,
+            {
+                "papers": [paper],
+                "target_domain": product_goal,
+                "user_goal": user_idea,
+            },
+            fallback=lambda: ResearchSynthesizerAgent(llm_client).build_mock(
+                {"papers": [paper]}
+            ),
+        )
+        if synthesis.capability_cards:
+            return synthesis.capability_cards[0]
+        return ResearchSynthesizerAgent(llm_client).build_mock(
+            {"papers": [paper]}
+        ).capability_cards[0]
+
+    def synthesize_research(
+        graph_papers: list[dict[str, Any]],
+        cards: list[dict[str, Any]],
+    ) -> ResearchSynthesis:
+        progress("Research Synthesizer Agent composing paper capabilities")
+        synthesis = _run_structured_stage(
+            compatibility_result,
+            "Research Synthesizer Agent",
+            ResearchSynthesizerAgent,
+            llm_client,
+            {
+                "papers": graph_papers,
+                "capability_cards": cards,
+                "target_domain": product_goal,
+                "user_goal": user_idea,
+            },
+            fallback=lambda: ResearchSynthesizerAgent(llm_client).build_mock(
+                {"papers": graph_papers}
+            ),
+        )
+        if not synthesis.capability_cards and cards:
+            synthesis.capability_cards = [
+                ResearchSynthesis.model_validate(
+                    {"capability_cards": [card]}
+                ).capability_cards[0]
+                for card in cards
+            ]
+        if hitl:
+            hitl_result = hitl.request_confirmation(
+                "capabilities",
+                "Capability Cards",
+                render_capability_cards(synthesis),
+            )
+            if hitl_result == "retry":
+                correction = hitl.get_correction("capabilities")
+                progress("Research Synthesizer Agent retrying with feedback")
+                synthesis = _run_structured_stage(
+                    compatibility_result,
+                    "Research Synthesizer Agent (retry)",
+                    ResearchSynthesizerAgent,
+                    llm_client,
+                    {
+                        "papers": graph_papers,
+                        "capability_cards": cards,
+                        "target_domain": product_goal,
+                        "user_goal": user_idea,
+                        "user_correction": correction,
+                    },
+                    fallback=lambda: synthesis,
+                )
+            elif hitl_result == "reject":
+                _record_error(
+                    compatibility_result,
+                    "HITL: Research Synthesis",
+                    "Rejected by user",
+                )
+        return synthesis
+
+    def plan_product(
+        synthesis: dict[str, Any],
+        graph_target_user: str,
+        graph_product_goal: str,
+        graph_user_idea: str,
+    ) -> ProductPlan:
+        progress("Product Planner Agent building PRD and MVP")
+        return _run_structured_stage(
+            compatibility_result,
+            "Product Planner Agent",
+            ProductPlannerAgent,
+            llm_client,
+            {
+                "research_synthesis": synthesis,
+                "target_user": graph_target_user,
+                "product_goal": graph_product_goal,
+                "user_idea": graph_user_idea,
+            },
+            fallback=lambda: ProductPlannerAgent(llm_client).build_mock(
+                {
+                    "research_synthesis": synthesis,
+                    "target_user": graph_target_user,
+                    "product_goal": graph_product_goal,
+                }
+            ),
+        )
+
+    graph = build_productize_proposal_graph(
+        ProductizeProposalDependencies(
+            extract_capability=extract_capability,
+            synthesize_research=synthesize_research,
+            plan_product=plan_product,
+        )
+    )
+    state = graph.invoke(
+        {
+            "papers": normalized_papers,
+            "target_user": target_user,
+            "product_goal": product_goal,
+            "user_idea": user_idea,
+            "capability_cards": [],
+            "errors": [],
+            "graph_trace": [],
+        }
+    )
+    compatibility_result["research_synthesis"] = state["research_synthesis"]
+    compatibility_result["capability_cards"] = state["research_synthesis"].get(
+        "capability_cards", []
+    )
+    compatibility_result["capability_map"] = state["research_synthesis"].get(
+        "capability_map", {}
+    )
+    compatibility_result["composition_plan"] = state["research_synthesis"].get(
+        "composition_plan", {}
+    )
+    compatibility_result["graph_trace"].extend(state.get("graph_trace") or [])
+    compatibility_result["errors"].extend(state.get("errors") or [])
+    proposals = [
+        ProductProposal.model_validate(proposal)
+        for proposal in state.get("proposals") or []
+    ]
+    return proposals, compatibility_result
+
+
+def generate_proposals(
+    papers: list[dict[str, Any]],
+    target_user: str,
+    product_goal: str,
+    llm_client: LLMClient,
+    user_idea: str = "",
+    progress_callback: Callable[[str], None] | None = None,
+    hitl: PipelineHITL | None = None,
+) -> list[ProductProposal]:
+    """Generate compatible product proposals through the LangGraph workflow."""
+    proposals, _ = _invoke_proposal_graph(
+        papers=papers,
+        target_user=target_user,
+        product_goal=product_goal,
+        llm_client=llm_client,
+        user_idea=user_idea,
+        progress_callback=progress_callback,
+        hitl=hitl,
+    )
+    return proposals
+
+
+def _invoke_execution_graph(
+    proposal: ProductProposal,
+    papers: list[dict[str, Any]],
+    research_synthesis: dict[str, Any],
+    preferred_type: str,
+    repo_path: str,
+    output_dir: str | Path,
+    llm_client: LLMClient,
+    progress_callback: Callable[[str], None] | None,
+    hitl: PipelineHITL | None,
+    result: ProductResult | None = None,
+) -> ProductResult:
+    compatibility_result = result or _new_product_result()
+    normalized_papers = _normalize_papers(papers, "", "", "", repo_path)
+    compatibility_result["papers"] = normalized_papers
+    compatibility_result["research_synthesis"] = research_synthesis
+    effective_repo_path = repo_path or next(
+        (
+            str(paper.get("repo_path") or "")
+            for paper in normalized_papers
+            if paper.get("repo_path")
+        ),
+        "",
+    )
+    if output_dir == "generated_product" or str(output_dir) == "generated_product":
+        safe_name = _sanitise_dirname(proposal.product_name)
+        output_dir = f"generated_product/{safe_name}"
+    output_path = Path(output_dir)
+    prototype_rejected = False
+
+    def progress(stage: str) -> None:
+        if progress_callback:
+            progress_callback(stage)
+
+    def select_template(state: dict[str, Any]) -> str:
+        progress("Selecting product template")
+        try:
+            return select_product_template(
+                " ".join(
+                    str(item.get("paper_info", "")) for item in normalized_papers
+                ),
+                " ".join(
+                    str(item.get("method_info", "")) for item in normalized_papers
+                ),
+                " ".join(
+                    str(item.get("repo_info", "")) for item in normalized_papers
+                ),
+                _product_plan_to_markdown(
+                    ProductPlan.model_validate(state["product_plan"])
+                ),
+                preferred_type,
+            )
+        except Exception as exc:
+            _record_error(compatibility_result, "Product Template Selection", exc)
+            return "file"
+
+    def build_prototype(
+        product_plan: dict[str, Any],
+        template_type: str,
+        feedback: dict[str, Any],
+    ) -> PrototypePlan:
+        nonlocal prototype_rejected
+        progress("Prototype Builder Agent planning interface and adapter")
+        input_data = {
+            "product_plan": product_plan,
+            "template_type": template_type,
+        }
+        if feedback:
+            input_data["evaluation_feedback"] = feedback
+        prototype = _run_structured_stage(
+            compatibility_result,
+            "Prototype Builder Agent",
+            PrototypeBuilderAgent,
+            llm_client,
+            input_data,
+            fallback=lambda: PrototypeBuilderAgent(llm_client).build_mock(
+                {
+                    "product_plan": product_plan,
+                    "template_type": template_type,
+                }
+            ),
+        )
+        if hitl and not feedback:
+            hitl_result = hitl.request_confirmation(
+                "prototype",
+                "Prototype Plan",
+                _prototype_plan_to_markdown(prototype),
+            )
+            if hitl_result == "retry":
+                correction = hitl.get_correction("prototype")
+                progress("Prototype Builder Agent retrying with feedback")
+                prototype = _run_structured_stage(
+                    compatibility_result,
+                    "Prototype Builder Agent (retry)",
+                    PrototypeBuilderAgent,
+                    llm_client,
+                    {
+                        **input_data,
+                        "user_correction": correction,
+                    },
+                    fallback=lambda: prototype,
+                )
+            elif hitl_result == "reject":
+                prototype_rejected = True
+                _record_error(
+                    compatibility_result,
+                    "HITL: Prototype Builder",
+                    "Rejected by user",
+                )
+        return prototype
+
+    def evaluate_product(
+        synthesis: dict[str, Any],
+        product_plan: dict[str, Any],
+        prototype_plan: dict[str, Any],
+        inspection: dict[str, Any],
+    ) -> ProductEvaluation:
+        progress("Product Evaluator Agent scoring prototype")
+        return _run_structured_stage(
+            compatibility_result,
+            "Product Evaluator Agent",
+            ProductEvaluatorAgent,
+            llm_client,
+            {
+                "research_synthesis": synthesis,
+                "product_plan": product_plan,
+                "prototype_plan": prototype_plan,
+                "inspection": inspection,
+            },
+            fallback=lambda: ProductEvaluatorAgent(llm_client).build_mock(
+                {
+                    "research_synthesis": synthesis,
+                    "inspection": inspection,
+                }
+            ),
+        )
+
+    def revise_product_plan(
+        product_plan: dict[str, Any],
+        evaluation: dict[str, Any],
+    ) -> ProductPlan:
+        progress("Product Planner Agent revising scope")
+        return _run_structured_stage(
+            compatibility_result,
+            "Product Planner Agent (revision)",
+            ProductPlannerAgent,
+            llm_client,
+            {
+                "research_synthesis": research_synthesis,
+                "target_user": proposal.target_user,
+                "product_goal": proposal.product_goal,
+                "current_product_plan": product_plan,
+                "evaluation_feedback": evaluation,
+            },
+            fallback=lambda: ProductPlan.model_validate(product_plan),
+        )
+
+    def revise_prototype(
+        product_plan: dict[str, Any],
+        prototype_plan: dict[str, Any],
+        evaluation: dict[str, Any],
+    ) -> PrototypePlan:
+        progress("Prototype Builder Agent revising prototype")
+        return _run_structured_stage(
+            compatibility_result,
+            "Prototype Builder Agent (revision)",
+            PrototypeBuilderAgent,
+            llm_client,
+            {
+                "product_plan": product_plan,
+                "template_type": prototype_plan.get("template_type", "file"),
+                "current_prototype_plan": prototype_plan,
+                "evaluation_feedback": evaluation,
+            },
+            fallback=lambda: PrototypePlan.model_validate(prototype_plan),
+        )
+
+    def scaffold(state: dict[str, Any]) -> dict[str, Any]:
+        if prototype_rejected:
+            return {
+                "output_dir": str(output_path),
+                "files": [],
+                "backup_dir": "",
+                "success": False,
+                "message": "Prototype generation skipped because the plan was rejected.",
+            }
+        progress("Generating product scaffold")
+        plan = ProductPlan.model_validate(state["product_plan"])
+        prototype = PrototypePlan.model_validate(state["prototype_plan"])
+        try:
+            return scaffold_product(
+                template_type=str(state["template_type"]),
+                product_spec=_product_plan_to_markdown(plan),
+                adapter_plan=_prototype_plan_to_markdown(prototype),
+                frontend_plan=_prototype_plan_to_markdown(prototype),
+                repo_path=effective_repo_path,
+                output_dir=output_path,
+            )
+        except Exception as exc:
+            _record_error(compatibility_result, "Product Scaffold", exc)
+            return {
+                "output_dir": str(output_path),
+                "files": [],
+                "backup_dir": "",
+                "success": False,
+                "message": str(exc),
+            }
+
+    def inspect(state: dict[str, Any]) -> dict[str, Any]:
+        del state
+        if prototype_rejected:
+            return {
+                "exists": False,
+                "missing_files": [],
+                "files": [],
+                "can_run_mock": False,
+                "readme_has_run_command": False,
+                "syntax_ok": False,
+                "compile_errors": [],
+                "notes": ["Prototype plan was rejected by the user."],
+            }
+        progress("Inspecting generated product")
+        try:
+            return inspect_generated_product(output_path)
+        except Exception as exc:
+            _record_error(compatibility_result, "Product Inspector", exc)
+            return {
+                "exists": False,
+                "missing_files": [],
+                "files": [],
+                "can_run_mock": False,
+                "readme_has_run_command": False,
+                "syntax_ok": False,
+                "compile_errors": [str(exc)],
+                "notes": ["Product inspection failed."],
+            }
+
+    graph = build_productize_execution_graph(
+        ProductizeExecutionDependencies(
+            select_template=select_template,
+            build_prototype=build_prototype,
+            evaluate_product=evaluate_product,
+            revise_product_plan=revise_product_plan,
+            revise_prototype=revise_prototype,
+            scaffold_product=scaffold,
+            inspect_product=inspect,
+        )
+    )
+    state = graph.invoke(
+        {
+            "selected_proposal": proposal.model_dump(mode="json"),
+            "papers": normalized_papers,
+            "research_synthesis": research_synthesis,
+            "revision_count": 0,
+            "max_revisions": 1,
+            "revision_history": [],
+            "errors": [],
+            "graph_trace": [],
+            "issues": [],
+        }
+    )
+    plan = ProductPlan.model_validate(state["product_plan"])
+    prototype = PrototypePlan.model_validate(state["prototype_plan"])
+    evaluation = ProductEvaluation.model_validate(state["evaluation"])
+    compatibility_result.update(
+        {
+            "product_plan": plan.model_dump(mode="json"),
+            "prd": plan.prd.model_dump(mode="json"),
+            "mvp_scope": plan.mvp_scope.model_dump(mode="json"),
+            "opportunities": render_opportunities(
+                ProductOpportunityList(opportunities=plan.opportunities)
+            ),
+            "product_spec": _product_plan_to_markdown(plan),
+            "template_type": state["template_type"],
+            "prototype_plan": prototype.model_dump(mode="json"),
+            "adapter_plan": _prototype_plan_to_markdown(prototype),
+            "frontend_plan": _prototype_plan_to_markdown(prototype),
+            "scaffold_result": state["scaffold_result"],
+            "inspection": state["inspection"],
+            "evaluation": evaluation.model_dump(mode="json"),
+            "test_report": _evaluation_to_markdown(evaluation),
+            "revision_history": state.get("revision_history") or [],
+            "issues": state.get("issues") or [],
+        }
+    )
+    compatibility_result["graph_trace"].extend(state.get("graph_trace") or [])
+    compatibility_result["errors"].extend(state.get("errors") or [])
+    if llm_client.mock_mode:
+        compatibility_result["pipeline_status"] = "mock"
+    elif (
+        compatibility_result["llm_failures"]
+        and compatibility_result["llm_failures"]
+        == compatibility_result["llm_attempts"]
+    ):
+        compatibility_result["pipeline_status"] = "failed"
+    elif compatibility_result["errors"]:
+        compatibility_result["pipeline_status"] = "degraded"
+    else:
+        compatibility_result["pipeline_status"] = "complete"
+    return compatibility_result
+
+
+def execute_proposal(
+    proposal: ProductProposal,
+    papers: list[dict[str, Any]],
+    research_synthesis: dict[str, Any],
+    preferred_type: str = "auto",
+    repo_path: str = "",
+    output_dir: str | Path = "generated_product",
+    llm_client: LLMClient | None = None,
+    progress_callback: Callable[[str], None] | None = None,
+    hitl: PipelineHITL | None = None,
+) -> ProductResult:
+    """Execute a selected proposal through the bounded LangGraph workflow."""
+    return _invoke_execution_graph(
+        proposal=proposal,
+        papers=papers,
+        research_synthesis=research_synthesis,
+        preferred_type=preferred_type,
+        repo_path=repo_path,
+        output_dir=output_dir,
+        llm_client=llm_client or LLMClient(),
+        progress_callback=progress_callback,
+        hitl=hitl,
+    )
+
+
 def run_productize_pipeline(
     paper_info: str,
     method_info: str,
@@ -621,7 +1172,7 @@ def run_productize_pipeline(
         repo_path,
     )
 
-    proposals = generate_proposals(
+    proposals, result = _invoke_proposal_graph(
         papers=normalized_papers,
         target_user=target_user,
         product_goal=product_goal,
@@ -631,26 +1182,18 @@ def run_productize_pipeline(
     )
 
     if not proposals:
-        return {
-            "papers": normalized_papers,
-            "errors": ["No proposals were generated."],
-        }
+        result["errors"].append("No proposals were generated.")
+        return result
 
-    # Build research_synthesis dict from the first proposal's context
-    research_synthesis = {
-        "capability_cards": [],
-        "capability_map": {},
-        "composition_plan": {},
-        "summary": "",
-    }
-
-    return execute_proposal(
+    return _invoke_execution_graph(
         proposal=proposals[0],
         papers=normalized_papers,
-        research_synthesis=research_synthesis,
+        research_synthesis=result["research_synthesis"],
         preferred_type=preferred_type,
         repo_path=repo_path,
         output_dir=output_dir,
         llm_client=client,
         progress_callback=progress_callback,
+        hitl=None,
+        result=result,
     )

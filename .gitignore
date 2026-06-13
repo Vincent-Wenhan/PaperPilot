@@ -8,3 +8,4 @@ generated_product_backup_*/
 .venv/
 venv/
 .env
+.streamlit/secrets.toml

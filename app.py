@@ -9,6 +9,7 @@ from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import streamlit as st
+import toml
 
 from agents import ExecutionDiagnosisAgent
 from config import (
@@ -33,6 +34,32 @@ from tools.llm_client import LLMClient, LLMClientError
 
 
 UPLOADS_DIR = PROJECT_ROOT / "uploads"
+
+SECRETS_FILE = PROJECT_ROOT / ".streamlit" / "secrets.toml"
+
+
+def _load_secrets() -> dict[str, str]:
+    """Load saved LLM config from .streamlit/secrets.toml."""
+    if SECRETS_FILE.is_file():
+        try:
+            data: dict[str, str] = toml.load(str(SECRETS_FILE))
+            return {k: (v or "") for k, v in data.items() if k in ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL")}
+        except Exception:
+            pass
+    return {}
+
+
+def _save_secrets(api_key: str, base_url: str, model: str) -> None:
+    """Persist LLM config to .streamlit/secrets.toml so it survives restarts."""
+    SECRETS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SECRETS_FILE.write_text(
+        toml.dumps({
+            "LLM_API_KEY": api_key,
+            "LLM_BASE_URL": base_url,
+            "LLM_MODEL": model,
+        }),
+        encoding="utf-8",
+    )
 OUTPUT_FILES = (
     ("reproduction_plan.md", "Download reproduction_plan.md", "text/markdown"),
     ("run.sh", "Download run.sh", "text/x-shellscript"),
@@ -767,10 +794,14 @@ def _render_reproduce_mode() -> None:
                     progress_lines: list[str] = []
 
                     def _on_progress(agent_name: str) -> None:
+                        """Update progress. Safe to call from any thread."""
                         progress_lines.append(f"- {agent_name}...")
-                        progress_log.markdown(
-                            "**Agent Progress**\n" + "\n".join(progress_lines)
-                        )
+                        try:
+                            progress_log.markdown(
+                                "**Agent Progress**\n" + "\n".join(progress_lines)
+                            )
+                        except Exception:
+                            pass  # Cross-thread call from LangGraph, no session context
 
                     paper_name = Path(uploaded_pdf.name).stem.replace(" ", "_")[:80]
 
@@ -800,7 +831,11 @@ def _render_reproduce_mode() -> None:
                                 ),
                             )
                         except Exception as exc:
+                            import traceback
+                            tb = traceback.format_exc()
                             st.error(f"Pipeline execution failed: {exc}")
+                            with st.expander("Error details"):
+                                st.code(tb)
                             status.update(label="Analysis failed", state="error")
                         else:
                             st.session_state["paperpilot_result"] = result
@@ -1017,9 +1052,12 @@ def _render_productize_mode() -> None:
 
             def _on_progress(msg: str) -> None:
                 progress_lines.append(f"- {msg}")
-                progress_log.markdown(
-                    "**Progress**\n" + "\n".join(progress_lines)
-                )
+                try:
+                    progress_log.markdown(
+                        "**Progress**\n" + "\n".join(progress_lines)
+                    )
+                except Exception:
+                    pass  # Cross-thread call from LangGraph, no session context
 
             analyses: list[dict[str, Any]] = []
             titles: list[str] = []
@@ -1044,7 +1082,12 @@ def _render_productize_mode() -> None:
                             progress_callback=_on_progress,
                         )
                     except Exception as exc:
-                        st.error(f"Automatic analysis failed for {uploaded_pdf.name}: {exc}")
+                        import traceback
+                        st.error(
+                            f"Automatic analysis failed for {uploaded_pdf.name}: {exc}"
+                        )
+                        with st.expander("Error details"):
+                            st.code(traceback.format_exc())
                         return
                     analyses.append(analysis)
                     titles.append(Path(uploaded_pdf.name).stem)
@@ -1249,9 +1292,12 @@ def _render_productize_mode() -> None:
 
                     def _on_progress2(msg: str) -> None:
                         progress_lines.append(f"- {msg}")
-                        progress_log.markdown(
-                            "**Execution Progress**\n" + "\n".join(progress_lines)
-                        )
+                        try:
+                            progress_log.markdown(
+                                "**Execution Progress**\n" + "\n".join(progress_lines)
+                            )
+                        except Exception:
+                            pass  # Cross-thread call from LangGraph, no session context
 
                     _on_progress2("Executing proposal...")
                     try:
@@ -1310,12 +1356,23 @@ def main() -> None:
             ["Reproduce Paper", "Productize Paper"],
         )
         st.header("LLM Configuration")
-        st.session_state.setdefault("llm_api_key", "")
+
+        # Load saved secrets, then merge with env vars (env vars take precedence)
+        saved_secrets = _load_secrets()
+        st.session_state.setdefault(
+            "llm_api_key",
+            saved_secrets.get("LLM_API_KEY") or "",
+        )
         st.session_state.setdefault(
             "llm_base_url",
-            LLM_BASE_URL or "https://api.openai.com/v1",
+            saved_secrets.get("LLM_BASE_URL")
+            or LLM_BASE_URL
+            or "https://api.openai.com/v1",
         )
-        st.session_state.setdefault("llm_model", LLM_MODEL)
+        st.session_state.setdefault(
+            "llm_model",
+            saved_secrets.get("LLM_MODEL") or LLM_MODEL,
+        )
         st.session_state.setdefault("llm_implementation_model", "")
         st.session_state.setdefault("llm_mock_mode", LLM_MOCK_MODE)
 
@@ -1353,7 +1410,13 @@ def main() -> None:
             value=st.session_state["llm_mock_mode"],
             help="When enabled, LLM calls return fixed text (no API key needed).",
         )
-        if st.button("Test LLM Connection", use_container_width=True):
+
+        if st.button("Save & Test Connection", use_container_width=True):
+            _save_secrets(
+                api_key=st.session_state["llm_api_key"],
+                base_url=st.session_state["llm_base_url"],
+                model=st.session_state["llm_model"],
+            )
             try:
                 connection_result = _get_llm_client().test_connection()
             except LLMClientError as exc:

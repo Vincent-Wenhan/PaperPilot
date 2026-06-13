@@ -1151,7 +1151,6 @@ def _render_productize_mode() -> None:
                 p.model_dump(mode="json") for p in proposals
             ]
             st.session_state["productize_papers"] = papers
-            st.session_state["productize_preferred_type"] = preferred_label.lower()
 
             # Check if HITL dialogs are pending — stay on input page to show them
             productize_hitl = st.session_state.get("_productize_hitl")

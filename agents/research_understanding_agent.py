@@ -17,7 +17,11 @@ class ResearchUnderstandingAgent(StructuredAgent[PaperUnderstanding]):
             name="Research Understanding Agent",
             prompt_path="research_understanding_prompt.txt",
             schema_type=PaperUnderstanding,
-            guideline_names=("reproduction_checklist.md", "safety_rules.md"),
+            guideline_names=(
+                "reproduction_checklist.md",
+                "evidence_traceability_rules.md",
+                "safety_rules.md",
+            ),
             llm_client=llm_client,
         )
 

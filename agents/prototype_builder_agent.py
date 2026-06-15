@@ -20,6 +20,9 @@ class PrototypeBuilderAgent(StructuredAgent[PrototypePlan]):
             guideline_names=(
                 "streamlit_ui_rules.md",
                 "mvp_scope_rules.md",
+                "evidence_traceability_rules.md",
+                "confidence_and_limitations_rules.md",
+                "adapter_integration_rules.md",
                 "safety_rules.md",
             ),
             llm_client=llm_client,

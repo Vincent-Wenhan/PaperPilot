@@ -22,6 +22,10 @@ class ProductEvaluatorAgent(StructuredAgent[ProductEvaluation]):
             guideline_names=(
                 "product_evaluation_rubric.md",
                 "product_design_principles.md",
+                "evidence_traceability_rules.md",
+                "confidence_and_limitations_rules.md",
+                "adapter_integration_rules.md",
+                "revision_response_rules.md",
                 "safety_rules.md",
             ),
             llm_client=llm_client,

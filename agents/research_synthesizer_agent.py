@@ -30,6 +30,8 @@ class ResearchSynthesizerAgent(StructuredAgent[ResearchSynthesis]):
             guideline_names=(
                 "multi_paper_composition_rules.md",
                 "product_design_principles.md",
+                "evidence_traceability_rules.md",
+                "confidence_and_limitations_rules.md",
                 "safety_rules.md",
             ),
             llm_client=llm_client,

@@ -11,6 +11,8 @@ class GuidelineLoaderTests(unittest.TestCase):
 
         content = load_guideline("multi_paper_composition_rules.md")
         self.assertIn("complementary", content.lower())
+        evidence_rules = load_guideline("evidence_traceability_rules.md")
+        self.assertIn("traceability", evidence_rules.lower())
         with self.assertRaises(ValueError):
             load_guideline("../README.md")
 

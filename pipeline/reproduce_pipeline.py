@@ -24,6 +24,7 @@ from pipeline.output_builder import (
     build_run_script,
     save_output,
 )
+from pipeline.output_paths import resolve_output_dir, safe_output_name
 from pipeline.repository_stage import prepare_repository
 from pipeline.reproduce_renderers import (
     render_environment_plan,
@@ -255,7 +256,8 @@ def run_reproduce_pipeline(
     """Run the backward-compatible Reproduce API through LangGraph."""
     result = _initial_result()
     init_stage_sources(result)
-    output_dir = OUTPUTS_DIR / paper_name if paper_name else OUTPUTS_DIR
+    paper_name = safe_output_name(paper_name)
+    output_dir = resolve_output_dir({"paper_name": paper_name})
     result["paper_name"] = paper_name
     result["pdf_path"] = pdf_path
     result["hardware"] = hardware

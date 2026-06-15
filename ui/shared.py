@@ -11,7 +11,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import streamlit as st
 
 from config import PROJECT_ROOT
-from pipeline.output_paths import resolve_output_file
+from pipeline.output_paths import resolve_output_dir, resolve_output_file
 from pipeline.stage_tracker import STAGE_DISPLAY_NAMES, stage_badge_label
 
 UPLOADS_DIR = PROJECT_ROOT / "uploads"

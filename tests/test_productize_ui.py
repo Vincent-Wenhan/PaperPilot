@@ -3,12 +3,13 @@ from __future__ import annotations
 import unittest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from zipfile import ZipFile
 from io import BytesIO
 
 import app
 from tools.llm_client import LLMClient
+from ui import shared
 from ui import productize_helpers
 
 
@@ -20,6 +21,18 @@ class ProductizeUiTests(unittest.TestCase):
             data = app._build_generated_code_zip(str(root), ["main.py"])
         with ZipFile(BytesIO(data)) as archive:
             self.assertEqual(archive.namelist(), ["main.py"])
+
+    def test_show_downloads_resolves_default_output_dir(self) -> None:
+        columns = [MagicMock(), MagicMock(), MagicMock()]
+        with (
+            patch.object(shared.st, "subheader"),
+            patch.object(shared.st, "columns", return_value=columns) as st_columns,
+            patch.object(shared.st, "info"),
+            patch.object(shared.st, "download_button"),
+        ):
+            shared.show_downloads(None)
+
+        st_columns.assert_called_once_with(3)
 
     def test_blank_sidebar_values_fall_back_to_environment(self) -> None:
         state = {

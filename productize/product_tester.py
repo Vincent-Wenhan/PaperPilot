@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import py_compile
 from pathlib import Path
 from typing import Any
 
@@ -38,9 +37,10 @@ def inspect_generated_product(
         if not path.is_file():
             continue
         try:
-            py_compile.compile(str(path), doraise=True)
-        except py_compile.PyCompileError as exc:
-            compile_errors.append(f"{filename}: {exc.msg}")
+            source = path.read_text(encoding="utf-8")
+            compile(source, str(path), "exec")
+        except (OSError, SyntaxError, UnicodeError) as exc:
+            compile_errors.append(f"{filename}: {exc}")
 
     adapter_text = (
         (root / "adapter.py").read_text(encoding="utf-8")

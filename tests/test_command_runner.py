@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from tools.command_runner import is_safe_command, run_command
+from tools.command_runner import assess_risk, is_safe_command, run_command
 
 
 class TestCommandRunner(unittest.TestCase):
@@ -21,6 +21,11 @@ class TestCommandRunner(unittest.TestCase):
     def test_allow_entrypoint_help(self) -> None:
         safe, _ = is_safe_command("python train.py --help")
         self.assertTrue(safe)
+
+    def test_entrypoint_help_is_low_risk(self) -> None:
+        risk_level, reason = assess_risk("python train.py --help")
+        self.assertEqual(risk_level, "low")
+        self.assertIn("Help flag", reason)
 
     def test_block_rm_rf(self) -> None:
         safe, _ = is_safe_command("rm -rf /")

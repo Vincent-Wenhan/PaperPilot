@@ -11,7 +11,8 @@ from unittest.mock import patch
 from agents.structured_agent import StructuredAgent
 from pipeline.analysis_cache import load_cached_analysis, save_cached_analysis
 from pipeline.hitl_retry import rerun_reproduce_stage
-from pipeline.output_paths import resolve_output_dir, resolve_output_file
+from config import OUTPUTS_DIR
+from pipeline.output_paths import resolve_output_dir, resolve_output_file, safe_output_name
 from pipeline.runner_bridge import extract_runner_safe_commands, summarize_planned_commands
 from pipeline.stage_tracker import (
     STAGE_FALLBACK,
@@ -59,6 +60,16 @@ class ImprovementTests(unittest.TestCase):
         path = resolve_output_file(result, "report.md")
         self.assertEqual(path.name, "report.md")
         self.assertEqual(path.parent.name, "demo")
+
+    def test_output_paths_sanitize_paper_name(self) -> None:
+        self.assertEqual(safe_output_name("../Bad Paper?.pdf"), "Bad_Paper_pdf")
+        path = resolve_output_dir({"paper_name": "../Bad Paper?.pdf"})
+        self.assertEqual(path.parent, OUTPUTS_DIR)
+        self.assertEqual(path.name, "Bad_Paper_pdf")
+
+    def test_resolve_output_file_rejects_unknown_filename(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_output_file({"paper_name": "demo"}, "../outside.md")
 
     def test_stage_tracker_records_sources(self) -> None:
         result: dict = {}

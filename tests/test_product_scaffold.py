@@ -89,6 +89,32 @@ class ProductScaffoldTests(unittest.TestCase):
             self.assertFalse(inspection["syntax_ok"])
             self.assertTrue(inspection["compile_errors"])
 
+    def test_inspector_does_not_write_bytecode_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            (output_dir / "outputs").mkdir()
+            (output_dir / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (output_dir / "adapter.py").write_text(
+                "class ModelAdapter:\n"
+                "    def __init__(self, mock_mode: bool = True):\n"
+                "        self.mock_mode = mock_mode\n"
+                "    def predict(self):\n"
+                "        if self.mock_mode:\n"
+                "            return None\n",
+                encoding="utf-8",
+            )
+            (output_dir / "README.md").write_text(
+                "Run with `streamlit run app.py`.\n",
+                encoding="utf-8",
+            )
+            (output_dir / "product_spec.md").write_text("# Spec\n", encoding="utf-8")
+            (output_dir / "requirements.txt").write_text("streamlit\n", encoding="utf-8")
+
+            inspection = inspect_generated_product(output_dir)
+
+            self.assertTrue(inspection["syntax_ok"])
+            self.assertFalse((output_dir / "__pycache__").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

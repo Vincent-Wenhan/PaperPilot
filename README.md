@@ -328,7 +328,8 @@ gitignored. The main application displays their contents after generation.
 
 ## Limitations
 
-- Scanned PDFs without OCR may yield no extractable text.
+- OCR for scanned PDFs is optional and requires a local Tesseract install plus `pytesseract`; low-quality scans, complex layouts, and dense tables may still parse poorly.
+- Figure/table/algorithm captions are extracted heuristically from text blocks, not as structured LaTeX or table cells.
 - LLM output quality depends on the model, context length, and paper text quality.
 - Paper-only planning cannot provide repository-specific implementation evidence.
 - Repository analysis is based on static file scanning and may not automatically understand all custom entry points.
@@ -340,15 +341,17 @@ gitignored. The main application displays their contents after generation.
 - Template selection supports only image, text, video, and generic file-analysis prototypes.
 - Generated adapters do not guarantee that a research model can be integrated without manual engineering.
 - Mock results demonstrate the product workflow; they are not paper-model predictions.
+- Sync HITL uses in-memory LangGraph checkpoints and is tied to the current Streamlit session.
 
 ## Future Improvements
 
-- Add OCR and table/formula parsing for papers
+- Improve PDF understanding with layout-aware parsing, structured table extraction, and LaTeX formula support
 - Add configurable repository scan depth and dependency conflict analysis
-- Introduce human-confirmed controlled demo execution
-- Save multiple reproduction sessions and experiment comparisons
-- Add structured output validation for real models
-- Add unit tests, CI, and containerized release
+- Introduce human-confirmed controlled demo execution beyond the current safe/review Runner modes
+- Save multiple reproduction sessions and experiment comparisons across runs
+- Add structured output validation when connecting real models to generated adapters
+- Add persistent LangGraph checkpointing for cross-session HITL resume
+- Add containerized release and deployment packaging
 
 ---
 

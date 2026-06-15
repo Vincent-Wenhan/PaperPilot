@@ -13,7 +13,7 @@ This Large AI Models course project demonstrates how a lightweight, interpretabl
 
 ## Features
 
-PaperPilot combines paper understanding, repository analysis, reproduction planning, and product prototyping in a single workflow. See [`examples/`](examples/sample_outputs/) for sample outputs.
+PaperPilot combines paper understanding, repository analysis, reproduction planning, and product prototyping in a single workflow. See [`examples/`](examples/) for sample inputs and outputs.
 
 ### Reproduce Mode
 
@@ -78,6 +78,19 @@ Productize Mode
 generated_product/<product_name>/
 ```
 
+## Example Output
+
+We provide a sample run in [`examples/`](examples/), including:
+
+- parsed paper summary
+- reproduction plan
+- environment checklist
+- generated run script
+- product opportunity report
+- mock-first Streamlit prototype
+
+See [`examples/sample_input.md`](examples/sample_input.md) for suggested inputs and [`examples/screenshots/`](examples/screenshots/) for UI capture placeholders.
+
 ## Agent Overview
 
 | Agent | Responsibility |
@@ -98,7 +111,8 @@ These are the only active reasoning agents. Fragmented predecessor agents are is
 
 ```text
 PaperPilot/
-├── app.py
+├── app.py                     # Thin Streamlit entry point
+├── ui/                        # Streamlit UI modules (reproduce, productize, runner, debug)
 ├── main.py
 ├── config.py
 ├── agents/                  # Nine active high-level agents

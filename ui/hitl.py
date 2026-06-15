@@ -10,6 +10,8 @@ from main import run_paperpilot
 from pipeline.hitl_context import HITLStatus, PipelineHITL
 from pipeline.hitl_retry import rerun_reproduce_stage
 from pipeline.output_paths import resolve_output_dir
+from pipeline.productize_pipeline import execute_proposal, generate_proposals
+from schemas.product_schema import ProductProposal
 from ui.llm_config import get_llm_client
 
 
@@ -152,6 +154,124 @@ def render_sync_hitl_pause(result: dict[str, Any]) -> bool:
                 st.session_state.pop("hitl_resume_context", None)
             st.rerun()
     return True
+
+
+def store_productize_hitl_context(
+    *,
+    phase: str,
+    papers: list[dict[str, Any]],
+    target_user: str = "",
+    product_goal: str = "",
+    user_idea: str = "",
+    preferred_type: str = "auto",
+    proposal: dict[str, Any] | None = None,
+    research_synthesis: dict[str, Any] | None = None,
+    result: dict[str, Any],
+) -> None:
+    st.session_state["productize_hitl_resume"] = {
+        "phase": phase,
+        "papers": papers,
+        "target_user": target_user,
+        "product_goal": product_goal,
+        "user_idea": user_idea,
+        "preferred_type": preferred_type,
+        "proposal": proposal,
+        "research_synthesis": research_synthesis or {},
+        "thread_id": result.get("hitl_thread_id"),
+        "stage": result.get("hitl_stage"),
+    }
+
+
+def resume_productize_hitl(action: str, correction: str = "") -> dict[str, Any]:
+    ctx = st.session_state["productize_hitl_resume"]
+    hitl = StreamlitHITL(sync_mode=st.session_state.get("enable_sync_hitl", False))
+    client = get_llm_client()
+    if ctx["phase"] == "proposal":
+        proposals, result = generate_proposals(
+            papers=ctx["papers"],
+            target_user=ctx["target_user"],
+            product_goal=ctx["product_goal"],
+            llm_client=client,
+            user_idea=ctx["user_idea"],
+            hitl=hitl,
+            hitl_thread_id=ctx.get("thread_id"),
+            hitl_action=action,
+            hitl_correction=correction,
+        )
+        return {
+            "phase": "proposal",
+            "proposals": proposals,
+            "result": result,
+        }
+    proposal_data = ctx.get("proposal") or {}
+    proposal = ProductProposal.model_validate(proposal_data)
+    result = execute_proposal(
+        proposal=proposal,
+        papers=ctx["papers"],
+        research_synthesis=ctx.get("research_synthesis") or {},
+        preferred_type=ctx.get("preferred_type", "auto"),
+        llm_client=client,
+        hitl=hitl,
+        hitl_thread_id=ctx.get("thread_id"),
+        hitl_action=action,
+        hitl_correction=correction,
+    )
+    return {"phase": "execution", "result": result}
+
+
+def render_productize_sync_hitl_pause(result: dict[str, Any]) -> bool:
+    """Render productize sync HITL pause UI. Returns True when the page should stop."""
+    if result.get("pipeline_status") != "hitl_paused":
+        return False
+    st.header("Productize Pipeline Paused — Review Required")
+    st.caption(
+        "LangGraph paused before downstream agents ran. "
+        "Confirm to continue, retry with feedback, or reject and continue."
+    )
+    st.markdown(f"#### {result.get('hitl_title', 'Review')}")
+    st.markdown(result.get("hitl_content", ""))
+    feedback = st.text_area("Feedback (for retry)", key="productize_sync_hitl_feedback")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("Confirm & Continue", key="productize_sync_hitl_confirm", type="primary"):
+            updated = resume_productize_hitl("confirm")
+            _apply_productize_hitl_resume(updated)
+            st.rerun()
+    with col2:
+        if st.button("Retry with feedback", key="productize_sync_hitl_retry"):
+            updated = resume_productize_hitl("retry", feedback)
+            _apply_productize_hitl_resume(updated)
+            st.rerun()
+    with col3:
+        if st.button("Reject & Continue", key="productize_sync_hitl_reject"):
+            updated = resume_productize_hitl("reject")
+            _apply_productize_hitl_resume(updated)
+            st.rerun()
+    return True
+
+
+def _apply_productize_hitl_resume(updated: dict[str, Any]) -> None:
+    if updated["phase"] == "proposal":
+        result = updated["result"]
+        proposals = updated["proposals"]
+        if result.get("pipeline_status") == "hitl_paused":
+            st.session_state["productize_hitl_result"] = result
+            return
+        st.session_state.pop("productize_hitl_resume", None)
+        st.session_state.pop("productize_hitl_result", None)
+        st.session_state["productize_proposals"] = [
+            proposal.model_dump(mode="json") for proposal in proposals
+        ]
+        st.session_state["productize_stage"] = "review" if proposals else "input"
+        return
+    result = updated["result"]
+    st.session_state["productize_result"] = result
+    if result.get("pipeline_status") == "hitl_paused":
+        st.session_state["productize_hitl_result"] = result
+        return
+    st.session_state.pop("productize_hitl_resume", None)
+    st.session_state.pop("productize_hitl_result", None)
+    st.session_state["productize_stage"] = "result"
 
 
 def handle_deferred_hitl_retries(

@@ -5,8 +5,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tools.pdf_ocr import OcrUnavailableError, ocr_pdf_text
+
 
 DEFAULT_MAX_CHARS = 120_000
+SCANNED_AVG_CHARS_THRESHOLD = 100
 
 
 def _truncate_text(text: str, max_chars: int) -> str:
@@ -21,8 +24,50 @@ def _truncate_text(text: str, max_chars: int) -> str:
     return f"{text[:head_chars]}{marker}{text[-(available - head_chars):]}"
 
 
-def parse_pdf(pdf_path: str | Path, max_chars: int = DEFAULT_MAX_CHARS) -> str:
-    """Extract page-marked PDF text within the configured context budget."""
+def _extract_native_text(path: Path) -> str:
+    try:
+        import fitz
+    except ImportError as exc:
+        raise RuntimeError(
+            "Missing PDF parsing dependency PyMuPDF. Please install requirements.txt."
+        ) from exc
+
+    with fitz.open(path) as document:
+        if document.needs_pass:
+            raise ValueError(f"PDF is encrypted and cannot be parsed: {path}")
+        return "\n\n".join(
+            f"[Page {page_number}]\n{page.get_text('text')}"
+            for page_number, page in enumerate(document, 1)
+        )
+
+
+def _append_section_context(text: str, sections: dict[str, object]) -> str:
+    """Attach figure/table/algorithm snippets for downstream agents."""
+    blocks: list[str] = [text]
+    for key, label in (
+        ("figures", "Figure captions"),
+        ("tables", "Table captions"),
+        ("algorithms", "Algorithm blocks"),
+        ("equations", "Equation references"),
+    ):
+        items = sections.get(key) or []
+        if isinstance(items, list) and items:
+            joined = "\n".join(str(item) for item in items[:10])
+            blocks.append(f"\n\n## {label}\n{joined}")
+    warnings = sections.get("warnings") or []
+    if isinstance(warnings, list) and warnings:
+        blocks.append("\n\n## PDF Warnings\n" + "\n".join(str(item) for item in warnings))
+    return "".join(blocks).strip()
+
+
+def parse_pdf(
+    pdf_path: str | Path,
+    max_chars: int = DEFAULT_MAX_CHARS,
+    *,
+    enable_ocr: bool = True,
+    include_sections: bool = True,
+) -> str:
+    """Extract page-marked PDF text, with optional OCR and section context."""
     path = Path(pdf_path).expanduser()
     if max_chars <= 0:
         raise ValueError("max_chars must be a positive integer.")
@@ -31,30 +76,56 @@ def parse_pdf(pdf_path: str | Path, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     if path.suffix.lower() != ".pdf":
         raise ValueError(f"File is not a PDF: {path}")
 
-    try:
-        import fitz
-    except ImportError as exc:
-        raise RuntimeError(
-            "Missing PDF parsing dependency PyMuPDF. Please install requirements.txt."
-        ) from exc
+    sections: dict[str, object] = {}
+    if include_sections:
+        try:
+            sections = extract_pdf_sections(path, max_chars=max_chars)
+        except Exception:
+            sections = {}
 
     try:
-        with fitz.open(path) as document:
-            if document.needs_pass:
-                raise ValueError(f"PDF is encrypted and cannot be parsed: {path}")
-            text = "\n\n".join(
-                f"[Page {page_number}]\n{page.get_text('text')}"
-                for page_number, page in enumerate(document, 1)
-            )
+        text = _extract_native_text(path).strip()
     except ValueError:
         raise
     except Exception as exc:
         raise ValueError(f"PDF parsing failed: {path}; reason: {exc}") from exc
 
-    cleaned_text = text.strip()
-    if not cleaned_text:
-        raise ValueError(f"No text could be extracted from the PDF; it may be a scanned document: {path}")
-    return _truncate_text(cleaned_text, max_chars)
+    quality = analyze_pdf_quality(path)
+    used_ocr = False
+    if enable_ocr and (not text or quality.get("is_scanned")):
+        try:
+            ocr_text = ocr_pdf_text(path).strip()
+        except OcrUnavailableError:
+            ocr_text = ""
+        if ocr_text:
+            text = ocr_text
+            used_ocr = True
+            if isinstance(sections, dict):
+                warnings = list(sections.get("warnings") or [])
+                warnings.append("Text recovered via OCR fallback.")
+                sections["warnings"] = warnings
+                sections["ocr_used"] = True
+
+    if not text:
+        raise ValueError(
+            f"No text could be extracted from the PDF; it may be a scanned document: {path}"
+        )
+
+    if include_sections and sections:
+        text = _append_section_context(text, sections)
+    if used_ocr and "[OCR]" not in text[:200]:
+        text = "[Extracted via OCR fallback]\n\n" + text
+    return _truncate_text(text, max_chars)
+
+
+def parse_pdf_legacy_text_only(pdf_path: str | Path, max_chars: int = DEFAULT_MAX_CHARS) -> str:
+    """Backward-compatible text-only extraction without section enrichment."""
+    return parse_pdf(
+        pdf_path,
+        max_chars=max_chars,
+        enable_ocr=False,
+        include_sections=False,
+    )
 
 
 def analyze_pdf_quality(pdf_path: str | Path) -> dict[str, object]:
@@ -78,7 +149,7 @@ def analyze_pdf_quality(pdf_path: str | Path) -> dict[str, object]:
 
     total_chars = sum(len(t) for t in page_texts)
     avg_chars = total_chars / max(num_pages, 1)
-    is_scanned = avg_chars < 100
+    is_scanned = avg_chars < SCANNED_AVG_CHARS_THRESHOLD
 
     return {
         "pdf_path": str(path),
@@ -140,7 +211,7 @@ def extract_pdf_sections(
         total_chars = len(all_text)
         num_pages = len(document)
         avg_chars = total_chars / max(num_pages, 1)
-        if avg_chars < 100:
+        if avg_chars < SCANNED_AVG_CHARS_THRESHOLD:
             warnings.append("Very low text density; may be a scanned document. Consider OCR.")
 
         cleaned = _truncate_text(all_text.strip(), max_chars)

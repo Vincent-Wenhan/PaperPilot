@@ -9,6 +9,7 @@ from io import BytesIO
 
 import app
 from tools.llm_client import LLMClient
+from ui import productize_helpers
 
 
 class ProductizeUiTests(unittest.TestCase):
@@ -118,9 +119,15 @@ class ProductizeUiTests(unittest.TestCase):
             "repo_info": "repo",
             "repo_path": "/tmp/repo",
         }
-        with patch.object(app, "load_cached_analysis", return_value=None), patch.object(
-            app, "run_paperpilot", return_value=expected
-        ) as run, patch.object(app, "save_cached_analysis"):
+        with patch.object(
+            productize_helpers,
+            "load_cached_analysis",
+            return_value=None,
+        ), patch.object(
+            productize_helpers,
+            "run_paperpilot",
+            return_value=expected,
+        ) as run, patch.object(productize_helpers, "save_cached_analysis"):
             result = app._run_analysis_for_productize(
                 pdf_path="/tmp/paper.pdf",
                 github_url="https://github.com/owner/repo",

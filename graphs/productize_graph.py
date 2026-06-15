@@ -121,6 +121,9 @@ def _build_proposals(
 
 def build_productize_proposal_graph(
     dependencies: ProductizeProposalDependencies,
+    *,
+    checkpointer=None,
+    interrupt_after: tuple[str, ...] | None = None,
 ):
     """Compile the per-paper fan-out and proposal-building graph."""
 
@@ -231,7 +234,12 @@ def build_productize_proposal_graph(
     builder.add_edge("synthesize_research", "plan_product")
     builder.add_edge("plan_product", "build_proposals")
     builder.add_edge("build_proposals", END)
-    return builder.compile()
+    compile_kwargs: dict[str, Any] = {}
+    if checkpointer is not None:
+        compile_kwargs["checkpointer"] = checkpointer
+    if interrupt_after:
+        compile_kwargs["interrupt_after"] = list(interrupt_after)
+    return builder.compile(**compile_kwargs)
 
 
 def _proposal_to_plan(proposal: ProductProposal) -> ProductPlan:
@@ -252,6 +260,9 @@ def _proposal_to_plan(proposal: ProductProposal) -> ProductPlan:
 
 def build_productize_execution_graph(
     dependencies: ProductizeExecutionDependencies,
+    *,
+    checkpointer=None,
+    interrupt_after: tuple[str, ...] | None = None,
 ):
     """Compile bounded product revision and terminal artifact generation."""
 
@@ -413,4 +424,9 @@ def build_productize_execution_graph(
     builder.add_edge("scaffold_product", "inspect_product")
     builder.add_edge("inspect_product", "final_evaluation")
     builder.add_edge("final_evaluation", END)
-    return builder.compile()
+    compile_kwargs: dict[str, Any] = {}
+    if checkpointer is not None:
+        compile_kwargs["checkpointer"] = checkpointer
+    if interrupt_after:
+        compile_kwargs["interrupt_after"] = list(interrupt_after)
+    return builder.compile(**compile_kwargs)

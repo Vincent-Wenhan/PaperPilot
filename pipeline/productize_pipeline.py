@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Callable, TypeVar
+from uuid import uuid4
 
 from pydantic import BaseModel
 
@@ -21,8 +22,18 @@ from graphs.productize_graph import (
 )
 from productize import inspect_generated_product, scaffold_product, select_product_template
 from pipeline.productize_renderers import render_opportunities
+from pipeline.graph_checkpointer import get_shared_checkpointer
+from pipeline.productize_graph_hitl import (
+    PRODUCTIZE_EXECUTION_INTERRUPT_AFTER,
+    PRODUCTIZE_PROPOSAL_INTERRUPT_AFTER,
+    get_interrupt_node,
+    graph_is_interrupted,
+    invoke_graph,
+    resume_graph,
+)
 from pipeline.hitl_context import PipelineHITL
 from pipeline.hitl_renderers import render_capability_cards
+from runtime.checkpointing import build_graph_config
 from schemas.composition_schema import ResearchSynthesis
 from schemas.evaluation_schema import ProductEvaluation
 from schemas.product_schema import (
@@ -296,6 +307,9 @@ def _invoke_proposal_graph(
     user_idea: str = "",
     progress_callback: Callable[[str], None] | None = None,
     hitl: PipelineHITL | None = None,
+    hitl_thread_id: str | None = None,
+    hitl_action: str | None = None,
+    hitl_correction: str = "",
     result: ProductResult | None = None,
 ) -> tuple[list[ProductProposal], ProductResult]:
     compatibility_result = result or _new_product_result()
@@ -358,7 +372,7 @@ def _invoke_proposal_graph(
                 ).capability_cards[0]
                 for card in cards
             ]
-        if hitl:
+        if hitl and not hitl.sync_mode:
             hitl_result = hitl.request_confirmation(
                 "capabilities",
                 "Capability Cards",
@@ -421,19 +435,78 @@ def _invoke_proposal_graph(
             extract_capability=extract_capability,
             synthesize_research=synthesize_research,
             plan_product=plan_product,
+        ),
+        checkpointer=get_shared_checkpointer() if hitl and hitl.sync_mode else None,
+        interrupt_after=PRODUCTIZE_PROPOSAL_INTERRUPT_AFTER
+        if hitl and hitl.sync_mode
+        else None,
+    )
+    use_sync = bool(hitl and hitl.sync_mode)
+    thread_id = hitl_thread_id or (
+        f"productize-proposal-{uuid4().hex}" if use_sync else None
+    )
+    initial_state = {
+        "papers": normalized_papers,
+        "target_user": target_user,
+        "product_goal": product_goal,
+        "user_idea": user_idea,
+        "capability_cards": [],
+        "errors": [],
+        "graph_trace": [],
+    }
+    if hitl_thread_id and hitl_action:
+        paused_state = dict(
+            graph.get_state(build_graph_config(hitl_thread_id)).values
         )
-    )
-    state = graph.invoke(
-        {
-            "papers": normalized_papers,
-            "target_user": target_user,
-            "product_goal": product_goal,
-            "user_idea": user_idea,
-            "capability_cards": [],
-            "errors": [],
-            "graph_trace": [],
-        }
-    )
+        if (
+            hitl_action == "retry"
+            and hitl_correction.strip()
+            and graph_is_interrupted(graph, hitl_thread_id)
+        ):
+            progress("Research Synthesizer Agent retrying with feedback")
+            cards = paused_state.get("capability_cards") or []
+            graph_papers = paused_state.get("papers") or normalized_papers
+            synthesis = _run_structured_stage(
+                compatibility_result,
+                "Research Synthesizer Agent (retry)",
+                ResearchSynthesizerAgent,
+                llm_client,
+                {
+                    "papers": graph_papers,
+                    "capability_cards": cards,
+                    "target_domain": product_goal,
+                    "user_goal": user_idea,
+                    "user_correction": hitl_correction,
+                },
+                fallback=lambda: ResearchSynthesis.model_validate(
+                    paused_state.get("research_synthesis") or {}
+                ),
+            )
+            graph.update_state(
+                build_graph_config(hitl_thread_id),
+                {"research_synthesis": synthesis.model_dump(mode="json")},
+                as_node="synthesize_research",
+            )
+        elif hitl_action == "reject":
+            _record_error(
+                compatibility_result,
+                "HITL: Research Synthesis",
+                "Rejected by user",
+            )
+        state = resume_graph(graph, hitl_thread_id)
+    else:
+        state = invoke_graph(graph, initial_state, thread_id if use_sync else None)
+    if use_sync and thread_id and graph_is_interrupted(graph, str(thread_id)):
+        synthesis = ResearchSynthesis.model_validate(
+            state.get("research_synthesis") or {}
+        )
+        compatibility_result["pipeline_status"] = "hitl_paused"
+        compatibility_result["hitl_thread_id"] = str(thread_id)
+        compatibility_result["hitl_stage"] = "capabilities"
+        compatibility_result["hitl_title"] = "Capability Cards"
+        compatibility_result["hitl_content"] = render_capability_cards(synthesis)
+        compatibility_result["research_synthesis"] = synthesis.model_dump(mode="json")
+        return [], compatibility_result
     compatibility_result["research_synthesis"] = state["research_synthesis"]
     compatibility_result["capability_cards"] = state["research_synthesis"].get(
         "capability_cards", []
@@ -461,9 +534,12 @@ def generate_proposals(
     user_idea: str = "",
     progress_callback: Callable[[str], None] | None = None,
     hitl: PipelineHITL | None = None,
-) -> list[ProductProposal]:
+    hitl_thread_id: str | None = None,
+    hitl_action: str | None = None,
+    hitl_correction: str = "",
+) -> tuple[list[ProductProposal], dict[str, Any]]:
     """Generate compatible product proposals through the LangGraph workflow."""
-    proposals, _ = _invoke_proposal_graph(
+    proposals, result = _invoke_proposal_graph(
         papers=papers,
         target_user=target_user,
         product_goal=product_goal,
@@ -471,8 +547,11 @@ def generate_proposals(
         user_idea=user_idea,
         progress_callback=progress_callback,
         hitl=hitl,
+        hitl_thread_id=hitl_thread_id,
+        hitl_action=hitl_action,
+        hitl_correction=hitl_correction,
     )
-    return proposals
+    return proposals, result
 
 
 def _invoke_execution_graph(
@@ -485,6 +564,9 @@ def _invoke_execution_graph(
     llm_client: LLMClient,
     progress_callback: Callable[[str], None] | None,
     hitl: PipelineHITL | None,
+    hitl_thread_id: str | None = None,
+    hitl_action: str | None = None,
+    hitl_correction: str = "",
     result: ProductResult | None = None,
 ) -> ProductResult:
     compatibility_result = result or _new_product_result()
@@ -557,7 +639,7 @@ def _invoke_execution_graph(
                 }
             ),
         )
-        if hitl and not feedback:
+        if hitl and not feedback and not hitl.sync_mode:
             hitl_result = hitl.request_confirmation(
                 "prototype",
                 "Prototype Plan",
@@ -721,21 +803,75 @@ def _invoke_execution_graph(
             revise_prototype=revise_prototype,
             scaffold_product=scaffold,
             inspect_product=inspect,
+        ),
+        checkpointer=get_shared_checkpointer() if hitl and hitl.sync_mode else None,
+        interrupt_after=PRODUCTIZE_EXECUTION_INTERRUPT_AFTER
+        if hitl and hitl.sync_mode
+        else None,
+    )
+    use_sync = bool(hitl and hitl.sync_mode)
+    thread_id = hitl_thread_id or (
+        f"productize-exec-{uuid4().hex}" if use_sync else None
+    )
+    initial_state = {
+        "selected_proposal": proposal.model_dump(mode="json"),
+        "papers": normalized_papers,
+        "research_synthesis": research_synthesis,
+        "revision_count": 0,
+        "max_revisions": 1,
+        "revision_history": [],
+        "errors": [],
+        "graph_trace": [],
+        "issues": [],
+    }
+    if hitl_thread_id and hitl_action:
+        paused_state = dict(
+            graph.get_state(build_graph_config(hitl_thread_id)).values
         )
-    )
-    state = graph.invoke(
-        {
-            "selected_proposal": proposal.model_dump(mode="json"),
-            "papers": normalized_papers,
-            "research_synthesis": research_synthesis,
-            "revision_count": 0,
-            "max_revisions": 1,
-            "revision_history": [],
-            "errors": [],
-            "graph_trace": [],
-            "issues": [],
-        }
-    )
+        if (
+            hitl_action == "retry"
+            and hitl_correction.strip()
+            and graph_is_interrupted(graph, hitl_thread_id)
+        ):
+            progress("Prototype Builder Agent retrying with feedback")
+            prototype = _run_structured_stage(
+                compatibility_result,
+                "Prototype Builder Agent (retry)",
+                PrototypeBuilderAgent,
+                llm_client,
+                {
+                    "product_plan": paused_state.get("product_plan") or {},
+                    "papers": normalized_papers,
+                    "research_synthesis": research_synthesis,
+                    "user_correction": hitl_correction,
+                },
+                fallback=lambda: PrototypePlan.model_validate(
+                    paused_state.get("prototype_plan") or {}
+                ),
+            )
+            graph.update_state(
+                build_graph_config(hitl_thread_id),
+                {"prototype_plan": prototype.model_dump(mode="json")},
+                as_node="build_prototype",
+            )
+        elif hitl_action == "reject":
+            _record_error(
+                compatibility_result,
+                "HITL: Prototype Builder",
+                "Rejected by user",
+            )
+        state = resume_graph(graph, hitl_thread_id)
+    else:
+        state = invoke_graph(graph, initial_state, thread_id if use_sync else None)
+    if use_sync and thread_id and graph_is_interrupted(graph, str(thread_id)):
+        prototype = PrototypePlan.model_validate(state.get("prototype_plan") or {})
+        compatibility_result["pipeline_status"] = "hitl_paused"
+        compatibility_result["hitl_thread_id"] = str(thread_id)
+        compatibility_result["hitl_stage"] = "prototype"
+        compatibility_result["hitl_title"] = "Prototype Plan"
+        compatibility_result["hitl_content"] = _prototype_plan_to_markdown(prototype)
+        compatibility_result["prototype_plan"] = prototype.model_dump(mode="json")
+        return compatibility_result
     plan = ProductPlan.model_validate(state["product_plan"])
     prototype = PrototypePlan.model_validate(state["prototype_plan"])
     evaluation = ProductEvaluation.model_validate(state["evaluation"])
@@ -787,6 +923,9 @@ def execute_proposal(
     llm_client: LLMClient | None = None,
     progress_callback: Callable[[str], None] | None = None,
     hitl: PipelineHITL | None = None,
+    hitl_thread_id: str | None = None,
+    hitl_action: str | None = None,
+    hitl_correction: str = "",
 ) -> ProductResult:
     """Execute a selected proposal through the bounded LangGraph workflow."""
     return _invoke_execution_graph(
@@ -799,6 +938,9 @@ def execute_proposal(
         llm_client=llm_client or LLMClient(),
         progress_callback=progress_callback,
         hitl=hitl,
+        hitl_thread_id=hitl_thread_id,
+        hitl_action=hitl_action,
+        hitl_correction=hitl_correction,
     )
 
 
@@ -838,6 +980,9 @@ def run_productize_pipeline(
         user_idea=user_idea,
         progress_callback=progress_callback,
     )
+
+    if result.get("pipeline_status") == "hitl_paused":
+        return result
 
     if not proposals:
         result["errors"].append("No proposals were generated.")

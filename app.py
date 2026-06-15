@@ -21,7 +21,23 @@ from config import (
     PROJECT_ROOT,
 )
 from main import run_paperpilot
-from pipeline.hitl_context import HITLStatus, PipelineHITL
+from ui.hitl import (
+    StreamlitHITL,
+    handle_deferred_hitl_retries,
+    render_sync_hitl_pause,
+    store_hitl_resume_context,
+)
+from ui.llm_config import (
+    get_implementation_llm_client,
+    get_llm_client,
+    init_llm_sidebar_defaults,
+    load_secrets,
+    save_secrets,
+)
+from pipeline.runner_bridge import extract_runner_safe_commands, summarize_planned_commands
+from pipeline.stage_tracker import STAGE_DISPLAY_NAMES, stage_badge_label
+from pipeline.analysis_cache import load_cached_analysis, save_cached_analysis
+from pipeline.output_paths import resolve_output_dir, resolve_output_file
 from pipeline.productize_pipeline import (
     execute_proposal,
     generate_proposals,
@@ -37,29 +53,6 @@ UPLOADS_DIR = PROJECT_ROOT / "uploads"
 
 SECRETS_FILE = PROJECT_ROOT / ".streamlit" / "secrets.toml"
 
-
-def _load_secrets() -> dict[str, str]:
-    """Load saved LLM config from .streamlit/secrets.toml."""
-    if SECRETS_FILE.is_file():
-        try:
-            data: dict[str, str] = toml.load(str(SECRETS_FILE))
-            return {k: (v or "") for k, v in data.items() if k in ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL")}
-        except Exception:
-            pass
-    return {}
-
-
-def _save_secrets(api_key: str, base_url: str, model: str) -> None:
-    """Persist LLM config to .streamlit/secrets.toml so it survives restarts."""
-    SECRETS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SECRETS_FILE.write_text(
-        toml.dumps({
-            "LLM_API_KEY": api_key,
-            "LLM_BASE_URL": base_url,
-            "LLM_MODEL": model,
-        }),
-        encoding="utf-8",
-    )
 OUTPUT_FILES = (
     ("reproduction_plan.md", "Download reproduction_plan.md", "text/markdown"),
     ("run.sh", "Download run.sh", "text/x-shellscript"),
@@ -136,6 +129,8 @@ def _build_generated_code_zip(repo_path: str, files: list[str]) -> bytes:
 
 def _show_outputs(result: dict[str, Any]) -> None:
     st.header("Output")
+    _show_pdf_quality_warnings(result)
+    _show_stage_provenance(result)
     tabs = st.tabs(
         [
             "Paper Summary",
@@ -205,15 +200,50 @@ def _show_outputs(result: dict[str, Any]) -> None:
         st.markdown(result.get("report") or "report.md not yet generated.")
 
 
-def _show_downloads() -> None:
+def _show_stage_provenance(result: dict[str, Any]) -> None:
+    """Show whether each agent stage used real, fallback, or mock output."""
+    sources = result.get("stage_sources") or {}
+    if not sources:
+        return
+    st.subheader("Stage Provenance")
+    columns = st.columns(min(len(sources), 4) or 1)
+    for index, (stage_key, source) in enumerate(sources.items()):
+        label = STAGE_DISPLAY_NAMES.get(stage_key, stage_key.replace("_", " ").title())
+        badge = stage_badge_label(str(source))
+        with columns[index % len(columns)]:
+            if source == "real":
+                st.success(f"{label}: {badge}")
+            elif source == "fallback":
+                st.warning(f"{label}: {badge}")
+            else:
+                st.info(f"{label}: {badge}")
+
+
+def _show_pdf_quality_warnings(result: dict[str, Any]) -> None:
+    quality = result.get("pdf_quality") or {}
+    if not quality:
+        return
+    if quality.get("is_scanned"):
+        st.warning(
+            "This PDF looks like a scanned document (low text density). "
+            "Paper understanding may be incomplete until OCR support is added."
+        )
+    for warning in quality.get("warnings", []):
+        st.warning(str(warning))
+
+
+def _show_downloads(result: dict[str, Any] | None = None) -> None:
     st.subheader("Download Output Files")
+    output_dir = resolve_output_dir(result)
+    if result and result.get("paper_name"):
+        st.caption(f"Output directory: `{output_dir}`")
     columns = st.columns(len(OUTPUT_FILES))
     for column, (filename, label, mime) in zip(
         columns,
         OUTPUT_FILES,
         strict=True,
     ):
-        path = OUTPUTS_DIR / filename
+        path = resolve_output_file(result, filename)
         with column:
             if path.is_file():
                 st.download_button(
@@ -227,105 +257,10 @@ def _show_downloads() -> None:
                 st.info(f"{filename} not yet generated.")
 
 
-class StreamlitHITL(PipelineHITL):
-    """HITL context for Streamlit: confirms are shown AFTER the pipeline runs.
-
-    ``on_confirm()`` stores the pending key and returns ``None`` (deferred).
-    The pipeline passes through all HITL points with ``"confirm"`` fallback,
-    then the UI shows dialogs and lets the user resolve each one.
-    On retry, ``rerun_agent_with_feedback()`` re-invokes the agent.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._pending_keys: list[str] = []
-
-    def on_confirm(self, key: str, title: str, content: str) -> str | None:
-        """Store pending confirmation; return None (deferred)."""
-        if key not in self._pending_keys:
-            self._pending_keys.append(key)
-        st.session_state[f"hitl_pending_{key}"] = True
-        st.session_state[f"hitl_title_{key}"] = title
-        st.session_state[f"hitl_content_{key}"] = content
-        return None  # Deferred — pipeline defaults to "confirm"
-
-    def is_deferred_pending(self, key: str) -> bool:
-        """Check if a stage was deferred and is still unresolved."""
-        return self.is_pending(key) and st.session_state.get(f"hitl_pending_{key}", False)
-
-    def render_pending_dialogs(self) -> bool:
-        """Render all unresolved HITL dialogs. Returns True if any were shown."""
-        shown_any = False
-        for key in list(self._pending_keys):
-            if not self.is_deferred_pending(key):
-                continue
-
-            title = st.session_state.get(f"hitl_title_{key}", "Confirmation Required")
-            content = st.session_state.get(f"hitl_content_{key}", "")
-
-            st.markdown(f"#### {title}")
-            st.markdown(content)
-
-            feedback = st.text_area(
-                "Feedback (optional, for retry)",
-                key=f"hitl_feedback_{key}",
-            )
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if st.button("Confirm", key=f"hitl_btn_confirm_{key}", type="primary"):
-                    st.session_state[f"hitl_pending_{key}"] = False
-                    self.stages[key].status = HITLStatus.CONFIRMED
-                    st.rerun()
-            with col2:
-                if st.button("Retry with feedback", key=f"hitl_btn_retry_{key}"):
-                    st.session_state[f"hitl_pending_{key}"] = False
-                    self.set_correction(key, feedback)
-                    self.stages[key].status = HITLStatus.RETRY
-                    st.session_state["hitl_retry_key"] = key
-                    st.rerun()
-            with col3:
-                if st.button("Reject & Continue", key=f"hitl_btn_reject_{key}"):
-                    st.session_state[f"hitl_pending_{key}"] = False
-                    self.record_rejection(key, "User rejected this stage.")
-                    st.rerun()
-            shown_any = True
-        return shown_any
-
-
-def _get_llm_client() -> LLMClient:
-    """Build an LLMClient from sidebar session state (falling back to env vars)."""
-    api_key = str(st.session_state.get("llm_api_key") or "").strip() or None
-    base_url = str(st.session_state.get("llm_base_url") or "").strip() or None
-    model = str(st.session_state.get("llm_model") or "").strip() or None
-    return LLMClient(
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-        mock_mode=st.session_state.get("llm_mock_mode", LLM_MOCK_MODE),
-    )
-
-
-def _get_implementation_llm_client() -> LLMClient:
-    """Build the optional code-generation client from sidebar session state."""
-    client = _get_llm_client()
-    implementation_model = str(
-        st.session_state.get("llm_implementation_model") or ""
-    ).strip()
-    if not implementation_model or implementation_model == client.model:
-        return client
-    return LLMClient(
-        api_key=client.api_key,
-        base_url=client.base_url,
-        model=implementation_model,
-        mock_mode=client.mock_mode,
-    )
-
-
 def _debug_command_failure(command_result: dict[str, Any]) -> str:
     """Ask Execution & Diagnosis Agent to interpret a command failure."""
     try:
-        diagnosis = ExecutionDiagnosisAgent(_get_llm_client()).run_structured(
+        diagnosis = ExecutionDiagnosisAgent(get_llm_client()).run_structured(
             {
                 "command_results": [command_result],
                 "hardware": st.session_state.get(
@@ -472,6 +407,35 @@ def _show_command_result_structured(command_result: dict[str, Any]) -> None:
 def _show_runner_section(result: dict[str, Any] | None) -> None:
     st.header("Runner")
 
+    command_plans = list((result or {}).get("command_plans") or [])
+    repo_path = str((result or {}).get("repo_path") or "")
+    if command_plans:
+        counts = summarize_planned_commands(command_plans)
+        summary = ", ".join(f"{level}: {count}" for level, count in sorted(counts.items()))
+        st.caption(f"Planned commands from reproduction plan — {summary}")
+        safe_planned = extract_runner_safe_commands(command_plans, repo_path=repo_path)
+        if safe_planned:
+            st.subheader("Run Planned Safe Commands")
+            st.caption(
+                "These commands were classified as low-risk and match the Runner allowlist."
+            )
+            for index, planned in enumerate(safe_planned):
+                label = planned["purpose"] or f"Run: {planned['command']}"
+                if st.button(label, key=f"planned_safe_command_{index}"):
+                    with st.spinner(f"Running safely: {planned['command']}"):
+                        command_result, diagnosis = execute_runner_command(
+                            planned["command"],
+                            planned["cwd"],
+                        )
+                    st.session_state["runner_result"] = command_result
+                    st.session_state["runner_debug_result"] = diagnosis
+                    st.rerun()
+        else:
+            st.info(
+                "No planned commands are both safe and allowlisted. "
+                "Use Review mode for medium-risk commands or run help checks below."
+            )
+
     # Runner mode toggle
     runner_mode = st.selectbox(
         "Runner Mode",
@@ -593,7 +557,7 @@ def _show_debug_section() -> None:
             return
         with st.spinner("Execution & Diagnosis Agent is analyzing the error"):
             try:
-                structured = ExecutionDiagnosisAgent(_get_llm_client()).run_structured(
+                structured = ExecutionDiagnosisAgent(get_llm_client()).run_structured(
                     {
                         "error_log": debug_log,
                         "hardware": st.session_state.get(
@@ -669,8 +633,19 @@ def _run_analysis_for_productize(
     llm_client: LLMClient,
     progress_callback: Any | None = None,
 ) -> dict[str, Any]:
-    """Run the existing repository-analysis path for Productize context."""
-    return run_paperpilot(
+    """Run or load cached reproduce analysis for Productize context."""
+    cached = load_cached_analysis(
+        pdf_path,
+        github_url=github_url,
+        hardware=hardware,
+        gpu_info=gpu_info,
+        mock_mode=llm_client.mock_mode,
+    )
+    if cached is not None:
+        if progress_callback:
+            progress_callback(f"Using cached analysis for {Path(pdf_path).name}")
+        return cached
+    result = run_paperpilot(
         pdf_path=pdf_path,
         github_url=github_url,
         hardware=hardware,
@@ -679,7 +654,17 @@ def _run_analysis_for_productize(
         llm_client=llm_client,
         progress_callback=progress_callback,
         generate_code=False,
+        paper_name=Path(pdf_path).stem.replace(" ", "_")[:80],
     )
+    save_cached_analysis(
+        pdf_path,
+        result,
+        github_url=github_url,
+        hardware=hardware,
+        gpu_info=gpu_info,
+        mock_mode=llm_client.mock_mode,
+    )
+    return result
 
 
 def _render_reproduce_mode() -> None:
@@ -689,7 +674,7 @@ def _render_reproduce_mode() -> None:
         "Generate executable, inspectable reproduction plans from paper PDFs, "
         "with or without an existing code repository."
     )
-    configured_client = _get_llm_client()
+    configured_client = get_llm_client()
     if configured_client.mock_mode:
         st.warning(
             "Mock Mode is enabled. The PDF will be parsed, but no LLM will read "
@@ -768,7 +753,7 @@ def _render_reproduce_mode() -> None:
             st.session_state.pop("paperpilot_result", None)
         else:
             validation_errors: list[str] = []
-            analysis_client = _get_llm_client()
+            analysis_client = get_llm_client()
             if uploaded_pdf is None:
                 validation_errors.append("Please upload a paper PDF.")
             if not analysis_client.mock_mode and not analysis_client.api_key:
@@ -805,10 +790,13 @@ def _render_reproduce_mode() -> None:
 
                     paper_name = Path(uploaded_pdf.name).stem.replace(" ", "_")[:80]
 
-                    hitl: PipelineHITL | None = None
+                    hitl: StreamlitHITL | None = None
                     if st.session_state.get("enable_hitl", False):
-                        hitl = StreamlitHITL()
-                        st.session_state["_reproduce_hitl"] = hitl
+                        hitl = StreamlitHITL(
+                            sync_mode=st.session_state.get("enable_sync_hitl", False),
+                        )
+                        if not hitl.sync_mode:
+                            st.session_state["_reproduce_hitl"] = hitl
 
                     with st.status("Agent Status", expanded=True) as status:
                         _on_progress("Initializing pipeline")
@@ -849,6 +837,27 @@ def _render_reproduce_mode() -> None:
                                     label="Pipeline completed with issues",
                                     state="error",
                                 )
+                            elif pipeline_status == "hitl_paused":
+                                store_hitl_resume_context(
+                                    pdf_path=str(saved_pdf),
+                                    github_url=github_url.strip(),
+                                    hardware=hardware,
+                                    gpu_info=gpu_info.strip(),
+                                    goal=goal,
+                                    user_idea=user_idea.strip(),
+                                    paper_name=paper_name,
+                                    generate_code=generate_code,
+                                    implementation_model=st.session_state.get(
+                                        "llm_implementation_model",
+                                        "",
+                                    ),
+                                    result=result,
+                                )
+                                _on_progress("Paused for human review")
+                                status.update(
+                                    label="Paused for human review",
+                                    state="running",
+                                )
                             elif pipeline_status == "mock":
                                 _on_progress("Mock pipeline complete")
                                 status.update(label="Mock pipeline complete", state="complete")
@@ -858,21 +867,17 @@ def _render_reproduce_mode() -> None:
 
     result = st.session_state.get("paperpilot_result")
 
-    # Show HITL confirmation dialogs if pending (after pipeline completed)
+    if result and render_sync_hitl_pause(result):
+        st.stop()
+
+    # Show deferred HITL confirmation dialogs if pending (after pipeline completed)
     reproduce_hitl: StreamlitHITL | None = st.session_state.get("_reproduce_hitl")
     if reproduce_hitl and reproduce_hitl._pending_keys:
         st.header("Review & Confirm Agent Outputs")
         st.caption("The pipeline has completed. Review each stage's output below and confirm, reject, or retry with feedback.")
         if reproduce_hitl.render_pending_dialogs():
             st.stop()
-        # After all dialogs resolved, handle retries
-        retry_keys = reproduce_hitl.get_retry_keys()
-        if retry_keys:
-            for retry_key in retry_keys:
-                correction = reproduce_hitl.get_correction(retry_key)
-                st.info(f"Retry requested for {retry_key} with feedback: {correction}")
-                # Retry logic can be expanded here if needed
-            st.session_state.pop("_reproduce_hitl", None)
+        handle_deferred_hitl_retries(reproduce_hitl, result)
 
     if result:
         _show_pipeline_errors(
@@ -887,9 +892,45 @@ def _render_reproduce_mode() -> None:
     else:
         st.info("Submit inputs and click Analyze to see results here.")
 
-    _show_downloads()
+    _show_downloads(result)
     _show_runner_section(result)
     _show_debug_section()
+
+
+def _show_evaluation_scores(evaluation: dict[str, Any]) -> None:
+    """Render rubric scores as a simple bar chart."""
+    if not evaluation:
+        st.info("Evaluation not generated.")
+        return
+    score_fields = [
+        ("paper_faithfulness", "Paper faithfulness"),
+        ("multi_paper_coherence", "Multi-paper coherence"),
+        ("user_clarity", "User clarity"),
+        ("problem_solution_fit", "Problem-solution fit"),
+        ("prd_completeness", "PRD completeness"),
+        ("mvp_simplicity", "MVP simplicity"),
+        ("demo_feasibility", "Demo feasibility"),
+        ("mock_first_correctness", "Mock-first correctness"),
+        ("safety_awareness", "Safety awareness"),
+        ("integration_feasibility", "Integration feasibility"),
+        ("overall_score", "Overall"),
+    ]
+    rows = {
+        label: float(evaluation.get(field, 0) or 0)
+        for field, label in score_fields
+        if field in evaluation
+    }
+    if rows:
+        st.bar_chart(rows)
+    st.metric("Demo readiness", str(evaluation.get("demo_readiness", "unknown")))
+    if evaluation.get("detected_problems"):
+        st.markdown("**Detected problems**")
+        for item in evaluation["detected_problems"]:
+            st.markdown(f"- {item}")
+    if evaluation.get("revision_suggestions"):
+        st.markdown("**Revision suggestions**")
+        for item in evaluation["revision_suggestions"]:
+            st.markdown(f"- {item}")
 
 
 def _show_productize_result(result: dict[str, Any]) -> None:
@@ -948,7 +989,10 @@ def _show_productize_result(result: dict[str, Any]) -> None:
     with tabs[6]:
         inspection = result.get("inspection", {})
         st.json(inspection)
-        st.json(result.get("evaluation") or {})
+        evaluation = result.get("evaluation") or {}
+        _show_evaluation_scores(evaluation if isinstance(evaluation, dict) else {})
+        with st.expander("Raw evaluation JSON"):
+            st.json(evaluation)
         st.markdown(result.get("test_report") or "Not generated.")
 
     st.subheader("How to Run Generated Product")
@@ -1078,7 +1122,7 @@ def _render_productize_mode() -> None:
                             github_url=assigned_url,
                             hardware=hardware,
                             gpu_info=gpu_info.strip(),
-                            llm_client=_get_llm_client(),
+                            llm_client=get_llm_client(),
                             progress_callback=_on_progress,
                         )
                     except Exception as exc:
@@ -1134,7 +1178,7 @@ def _render_productize_mode() -> None:
                     papers=papers,
                     target_user=target_user.strip(),
                     product_goal=product_goal.strip(),
-                    llm_client=_get_llm_client(),
+                    llm_client=get_llm_client(),
                     user_idea=user_idea.strip(),
                     progress_callback=_on_progress,
                     hitl=productize_hitl,
@@ -1311,7 +1355,7 @@ def _render_productize_mode() -> None:
                             research_synthesis={},
                             preferred_type=preferred_type,
                             repo_path="",
-                            llm_client=_get_llm_client(),
+                            llm_client=get_llm_client(),
                             progress_callback=_on_progress2,
                             hitl=exec_hitl,
                         )
@@ -1357,23 +1401,7 @@ def main() -> None:
         st.header("LLM Configuration")
 
         # Load saved secrets, then merge with env vars (env vars take precedence)
-        saved_secrets = _load_secrets()
-        st.session_state.setdefault(
-            "llm_api_key",
-            saved_secrets.get("LLM_API_KEY") or "",
-        )
-        st.session_state.setdefault(
-            "llm_base_url",
-            saved_secrets.get("LLM_BASE_URL")
-            or LLM_BASE_URL
-            or "https://api.openai.com/v1",
-        )
-        st.session_state.setdefault(
-            "llm_model",
-            saved_secrets.get("LLM_MODEL") or LLM_MODEL,
-        )
-        st.session_state.setdefault("llm_implementation_model", "")
-        st.session_state.setdefault("llm_mock_mode", LLM_MOCK_MODE)
+        init_llm_sidebar_defaults()
 
         st.session_state["llm_api_key"] = st.text_input(
             "API Key",
@@ -1411,13 +1439,13 @@ def main() -> None:
         )
 
         if st.button("Save & Test Connection", use_container_width=True):
-            _save_secrets(
+            save_secrets(
                 api_key=st.session_state["llm_api_key"],
                 base_url=st.session_state["llm_base_url"],
                 model=st.session_state["llm_model"],
             )
             try:
-                connection_result = _get_llm_client().test_connection()
+                connection_result = get_llm_client().test_connection()
             except LLMClientError as exc:
                 st.error(str(exc))
             except Exception as exc:
@@ -1429,7 +1457,7 @@ def main() -> None:
             use_container_width=True,
         ):
             try:
-                connection_result = _get_implementation_llm_client().test_connection()
+                connection_result = get_implementation_llm_client().test_connection()
             except LLMClientError as exc:
                 st.error(str(exc))
             except Exception as exc:
@@ -1443,8 +1471,20 @@ def main() -> None:
         st.session_state["enable_hitl"] = st.toggle(
             "Enable HITL Confirmation",
             value=st.session_state["enable_hitl"],
-            help="When enabled, the pipeline pauses after each agent to let you review and confirm outputs before proceeding.",
+            help="Review agent outputs before continuing.",
         )
+        st.session_state.setdefault("enable_sync_hitl", False)
+        if st.session_state["enable_hitl"]:
+            st.session_state["enable_sync_hitl"] = st.toggle(
+                "Sync HITL (LangGraph interrupt)",
+                value=st.session_state["enable_sync_hitl"],
+                help=(
+                    "Pause the pipeline before downstream agents run. "
+                    "Requires HITL Confirmation to be enabled."
+                ),
+            )
+        else:
+            st.session_state["enable_sync_hitl"] = False
 
     # Productize session state
     st.session_state.setdefault("productize_stage", "input")

@@ -43,8 +43,9 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 
 ### Mock Mode
 
-- Full demo via mock mode without any API key
-- Mock-first by default — generated prototypes use safe mock outputs
+- Enable **Mock Mode** in the Streamlit sidebar or set `LLM_MOCK_MODE=true` to run the full pipeline without an API key
+- By default (`LLM_MOCK_MODE=false`), real paper analysis requires an API key
+- Generated **product prototypes** remain mock-first regardless — safe demo outputs without real model integration
 
 ## System Architecture
 

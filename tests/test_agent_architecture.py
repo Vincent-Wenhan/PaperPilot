@@ -266,6 +266,10 @@ class AgentArchitectureTests(unittest.TestCase):
         client = FailingLLMClient()
         with (
             patch("pipeline.reproduce_pipeline.parse_pdf", return_value="paper text"),
+            patch(
+                "pipeline.reproduce_pipeline.analyze_pdf_quality",
+                return_value={"is_scanned": False, "warnings": []},
+            ),
             patch("pipeline.reproduce_pipeline.save_output"),
         ):
             result = run_reproduce_pipeline(

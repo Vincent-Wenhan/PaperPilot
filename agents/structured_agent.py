@@ -51,20 +51,40 @@ class StructuredAgent(BaseAgent, ABC, Generic[SchemaT]):
         del result, input_data
         return None
 
+    def _parse_structured_response(
+        self,
+        raw: str,
+        input_data: dict[str, Any],
+    ) -> tuple[SchemaT | None, str | None]:
+        parsed, error = self.repair_json_output(raw, self.schema_type)
+        if parsed is None:
+            return None, error
+        quality_error = self.validate_structured_result(parsed, input_data)
+        if quality_error is not None:
+            return None, quality_error
+        return parsed, None
+
     def run_structured(self, input_data: dict[str, Any]) -> SchemaT:
         """Run the reasoning stage and require a schema-valid real-model result."""
-        self._format_input(input_data)
+        formatted_input = self._format_input(input_data)
         if self.llm_client.mock_mode:
             return self.build_mock(input_data)
         raw = super().run(input_data)
-        parsed, error = self.repair_json_output(raw, self.schema_type)
+        parsed, error = self._parse_structured_response(raw, input_data)
         if parsed is not None:
-            quality_error = self.validate_structured_result(parsed, input_data)
-            if quality_error is None:
-                return parsed
-            error = quality_error
-        preview = " ".join(raw.split())[:500]
+            return parsed
+        retry_prompt = (
+            f"{formatted_input}\n\n"
+            "Your previous response was invalid structured JSON. "
+            f"Error: {error}. Return ONE JSON object only that matches the schema. "
+            "Do not wrap the JSON in markdown fences."
+        )
+        raw_retry = self.llm_client.generate(self.system_prompt, retry_prompt)
+        parsed_retry, retry_error = self._parse_structured_response(raw_retry, input_data)
+        if parsed_retry is not None:
+            return parsed_retry
+        preview = " ".join(raw_retry.split())[:500]
         raise RuntimeError(
-            f"{self.name} returned invalid structured output: {error}. "
+            f"{self.name} returned invalid structured output after retry: {retry_error}. "
             f"Response preview: {preview or '<empty>'}"
         )

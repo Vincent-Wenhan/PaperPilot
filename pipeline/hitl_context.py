@@ -30,10 +30,14 @@ class PipelineHITL:
 
     When ``None`` is passed instead of an instance, all confirmation points
     are skipped (backward-compatible).
+
+  ``sync_mode`` enables LangGraph interrupt/resume so downstream agents do not
+    run until the user confirms the paused stage.
     """
 
     stages: dict[str, HITLState] = field(default_factory=dict)
     on_confirm: Callable[[str, str, str], str | None] | None = None
+    sync_mode: bool = False
 
     def request_confirmation(self, key: str, title: str, content: str) -> str:
         """Request user confirmation for a pipeline stage.

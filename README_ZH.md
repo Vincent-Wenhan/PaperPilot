@@ -43,8 +43,9 @@ PaperPilot 集论文理解、仓库分析、复现规划和产品原型生成为
 
 ### Mock 模式
 
-- 无 API key 时通过 mock mode 完整演示
-- 默认 mock-first — 生成的产品原型使用安全 mock 输出
+- 在 Streamlit 侧边栏开启 **Mock Mode**，或设置 `LLM_MOCK_MODE=true`，即可在无 API key 时完整演示 pipeline
+- 默认（`LLM_MOCK_MODE=false`）下，真实论文分析需要配置 API key
+- 生成的**产品原型**始终 mock-first — 无需真实模型集成即可安全演示
 
 ## 系统架构
 

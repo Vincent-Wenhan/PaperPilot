@@ -29,6 +29,10 @@ def run_paperpilot(
     hitl: PipelineHITL | None = None,
     generate_code: bool = True,
     implementation_model: str = "",
+    hitl_thread_id: str | None = None,
+    hitl_action: str | None = None,
+    hitl_stage: str | None = None,
+    hitl_correction: str = "",
 ) -> dict[str, Any]:
     """Run the PaperPilot analysis pipeline.
 
@@ -82,4 +86,8 @@ def run_paperpilot(
         hitl=hitl,
         generate_code=generate_code,
         implementation_model=implementation_model,
+        hitl_thread_id=hitl_thread_id,
+        hitl_action=hitl_action,
+        hitl_stage=hitl_stage,
+        hitl_correction=hitl_correction,
     )

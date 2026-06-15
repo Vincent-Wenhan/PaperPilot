@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 from graphs.subgraphs.command_review_graph import (
@@ -54,7 +55,12 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return dict(value)
 
 
-def build_reproduce_graph(dependencies: ReproduceGraphDependencies):
+def build_reproduce_graph(
+    dependencies: ReproduceGraphDependencies,
+    *,
+    checkpointer: BaseCheckpointSaver | None = None,
+    interrupt_after: tuple[str, ...] | None = None,
+):
     """Compile the parallel evidence, planning, and risk-routing workflow."""
 
     def parse_paper_node(state: ReproduceState) -> dict[str, Any]:
@@ -209,4 +215,9 @@ def build_reproduce_graph(dependencies: ReproduceGraphDependencies):
     builder.add_edge("reproduction_implementation", "execution_diagnosis")
     builder.add_edge("execution_diagnosis", "build_outputs")
     builder.add_edge("build_outputs", END)
-    return builder.compile()
+    compile_kwargs: dict[str, Any] = {}
+    if checkpointer is not None:
+        compile_kwargs["checkpointer"] = checkpointer
+    if interrupt_after:
+        compile_kwargs["interrupt_after"] = list(interrupt_after)
+    return builder.compile(**compile_kwargs)

@@ -38,7 +38,7 @@ class ProductizeUiTests(unittest.TestCase):
                 },
             ),
         ):
-            client = app._get_llm_client()
+            client = app.get_llm_client()
 
         self.assertEqual(client.api_key, "env-key")
         self.assertEqual(client.base_url, "https://example.test/v1")
@@ -54,7 +54,7 @@ class ProductizeUiTests(unittest.TestCase):
             "llm_mock_mode": False,
         }
         with patch.object(app.st, "session_state", state):
-            client = app._get_implementation_llm_client()
+            client = app.get_implementation_llm_client()
 
         self.assertEqual(client.model, "code-model")
         self.assertEqual(client.base_url, "https://example.test/v1")
@@ -118,7 +118,9 @@ class ProductizeUiTests(unittest.TestCase):
             "repo_info": "repo",
             "repo_path": "/tmp/repo",
         }
-        with patch.object(app, "run_paperpilot", return_value=expected) as run:
+        with patch.object(app, "load_cached_analysis", return_value=None), patch.object(
+            app, "run_paperpilot", return_value=expected
+        ) as run, patch.object(app, "save_cached_analysis"):
             result = app._run_analysis_for_productize(
                 pdf_path="/tmp/paper.pdf",
                 github_url="https://github.com/owner/repo",
@@ -137,6 +139,7 @@ class ProductizeUiTests(unittest.TestCase):
             llm_client=client,
             progress_callback=None,
             generate_code=False,
+            paper_name="paper",
         )
 
 

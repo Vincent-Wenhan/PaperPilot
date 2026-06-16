@@ -38,8 +38,8 @@ def render_reproduce_mode() -> None:
             "LLM_API_KEY before running a real paper analysis."
         )
 
-    st.header("Input")
-    uploaded_pdf = st.file_uploader(
+    with st.expander("Input", expanded=True):
+        uploaded_pdf = st.file_uploader(
         "Upload paper PDF",
         type=["pdf"],
         key="reproduce_pdf",

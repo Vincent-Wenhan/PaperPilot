@@ -196,6 +196,7 @@ def render_productize_mode() -> None:
                 p.model_dump(mode="json") for p in proposals
             ]
             st.session_state["productize_papers"] = papers
+            st.session_state["productize_proposal_meta"] = proposal_meta
             st.session_state["productize_stage"] = "review"
             st.rerun()
 
@@ -213,6 +214,7 @@ def render_productize_mode() -> None:
             return
 
         selected_data = st.session_state.get("productize_selected_proposal")
+        proposal_meta = st.session_state.get("productize_proposal_meta", {})
         if selected_data is None:
             # Show proposals in tabs
             proposal_names = [
@@ -345,7 +347,7 @@ def render_productize_mode() -> None:
                         result = execute_proposal(
                             proposal=edited_proposal,
                             papers=papers,
-                            research_synthesis={},
+                            research_synthesis=proposal_meta.get("research_synthesis", {}),
                             preferred_type=preferred_type,
                             repo_path="",
                             llm_client=get_llm_client(),

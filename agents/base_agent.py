@@ -63,7 +63,12 @@ class BaseAgent:
     @staticmethod
     def _load_json_lenient(raw_text: str) -> Any:
         """Parse JSON while tolerating unescaped control characters in strings."""
-        return json.loads(raw_text, strict=False)
+        text = raw_text.strip()
+        # Fix trailing commas before closing braces/brackets — common LLM issue
+        import re as _re
+        text = _re.sub(r',\s*}', '}', text)
+        text = _re.sub(r',\s*\]', ']', text)
+        return json.loads(text, strict=False)
 
     @staticmethod
     def parse_json_response(raw_text: str, schema: type[BaseModel]):

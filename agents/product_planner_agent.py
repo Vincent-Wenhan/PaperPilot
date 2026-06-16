@@ -70,6 +70,40 @@ class ProductPlannerAgent(StructuredAgent[ProductPlan]):
             overall_score=4.4,
             reason="The workflow exposes evidence, scope, and integration limits.",
         )
+        opportunity2 = ProductOpportunity(
+            idea_name="Interactive Method Explorer",
+            target_user=target_user,
+            core_value="Visual comparison of paper methods with mock outputs",
+            technical_feasibility=4,
+            demo_feasibility=5,
+            model_availability=3,
+            data_requirement=5,
+            integration_risk=2,
+            user_value=5,
+            course_presentation_value=5,
+            paper_faithfulness=5,
+            multi_paper_coherence=5,
+            mock_first_suitability=5,
+            overall_score=4.6,
+            reason="Side-by-side method visualization with mock data demonstrates paper understanding clearly.",
+        )
+        opportunity3 = ProductOpportunity(
+            idea_name="Paper Capability Dashboard",
+            target_user=target_user,
+            core_value="Centralized dashboard to browse, compare, and compose paper capabilities",
+            technical_feasibility=5,
+            demo_feasibility=5,
+            model_availability=3,
+            data_requirement=5,
+            integration_risk=1,
+            user_value=4,
+            course_presentation_value=5,
+            paper_faithfulness=4,
+            multi_paper_coherence=4,
+            mock_first_suitability=5,
+            overall_score=4.3,
+            reason="A browsable dashboard showcases all extracted capabilities in one place.",
+        )
         return ProductPlan(
             jtbd=(
                 f"When reviewing research, {target_user} want to understand and "
@@ -83,7 +117,7 @@ class ProductPlannerAgent(StructuredAgent[ProductPlan]):
                 gain_creators=["PRD-driven prototype plan"],
                 product_features=[feature, "Rubric-based evaluation"],
             ),
-            opportunities=[opportunity],
+            opportunities=[opportunity, opportunity2, opportunity3],
             selected_product=opportunity.idea_name,
             selection_reason=opportunity.reason,
             prd=PRD(

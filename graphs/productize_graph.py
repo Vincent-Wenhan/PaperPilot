@@ -81,7 +81,92 @@ def _build_proposals(
     product_goal: str,
 ) -> list[dict[str, Any]]:
     proposals: list[ProductProposal] = []
-    for opportunity in product_plan.opportunities:
+    opportunities = list(product_plan.opportunities)
+
+    # If the agent returned fewer than 2 opportunities, clone with variations
+    if len(opportunities) < 2:
+        base_opp = opportunities[0] if opportunities else None
+        if base_opp:
+            opportunities = [
+                base_opp,
+                ProductOpportunity(
+                    idea_name=f"{base_opp.idea_name} — Lite",
+                    target_user=base_opp.target_user,
+                    core_value=f"Simplified version: {base_opp.core_value}",
+                    technical_feasibility=base_opp.technical_feasibility,
+                    demo_feasibility=base_opp.demo_feasibility,
+                    model_availability=base_opp.model_availability,
+                    data_requirement=base_opp.data_requirement,
+                    integration_risk=base_opp.integration_risk,
+                    user_value=base_opp.user_value,
+                    course_presentation_value=base_opp.course_presentation_value,
+                    paper_faithfulness=base_opp.paper_faithfulness,
+                    multi_paper_coherence=base_opp.multi_paper_coherence,
+                    mock_first_suitability=base_opp.mock_first_suitability,
+                    overall_score=base_opp.overall_score,
+                    reason=f"Lighter variant of {base_opp.idea_name}",
+                ),
+                ProductOpportunity(
+                    idea_name=f"{base_opp.idea_name} — Extended",
+                    target_user=base_opp.target_user,
+                    core_value=f"Full-featured version: {base_opp.core_value}",
+                    technical_feasibility=min(base_opp.technical_feasibility + 1, 5),
+                    demo_feasibility=base_opp.demo_feasibility,
+                    model_availability=base_opp.model_availability,
+                    data_requirement=base_opp.data_requirement,
+                    integration_risk=min(base_opp.integration_risk + 1, 5),
+                    user_value=base_opp.user_value,
+                    course_presentation_value=base_opp.course_presentation_value,
+                    paper_faithfulness=base_opp.paper_faithfulness,
+                    multi_paper_coherence=base_opp.multi_paper_coherence,
+                    mock_first_suitability=base_opp.mock_first_suitability,
+                    overall_score=base_opp.overall_score,
+                    reason=f"Extended variant of {base_opp.idea_name}",
+                ),
+            ]
+        else:
+            # Complete fallback: generate 3 synthetic opportunities
+            from schemas.product_schema import ProductOpportunity as _PO
+            opportunities = [
+                _PO(
+                    idea_name="Paper Capability Dashboard",
+                    target_user=target_user,
+                    core_value=product_goal,
+                    technical_feasibility=5, demo_feasibility=5,
+                    model_availability=3, data_requirement=5,
+                    integration_risk=2, user_value=4,
+                    course_presentation_value=5, paper_faithfulness=4,
+                    multi_paper_coherence=4, mock_first_suitability=5,
+                    overall_score=4.3,
+                    reason="Centralized dashboard showcasing all extracted capabilities.",
+                ),
+                _PO(
+                    idea_name="Interactive Demo Workbench",
+                    target_user=target_user,
+                    core_value=product_goal,
+                    technical_feasibility=4, demo_feasibility=5,
+                    model_availability=3, data_requirement=5,
+                    integration_risk=2, user_value=5,
+                    course_presentation_value=5, paper_faithfulness=5,
+                    multi_paper_coherence=5, mock_first_suitability=5,
+                    overall_score=4.6,
+                    reason="Hands-on mock demo for each method step.",
+                ),
+                _PO(
+                    idea_name="Method Comparison Tool",
+                    target_user=target_user,
+                    core_value=product_goal,
+                    technical_feasibility=5, demo_feasibility=5,
+                    model_availability=3, data_requirement=5,
+                    integration_risk=1, user_value=5,
+                    course_presentation_value=5, paper_faithfulness=4,
+                    multi_paper_coherence=4, mock_first_suitability=5,
+                    overall_score=4.5,
+                    reason="Side-by-side method comparison with mock outputs.",
+                ),
+            ]
+
+    for opportunity in opportunities:
         per_opportunity_prd = PRD(
             **{
                 **product_plan.prd.model_dump(mode="json"),

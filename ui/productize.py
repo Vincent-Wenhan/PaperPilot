@@ -359,16 +359,14 @@ def render_productize_mode() -> None:
                     ]
 
                     # Rebuild ProductProposal
-                    from schemas.product_schema import PRD as PRDModel, MVPScope as MVPScopeModel
+                    from schemas.product_schema import PRD as PRDModel, MVPScope as MVPScopeModel, ProductOpportunity as ProductOpportunityModel
                     edited_proposal = ProductProposal(
                         product_name=selected_data.get("product_name", ""),
                         target_user=selected_data.get("target_user", ""),
                         product_goal=selected_data.get("product_goal", ""),
                         jtbd=selected_data.get("jtbd", ""),
                         opportunities=[
-                            ProductProposal.__pydantic_fields__["opportunities"].__class__(
-                                **opp
-                            ) if isinstance(opp, dict) else opp
+                            ProductOpportunityModel(**opp) if isinstance(opp, dict) else opp
                             for opp in selected_data.get("opportunities", [])
                         ],
                         value_proposition=selected_data.get("value_proposition", {}),

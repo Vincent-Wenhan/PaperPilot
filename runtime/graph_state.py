@@ -55,6 +55,9 @@ class ReproduceState(TypedDict, total=False):
     command_results: Annotated[list[dict[str, Any]], operator.add]
     execution_diagnosis: dict[str, Any]
     implementation_bundle: dict[str, Any]
+    code_review: dict[str, Any]
+    code_revision_count: int
+    code_max_revisions: int
     report_paths: dict[str, str]
     graph_trace: Annotated[list[str], operator.add]
     issues: Annotated[list[dict[str, Any]], operator.add]

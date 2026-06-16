@@ -15,7 +15,7 @@ from graphs.subgraphs.command_review_graph import (
     summarize_unexecuted_commands,
 )
 from runtime.graph_state import ReproduceState
-from runtime.routing import route_command_plans
+from runtime.routing import route_after_code_review, route_command_plans
 from schemas.reproduction_schema import (
     ExecutionDiagnosis,
     ImplementationBundle,
@@ -23,6 +23,39 @@ from schemas.reproduction_schema import (
     RepositoryUnderstanding,
     ReproductionPlan,
 )
+from schemas.code_review_schema import CodeReview
+
+
+@dataclass(frozen=True)
+class ReproduceGraphDependencies:
+    parse_paper: Callable[[str], str]
+    understand_research: Callable[[str, str], PaperUnderstanding | dict[str, Any]]
+    prepare_repository: Callable[[str], dict[str, Any]]
+    understand_repository: Callable[
+        [dict[str, Any], dict[str, Any], str],
+        RepositoryUnderstanding | dict[str, Any],
+    ]
+    plan_reproduction: Callable[
+        [dict[str, Any], dict[str, Any], dict[str, Any]],
+        ReproductionPlan | dict[str, Any],
+    ]
+    generate_implementation: Callable[
+        [dict[str, Any]],
+        ImplementationBundle | dict[str, Any],
+    ]
+    review_code: Callable[
+        [dict[str, Any]],
+        CodeReview | dict[str, Any],
+    ]
+    revise_code: Callable[
+        [dict[str, Any], list[str]],
+        ImplementationBundle | dict[str, Any],
+    ]
+    diagnose_execution: Callable[
+        [dict[str, Any], list[dict[str, Any]]],
+        ExecutionDiagnosis | dict[str, Any],
+    ]
+    build_outputs: Callable[[dict[str, Any]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -163,6 +196,24 @@ def build_reproduce_graph(
             "graph_trace": ["reproduction_implementation"],
         }
 
+    def code_review(state: ReproduceState) -> dict[str, Any]:
+        review = dependencies.review_code(dict(state))
+        return {
+            "code_review": _as_dict(review),
+            "graph_trace": ["code_review"],
+        }
+
+    def code_revise(state: ReproduceState) -> dict[str, Any]:
+        code_review = dict(state.get("code_review") or {})
+        suggestions = list(code_review.get("revision_suggestions") or [])
+        implementation = dependencies.revise_code(dict(state), suggestions)
+        revision_count = int(state.get("code_revision_count") or 0) + 1
+        return {
+            "implementation_bundle": _as_dict(implementation),
+            "code_revision_count": revision_count,
+            "graph_trace": ["code_revise"],
+        }
+
     def execution_diagnosis(state: ReproduceState) -> dict[str, Any]:
         diagnosis = dependencies.diagnose_execution(
             dict(state.get("reproduction_plan") or {}),
@@ -190,6 +241,8 @@ def build_reproduce_graph(
     builder.add_node("review_summary", command_summary("review"))
     builder.add_node("blocked_summary", command_summary("blocked"))
     builder.add_node("reproduction_implementation", reproduction_implementation)
+    builder.add_node("code_review", code_review)
+    builder.add_node("code_revise", code_revise)
     builder.add_node("execution_diagnosis", execution_diagnosis)
     builder.add_node("build_outputs", build_outputs)
     builder.add_edge(START, "parse_paper")
@@ -212,7 +265,17 @@ def build_reproduce_graph(
     )
     for summary in ("safe_summary", "review_summary", "blocked_summary"):
         builder.add_edge(summary, "reproduction_implementation")
-    builder.add_edge("reproduction_implementation", "execution_diagnosis")
+    builder.add_edge("reproduction_implementation", "code_review")
+    builder.add_conditional_edges(
+        "code_review",
+        route_after_code_review,
+        {
+            "accept": "execution_diagnosis",
+            "revise": "code_revise",
+            "finish_with_warnings": "execution_diagnosis",
+        },
+    )
+    builder.add_edge("code_revise", "code_review")
     builder.add_edge("execution_diagnosis", "build_outputs")
     builder.add_edge("build_outputs", END)
     compile_kwargs: dict[str, Any] = {}

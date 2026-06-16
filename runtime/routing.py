@@ -46,3 +46,17 @@ def route_command_plans(command_plans: list[dict[str, Any]]) -> str:
     if levels.intersection({"medium", "high", "review", "sandbox"}):
         return "review"
     return "safe"
+
+
+def route_after_code_review(state: dict[str, Any]) -> str:
+    """Route Reproduce code revisions from code review score."""
+    code_review = state.get("code_review") or {}
+    verdict = str(code_review.get("verdict") or "revise")
+    revision_count = int(state.get("code_revision_count") or 0)
+    max_revisions = int(state.get("code_max_revisions") or 1)
+
+    if verdict == "accept":
+        return "accept"
+    if revision_count >= max_revisions:
+        return "finish_with_warnings"
+    return "revise"

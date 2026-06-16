@@ -233,6 +233,35 @@ def _merge_graph_state_into_result(
     result["command_results"] = list(state.get("command_results") or [])
     result["graph_trace"] = list(state.get("graph_trace") or [])
     result["errors"].extend(state.get("errors") or [])
+    _refresh_rendered_result_fields(result)
+
+
+def _refresh_rendered_result_fields(result: PipelineResult) -> None:
+    """Rebuild display fields from checkpointed graph state after HITL resume."""
+    if result.get("research_understanding"):
+        try:
+            research = PaperUnderstanding.model_validate(
+                result["research_understanding"]
+            )
+            result["paper_info"] = render_research_summary(research)
+            result["method_info"] = render_method_breakdown(research)
+        except Exception:
+            pass
+    if result.get("repository_understanding"):
+        try:
+            repository = RepositoryUnderstanding.model_validate(
+                result["repository_understanding"]
+            )
+            result["repo_info"] = render_repository_understanding(repository)
+        except Exception:
+            pass
+    if result.get("reproduction_plan"):
+        try:
+            plan = ReproductionPlan.model_validate(result["reproduction_plan"])
+            result["env_plan"] = render_environment_plan(plan)
+            result["experiment_plan"] = render_experiment_plan(plan)
+        except Exception:
+            pass
 
 
 def run_reproduce_pipeline(
@@ -661,7 +690,7 @@ def run_reproduce_pipeline(
             _record_error(result, "HITL: Research Understanding", "Rejected by user")
         elif hitl_action == "reject" and hitl_stage == "experiment":
             _record_error(result, "HITL: Reproduction Planner", "Rejected by user")
-        state = resume_graph(graph, hitl_thread_id)
+        state = resume_graph(graph, hitl_thread_id, hitl_action)
     else:
         state = invoke_until_pause_or_complete(
             graph,
@@ -702,6 +731,7 @@ def run_reproduce_pipeline(
             if interrupt_node == "research_understanding"
             else "Experiment Plan"
         )
+        _refresh_rendered_result_fields(result)
         result["hitl_content"] = render_interrupt_content(result, interrupt_node)
         return result
 

@@ -493,7 +493,7 @@ def _invoke_proposal_graph(
                 "HITL: Research Synthesis",
                 "Rejected by user",
             )
-        state = resume_graph(graph, hitl_thread_id)
+        state = resume_graph(graph, hitl_thread_id, hitl_action)
     else:
         state = invoke_graph(graph, initial_state, thread_id if use_sync else None)
     if use_sync and thread_id and graph_is_interrupted(graph, str(thread_id)):
@@ -860,7 +860,7 @@ def _invoke_execution_graph(
                 "HITL: Prototype Builder",
                 "Rejected by user",
             )
-        state = resume_graph(graph, hitl_thread_id)
+        state = resume_graph(graph, hitl_thread_id, hitl_action)
     else:
         state = invoke_graph(graph, initial_state, thread_id if use_sync else None)
     if use_sync and thread_id and graph_is_interrupted(graph, str(thread_id)):

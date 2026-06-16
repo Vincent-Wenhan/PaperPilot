@@ -15,6 +15,93 @@ from schemas.product_schema import ProductProposal
 from ui.llm_config import get_llm_client
 
 
+def _markdown_or_fallback(content: str, fallback: str) -> None:
+    if content.strip():
+        st.markdown(content)
+    else:
+        st.info(fallback)
+
+
+def _rebuild_reproduce_hitl_content(result: dict[str, Any]) -> str:
+    content = str(result.get("hitl_content") or "").strip()
+    if content:
+        return content
+
+    stage = str(result.get("hitl_stage") or "")
+    node = str(result.get("hitl_interrupt_node") or "")
+    try:
+        if stage == "research" or node == "research_understanding":
+            from pipeline.reproduce_renderers import (
+                render_method_breakdown,
+                render_research_summary,
+            )
+            from schemas.reproduction_schema import PaperUnderstanding
+
+            research = PaperUnderstanding.model_validate(
+                result.get("research_understanding") or {}
+            )
+            content = (
+                f"{render_research_summary(research)}\n\n"
+                f"{render_method_breakdown(research)}"
+            ).strip()
+        elif stage == "experiment" or node == "reproduction_planner":
+            from pipeline.reproduce_renderers import (
+                render_environment_plan,
+                render_experiment_plan,
+            )
+            from schemas.reproduction_schema import ReproductionPlan
+
+            plan = ReproductionPlan.model_validate(
+                result.get("reproduction_plan") or {}
+            )
+            content = (
+                f"{render_environment_plan(plan)}\n\n"
+                f"{render_experiment_plan(plan)}"
+            ).strip()
+    except Exception:
+        content = ""
+
+    if not content:
+        content = (
+            f"{result.get('paper_info', '')}\n\n"
+            f"{result.get('method_info', '')}\n\n"
+            f"{result.get('env_plan', '')}\n\n"
+            f"{result.get('experiment_plan', '')}"
+        ).strip()
+    if content:
+        result["hitl_content"] = content
+    return content
+
+
+def _rebuild_productize_hitl_content(result: dict[str, Any]) -> str:
+    content = str(result.get("hitl_content") or "").strip()
+    if content:
+        return content
+
+    stage = str(result.get("hitl_stage") or "")
+    try:
+        if stage == "capabilities":
+            from pipeline.hitl_renderers import render_capability_cards
+            from schemas.composition_schema import ResearchSynthesis
+
+            synthesis = ResearchSynthesis.model_validate(
+                result.get("research_synthesis") or {}
+            )
+            content = render_capability_cards(synthesis).strip()
+        elif stage == "prototype":
+            from pipeline.productize_pipeline import _prototype_plan_to_markdown
+            from schemas.product_schema import PrototypePlan
+
+            prototype = PrototypePlan.model_validate(result.get("prototype_plan") or {})
+            content = _prototype_plan_to_markdown(prototype).strip()
+    except Exception:
+        content = ""
+
+    if content:
+        result["hitl_content"] = content
+    return content
+
+
 class StreamlitHITL(PipelineHITL):
     """Deferred or sync HITL for Streamlit."""
 
@@ -123,36 +210,57 @@ def render_sync_hitl_pause(result: dict[str, Any]) -> bool:
     """Render sync HITL pause UI. Returns True when the page should stop."""
     if result.get("pipeline_status") != "hitl_paused":
         return False
-    st.header("Pipeline Paused — Review Required")
+    st.header("Pipeline Paused - Review Required")
     st.caption(
         "LangGraph paused before downstream agents ran. "
         "Confirm to continue, retry with feedback, or reject and continue."
     )
     st.markdown(f"#### {result.get('hitl_title', 'Review')}")
-    st.markdown(result.get("hitl_content", ""))
+    _markdown_or_fallback(
+        _rebuild_reproduce_hitl_content(result),
+        (
+            "No rendered output was attached to this HITL checkpoint. "
+            "The checkpoint state is still available; you can continue or retry."
+        ),
+    )
     feedback = st.text_area("Feedback (for retry)", key="sync_hitl_feedback")
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("Confirm & Continue", key="sync_hitl_confirm", type="primary"):
-            updated = resume_hitl_pipeline("confirm")
-            st.session_state["paperpilot_result"] = updated
-            if updated.get("pipeline_status") != "hitl_paused":
-                st.session_state.pop("hitl_resume_context", None)
-            st.rerun()
+            with st.spinner("Continuing pipeline..."):
+                try:
+                    updated = resume_hitl_pipeline("confirm")
+                except Exception as exc:
+                    st.error(f"Failed to continue pipeline: {exc}")
+                    return True
+                st.session_state["paperpilot_result"] = updated
+                if updated.get("pipeline_status") != "hitl_paused":
+                    st.session_state.pop("hitl_resume_context", None)
+                st.rerun()
     with col2:
         if st.button("Retry with feedback", key="sync_hitl_retry"):
-            updated = resume_hitl_pipeline("retry", feedback)
-            st.session_state["paperpilot_result"] = updated
-            if updated.get("pipeline_status") != "hitl_paused":
-                st.session_state.pop("hitl_resume_context", None)
-            st.rerun()
+            with st.spinner("Retrying with feedback..."):
+                try:
+                    updated = resume_hitl_pipeline("retry", feedback)
+                except Exception as exc:
+                    st.error(f"Failed to retry pipeline: {exc}")
+                    return True
+                st.session_state["paperpilot_result"] = updated
+                if updated.get("pipeline_status") != "hitl_paused":
+                    st.session_state.pop("hitl_resume_context", None)
+                st.rerun()
     with col3:
         if st.button("Reject & Continue", key="sync_hitl_reject"):
-            updated = resume_hitl_pipeline("reject")
-            st.session_state["paperpilot_result"] = updated
-            if updated.get("pipeline_status") != "hitl_paused":
-                st.session_state.pop("hitl_resume_context", None)
-            st.rerun()
+            with st.spinner("Continuing after rejection..."):
+                try:
+                    updated = resume_hitl_pipeline("reject")
+                except Exception as exc:
+                    st.error(f"Failed to continue pipeline: {exc}")
+                    return True
+                st.session_state["paperpilot_result"] = updated
+                if updated.get("pipeline_status") != "hitl_paused":
+                    st.session_state.pop("hitl_resume_context", None)
+                st.rerun()
     return True
 
 
@@ -223,30 +331,51 @@ def render_productize_sync_hitl_pause(result: dict[str, Any]) -> bool:
     """Render productize sync HITL pause UI. Returns True when the page should stop."""
     if result.get("pipeline_status") != "hitl_paused":
         return False
-    st.header("Productize Pipeline Paused — Review Required")
+    st.header("Productize Pipeline Paused - Review Required")
     st.caption(
         "LangGraph paused before downstream agents ran. "
         "Confirm to continue, retry with feedback, or reject and continue."
     )
     st.markdown(f"#### {result.get('hitl_title', 'Review')}")
-    st.markdown(result.get("hitl_content", ""))
+    _markdown_or_fallback(
+        _rebuild_productize_hitl_content(result),
+        (
+            "No rendered output was attached to this HITL checkpoint. "
+            "The checkpoint state is still available; you can continue or retry."
+        ),
+    )
     feedback = st.text_area("Feedback (for retry)", key="productize_sync_hitl_feedback")
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("Confirm & Continue", key="productize_sync_hitl_confirm", type="primary"):
-            updated = resume_productize_hitl("confirm")
-            _apply_productize_hitl_resume(updated)
-            st.rerun()
+            with st.spinner("Continuing productize pipeline..."):
+                try:
+                    updated = resume_productize_hitl("confirm")
+                except Exception as exc:
+                    st.error(f"Failed to continue productize pipeline: {exc}")
+                    return True
+                _apply_productize_hitl_resume(updated)
+                st.rerun()
     with col2:
         if st.button("Retry with feedback", key="productize_sync_hitl_retry"):
-            updated = resume_productize_hitl("retry", feedback)
-            _apply_productize_hitl_resume(updated)
-            st.rerun()
+            with st.spinner("Retrying productize pipeline..."):
+                try:
+                    updated = resume_productize_hitl("retry", feedback)
+                except Exception as exc:
+                    st.error(f"Failed to retry productize pipeline: {exc}")
+                    return True
+                _apply_productize_hitl_resume(updated)
+                st.rerun()
     with col3:
         if st.button("Reject & Continue", key="productize_sync_hitl_reject"):
-            updated = resume_productize_hitl("reject")
-            _apply_productize_hitl_resume(updated)
-            st.rerun()
+            with st.spinner("Continuing after rejection..."):
+                try:
+                    updated = resume_productize_hitl("reject")
+                except Exception as exc:
+                    st.error(f"Failed to continue productize pipeline: {exc}")
+                    return True
+                _apply_productize_hitl_resume(updated)
+                st.rerun()
     return True
 
 

@@ -82,10 +82,6 @@ def _build_proposals(
 ) -> list[dict[str, Any]]:
     proposals: list[ProductProposal] = []
     opportunities = list(product_plan.opportunities)
-
-    # If the agent returned fewer than 2 opportunities, just use whatever we
-    # have — the LLM prompt already asks for 2-3, and if it returns 1 that's
-    # still the LLM's decision.
     if not opportunities:
         from schemas.product_schema import ProductOpportunity as _PO
         opportunities = [
@@ -124,6 +120,20 @@ def _build_proposals(
             )
         )
     if not proposals:
+        opps_for_fallback = product_plan.opportunities or [
+            ProductOpportunity(
+                idea_name=product_plan.prd.product_name or product_plan.selected_product,
+                target_user=target_user,
+                core_value=product_goal,
+                technical_feasibility=5, demo_feasibility=5,
+                model_availability=3, data_requirement=5,
+                integration_risk=2, user_value=4,
+                course_presentation_value=5, paper_faithfulness=4,
+                multi_paper_coherence=4, mock_first_suitability=5,
+                overall_score=4.0,
+                reason="Default opportunity.",
+            )
+        ]
         proposals.append(
             ProductProposal(
                 product_name=product_plan.prd.product_name
@@ -131,7 +141,7 @@ def _build_proposals(
                 target_user=target_user,
                 product_goal=product_goal,
                 jtbd=product_plan.jtbd,
-                opportunities=product_plan.opportunities,
+                opportunities=opps_for_fallback,
                 value_proposition=product_plan.value_proposition,
                 prd=product_plan.prd,
                 mvp_scope=product_plan.mvp_scope,

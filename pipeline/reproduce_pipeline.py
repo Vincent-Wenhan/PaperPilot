@@ -7,6 +7,7 @@ from typing import Any, Callable, TypeVar
 from pydantic import BaseModel
 
 from agents import (
+    CodeReviewAgent,
     ExecutionDiagnosisAgent,
     RepositoryUnderstandingAgent,
     ReproductionImplementationAgent,
@@ -55,6 +56,7 @@ from pipeline.stage_tracker import (
     record_stage_source,
 )
 from runtime.checkpointing import build_graph_config
+from schemas.code_review_schema import CodeReview
 from schemas.reproduction_schema import (
     ExecutionDiagnosis,
     ImplementationBundle,
@@ -539,6 +541,7 @@ def run_reproduce_pipeline(
             "research_understanding": state.get("research_understanding") or {},
             "repository_understanding": state.get("repository_understanding") or {},
             "reproduction_plan": state.get("reproduction_plan") or {},
+            "paper_text": state.get("paper_text", ""),
             "hardware": hardware,
             "gpu_info": gpu_info,
             "goal": goal,
@@ -601,6 +604,74 @@ def run_reproduce_pipeline(
             _record_error(result, "Generated Code Writer", exc)
         return result["implementation_bundle"]
 
+    def review_code(state: dict[str, Any]) -> CodeReview:
+        if not generate_code or goal == "understand paper":
+            return CodeReview(
+                overall_score=5.0,
+                verdict="accept",
+                detected_problems=[],
+                revision_suggestions=[],
+            )
+        progress("Code Review Agent evaluating generated code")
+        review_input = {
+            "paper_text": state.get("paper_text", ""),
+            "research_understanding": state.get("research_understanding") or {},
+            "reproduction_plan": state.get("reproduction_plan") or {},
+            "implementation_bundle": state.get("implementation_bundle") or {},
+        }
+        review = _run_structured_stage(
+            result,
+            "Code Review Agent",
+            CodeReviewAgent,
+            client,
+            review_input,
+            fallback=lambda: CodeReviewAgent(client).build_mock(review_input),
+        )
+        progress(f"Code review verdict: {review.verdict} (score: {review.overall_score})")
+        return review
+
+    def revise_code(
+        state: dict[str, Any],
+        revision_suggestions: list[str],
+    ) -> ImplementationBundle:
+        progress("Reproduction Implementation Agent revising code with review feedback")
+        implementation_input = {
+            "research_understanding": state.get("research_understanding") or {},
+            "repository_understanding": state.get("repository_understanding") or {},
+            "reproduction_plan": state.get("reproduction_plan") or {},
+            "paper_text": state.get("paper_text", ""),
+            "hardware": hardware,
+            "gpu_info": gpu_info,
+            "goal": goal,
+            "user_idea": user_idea,
+            "approved_resource_links": result["resource_links"],
+            "revision_suggestions": revision_suggestions,
+        }
+        implementation = _run_structured_stage(
+            result,
+            "Reproduction Implementation Agent (revision)",
+            ReproductionImplementationAgent,
+            client,
+            implementation_input,
+            fallback=lambda: ReproductionImplementationAgent(
+                client
+            ).build_mock(implementation_input),
+        )
+        result["implementation_bundle"] = implementation.model_dump(mode="json")
+        try:
+            materialized = materialize_implementation(implementation)
+            result["generated_repo_path"] = str(materialized["repo_path"])
+            result["generated_files"] = list(materialized["files"])
+            result["code_info"] = render_implementation_summary(
+                implementation,
+                result["generated_repo_path"],
+                result["generated_files"],
+                result["implementation_model"],
+            )
+        except Exception as exc:
+            _record_error(result, "Generated Code Writer (revision)", exc)
+        return implementation
+
     def diagnose_execution(
         reproduction_plan: dict[str, Any],
         command_results: list[dict[str, Any]],
@@ -656,6 +727,8 @@ def run_reproduce_pipeline(
             understand_repository=understand_repository,
             plan_reproduction=plan_reproduction,
             generate_implementation=generate_implementation,
+            review_code=review_code,
+            revise_code=revise_code,
             diagnose_execution=diagnose_execution,
             build_outputs=build_outputs,
         ),
@@ -704,6 +777,8 @@ def run_reproduce_pipeline(
                 "user_idea": user_idea,
                 "generate_code": generate_code,
                 "implementation_model": implementation_model,
+                "code_revision_count": 0,
+                "code_max_revisions": 1,
                 "command_results": [],
                 "graph_trace": [],
                 "errors": [],

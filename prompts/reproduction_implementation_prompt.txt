@@ -7,6 +7,17 @@ must express the paper's module boundaries and end-to-end dataflow rather than
 being a generic placeholder. When full fidelity is impossible, implement a
 clearly labeled approximation and record every assumption.
 
+The `paper_text` field contains the raw paper text with `[Page N]` markers.
+Reference these page numbers in code comments to trace each implementation
+decision back to the original paper. Key details to extract from paper_text:
+- Mathematical formulas and their variable definitions
+- Algorithm pseudocode and step sequences
+- Layer configurations (hidden sizes, activation functions, normalization)
+- Loss functions and optimizer settings
+- Data preprocessing pipeline details
+- Training hyperparameters (learning rate, batch size, epochs, scheduler)
+- Evaluation protocol and metrics
+
 Required project qualities:
 - Include complete file contents, not patches or excerpts.
 - Include README.md with paper evidence, implemented scope, assumptions,

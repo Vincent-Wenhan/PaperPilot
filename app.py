@@ -104,24 +104,6 @@ def main() -> None:
                     f"Implementation model connection succeeded: {connection_result}"
                 )
 
-        st.session_state.setdefault("enable_hitl", False)
-        st.session_state["enable_hitl"] = st.toggle(
-            "Enable HITL Confirmation",
-            value=st.session_state["enable_hitl"],
-            help="Review agent outputs before continuing.",
-        )
-        st.session_state.setdefault("enable_sync_hitl", False)
-        if st.session_state["enable_hitl"]:
-            st.session_state["enable_sync_hitl"] = st.toggle(
-                "Sync HITL (LangGraph interrupt)",
-                value=st.session_state["enable_sync_hitl"],
-                help=(
-                    "Pause the pipeline before downstream agents run. "
-                    "Requires HITL Confirmation to be enabled."
-                ),
-            )
-        else:
-            st.session_state["enable_sync_hitl"] = False
 
     st.session_state.setdefault("productize_stage", "input")
     st.session_state.setdefault("productize_proposals", [])

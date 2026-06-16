@@ -9,11 +9,6 @@ import streamlit as st
 
 from pipeline.productize_pipeline import execute_proposal, generate_proposals
 from schemas.product_schema import ProductProposal
-from ui.hitl import (
-    StreamlitHITL,
-    render_productize_sync_hitl_pause,
-    store_productize_hitl_context,
-)
 from ui.llm_config import get_llm_client
 from ui.productize_helpers import (
     analysis_to_productize_paper,
@@ -26,29 +21,13 @@ from ui.shared import save_uploaded_pdf, show_pipeline_errors
 
 
 def render_productize_mode() -> None:
-    """Render multi-paper Productize Mode with three-stage proposal flow."""
+    """Render multi-paper Productize Mode with simplified proposal flow."""
     st.title("PaperPilot 2.0: Productize Paper")
     st.caption(
         "Combine one or more paper capabilities into a theory-guided, "
         "mock-first Streamlit product prototype. "
-        "Generate proposals, select one, adjust the plan, then execute."
+        "Generate proposals, select one, then execute."
     )
-
-    # Show HITL confirmation dialogs if pending (after generate_proposals or execute_proposal)
-    productize_hitl: StreamlitHITL | None = st.session_state.get("_productize_hitl")
-    if productize_hitl and productize_hitl._pending_keys:
-        st.header("Review & Confirm Agent Outputs")
-        st.caption("The pipeline has completed. Review each stage's output below and confirm, reject, or retry with feedback.")
-        if productize_hitl.render_pending_dialogs():
-            if st.button("Continue to proposals", key="hitl_continue_productize"):
-                st.session_state["productize_stage"] = "review"
-                st.session_state.pop("_productize_hitl", None)
-                st.rerun()
-            st.stop()
-
-    hitl_result = st.session_state.get("productize_hitl_result")
-    if hitl_result and render_productize_sync_hitl_pause(hitl_result):
-        st.stop()
 
     stage = st.session_state.get("productize_stage", "input")
 
@@ -197,16 +176,6 @@ def render_productize_mode() -> None:
 
             _on_progress("Generating proposals...")
             try:
-                if st.session_state.get("enable_hitl", False):
-                    productize_hitl = StreamlitHITL(
-                        sync_mode=st.session_state.get("enable_sync_hitl", False),
-                    )
-                    if not productize_hitl.sync_mode:
-                        st.session_state["_productize_hitl"] = productize_hitl
-                else:
-                    productize_hitl = None
-                    st.session_state.pop("_productize_hitl", None)
-
                 proposals, proposal_meta = generate_proposals(
                     papers=papers,
                     target_user=target_user.strip(),
@@ -214,25 +183,10 @@ def render_productize_mode() -> None:
                     llm_client=get_llm_client(),
                     user_idea=user_idea.strip(),
                     progress_callback=_on_progress,
-                    hitl=productize_hitl,
                 )
             except Exception as exc:
                 st.error(f"Proposal generation failed: {exc}")
                 return
-
-            if proposal_meta.get("pipeline_status") == "hitl_paused":
-                store_productize_hitl_context(
-                    phase="proposal",
-                    papers=papers,
-                    target_user=target_user.strip(),
-                    product_goal=product_goal.strip(),
-                    user_idea=user_idea.strip(),
-                    result=proposal_meta,
-                )
-                st.session_state["productize_hitl_result"] = proposal_meta
-                st.session_state["productize_papers"] = papers
-                st.session_state["productize_stage"] = "input"
-                st.rerun()
 
             if not proposals:
                 st.error("No proposals were generated. Please try different inputs.")
@@ -242,13 +196,7 @@ def render_productize_mode() -> None:
                 p.model_dump(mode="json") for p in proposals
             ]
             st.session_state["productize_papers"] = papers
-
-            # Check if HITL dialogs are pending — stay on input page to show them
-            productize_hitl = st.session_state.get("_productize_hitl")
-            if productize_hitl and productize_hitl._pending_keys:
-                st.session_state["productize_stage"] = "input"
-            else:
-                st.session_state["productize_stage"] = "review"
+            st.session_state["productize_stage"] = "review"
             st.rerun()
 
     # ---------- Review ----------
@@ -322,26 +270,39 @@ def render_productize_mode() -> None:
                         st.session_state["productize_selected_proposal"] = prop
                         st.rerun()
         else:
-            # Proposal selected — show editable view
+            # Proposal selected — show summary and execute
             st.subheader(f"Selected: {selected_data.get('product_name', 'Untitled')}")
             st.markdown(f"**Target User:** {selected_data.get('target_user', 'N/A')}")
+            st.markdown(f"**Product Goal:** {selected_data.get('product_goal', 'N/A')}")
             st.markdown(f"**JTBD:** {selected_data.get('jtbd', 'N/A')}")
 
-            # Editable fields
+            # PRD
             prd = selected_data.get("prd", {})
-            st.markdown("### Edit PRD & MVP")
-            edited_core_features = st.text_area(
-                "Core Features (one per line)",
-                value="\n".join(prd.get("core_features", [])),
-                height=100,
-                key="edit_core_features",
-            )
-            edited_must_have = st.text_area(
-                "Must Have (one per line)",
-                value="\n".join(selected_data.get("mvp_scope", {}).get("must_have", [])),
-                height=80,
-                key="edit_must_have",
-            )
+            with st.expander("PRD", expanded=True):
+                st.markdown(f"**Problem:** {prd.get('problem_statement', 'N/A')}")
+                st.markdown("**Core Features:**")
+                for feat in prd.get("core_features", []):
+                    st.markdown(f"- {feat}")
+                st.markdown("**User Flow:**")
+                for step_text in prd.get("user_flow", []):
+                    st.markdown(f"- {step_text}")
+
+            # MVP Scope
+            mvp = selected_data.get("mvp_scope", {})
+            with st.expander("MVP / MoSCoW"):
+                for label, key in [("Must Have", "must_have"), ("Should Have", "should_have"),
+                                  ("Could Have", "could_have"), ("Won't Have", "wont_have")]:
+                    items = mvp.get(key, [])
+                    st.markdown(f"**{label}:**")
+                    for item in items:
+                        st.markdown(f"- {item}")
+
+            # Risks
+            risks = selected_data.get("risks", [])
+            if risks:
+                with st.expander("Risks"):
+                    for risk in risks:
+                        st.markdown(f"- {risk}")
 
             col1, col2 = st.columns(2)
             with col1:
@@ -349,15 +310,7 @@ def render_productize_mode() -> None:
                     st.session_state["productize_selected_proposal"] = None
                     st.rerun()
             with col2:
-                if st.button("Execute Proposal", type="primary", key="execute_proposal_btn"):
-                    # Apply edits
-                    prd["core_features"] = [
-                        l.strip() for l in edited_core_features.split("\n") if l.strip()
-                    ]
-                    selected_data["mvp_scope"]["must_have"] = [
-                        l.strip() for l in edited_must_have.split("\n") if l.strip()
-                    ]
-
+                if st.button("Generate Product", type="primary", key="execute_proposal_btn"):
                     # Rebuild ProductProposal
                     from schemas.product_schema import PRD as PRDModel, MVPScope as MVPScopeModel, ProductOpportunity as ProductOpportunityModel
                     edited_proposal = ProductProposal(
@@ -385,18 +338,10 @@ def render_productize_mode() -> None:
                                 "**Execution Progress**\n" + "\n".join(progress_lines)
                             )
                         except Exception:
-                            pass  # Cross-thread call from LangGraph, no session context
+                            pass
 
                     _on_progress2("Executing proposal...")
                     try:
-                        exec_hitl: StreamlitHITL | None = None
-                        if st.session_state.get("enable_hitl", False):
-                            exec_hitl = StreamlitHITL(
-                                sync_mode=st.session_state.get("enable_sync_hitl", False),
-                            )
-                            if not exec_hitl.sync_mode:
-                                st.session_state["_productize_hitl"] = exec_hitl
-
                         result = execute_proposal(
                             proposal=edited_proposal,
                             papers=papers,
@@ -405,29 +350,13 @@ def render_productize_mode() -> None:
                             repo_path="",
                             llm_client=get_llm_client(),
                             progress_callback=_on_progress2,
-                            hitl=exec_hitl,
                         )
                     except Exception as exc:
                         st.error(f"Proposal execution failed: {exc}")
                         return
 
-                    if result.get("pipeline_status") == "hitl_paused":
-                        store_productize_hitl_context(
-                            phase="execution",
-                            papers=papers,
-                            preferred_type=preferred_type,
-                            proposal=selected_data,
-                            result=result,
-                        )
-                        st.session_state["productize_hitl_result"] = result
-                        st.rerun()
-
                     st.session_state["productize_result"] = result
-                    exec_hitl = st.session_state.get("_productize_hitl")
-                    if exec_hitl and exec_hitl._pending_keys:
-                        pass
-                    else:
-                        st.session_state["productize_stage"] = "result"
+                    st.session_state["productize_stage"] = "result"
                     st.rerun()
 
     # ---------- Result ----------

@@ -9,12 +9,6 @@ import streamlit as st
 
 from config import MAIN_GOAL_DEBUG
 from main import run_paperpilot
-from ui.hitl import (
-    StreamlitHITL,
-    handle_deferred_hitl_retries,
-    render_sync_hitl_pause,
-    store_hitl_resume_context,
-)
 from ui.llm_config import get_llm_client
 from ui.runner import show_runner_section
 from ui.debug import show_debug_section
@@ -148,14 +142,6 @@ def render_reproduce_mode() -> None:
 
                     paper_name = Path(uploaded_pdf.name).stem.replace(" ", "_")[:80]
 
-                    hitl: StreamlitHITL | None = None
-                    if st.session_state.get("enable_hitl", False):
-                        hitl = StreamlitHITL(
-                            sync_mode=st.session_state.get("enable_sync_hitl", False),
-                        )
-                        if not hitl.sync_mode:
-                            st.session_state["_reproduce_hitl"] = hitl
-
                     with st.status("Agent Status", expanded=True) as status:
                         _on_progress("Initializing pipeline")
                         try:
@@ -169,7 +155,6 @@ def render_reproduce_mode() -> None:
                                 progress_callback=_on_progress,
                                 user_idea=user_idea.strip(),
                                 paper_name=paper_name,
-                                hitl=hitl,
                                 generate_code=generate_code,
                                 implementation_model=st.session_state.get(
                                     "llm_implementation_model",
@@ -195,27 +180,6 @@ def render_reproduce_mode() -> None:
                                     label="Pipeline completed with issues",
                                     state="error",
                                 )
-                            elif pipeline_status == "hitl_paused":
-                                store_hitl_resume_context(
-                                    pdf_path=str(saved_pdf),
-                                    github_url=github_url.strip(),
-                                    hardware=hardware,
-                                    gpu_info=gpu_info.strip(),
-                                    goal=goal,
-                                    user_idea=user_idea.strip(),
-                                    paper_name=paper_name,
-                                    generate_code=generate_code,
-                                    implementation_model=st.session_state.get(
-                                        "llm_implementation_model",
-                                        "",
-                                    ),
-                                    result=result,
-                                )
-                                _on_progress("Paused for human review")
-                                status.update(
-                                    label="Paused for human review",
-                                    state="running",
-                                )
                             elif pipeline_status == "mock":
                                 _on_progress("Mock pipeline complete")
                                 status.update(label="Mock pipeline complete", state="complete")
@@ -224,18 +188,6 @@ def render_reproduce_mode() -> None:
                                 status.update(label="Pipeline complete", state="complete")
 
     result = st.session_state.get("paperpilot_result")
-
-    if result and render_sync_hitl_pause(result):
-        st.stop()
-
-    # Show deferred HITL confirmation dialogs if pending (after pipeline completed)
-    reproduce_hitl: StreamlitHITL | None = st.session_state.get("_reproduce_hitl")
-    if reproduce_hitl and reproduce_hitl._pending_keys:
-        st.header("Review & Confirm Agent Outputs")
-        st.caption("The pipeline has completed. Review each stage's output below and confirm, reject, or retry with feedback.")
-        if reproduce_hitl.render_pending_dialogs():
-            st.stop()
-        handle_deferred_hitl_retries(reproduce_hitl, result)
 
     if result:
         show_pipeline_errors(

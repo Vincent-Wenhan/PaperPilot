@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from config import MAIN_GOAL_DEBUG
-from pipeline.hitl_context import PipelineHITL
 from pipeline.reproduce_pipeline import run_reproduce_pipeline
 from tools.llm_client import LLMClient
 

@@ -15,7 +15,12 @@ from graphs.subgraphs.command_review_graph import (
     summarize_unexecuted_commands,
 )
 from runtime.graph_state import ReproduceState
-from runtime.routing import route_after_code_review, route_command_plans
+from runtime.routing import (
+    route_after_code_review,
+    route_after_sandbox_verify,
+    route_after_second_review,
+    route_command_plans,
+)
 from schemas.reproduction_schema import (
     ExecutionDiagnosis,
     ImplementationBundle,
@@ -54,6 +59,14 @@ class ReproduceGraphDependencies:
     diagnose_execution: Callable[
         [dict[str, Any], list[dict[str, Any]]],
         ExecutionDiagnosis | dict[str, Any],
+    ]
+    sandbox_verify: Callable[
+        [dict[str, Any]],
+        dict[str, Any],
+    ]
+    second_review_code: Callable[
+        [dict[str, Any]],
+        CodeReview | dict[str, Any],
     ]
     build_outputs: Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -167,8 +180,13 @@ def build_reproduce_graph(
 
     def reproduction_implementation(state: ReproduceState) -> dict[str, Any]:
         implementation = dependencies.generate_implementation(dict(state))
+        bundle_dict = _as_dict(implementation)
+        repo_path = ""
+        if isinstance(bundle_dict, dict):
+            repo_path = bundle_dict.get("repo_path", "")
         return {
-            "implementation_bundle": _as_dict(implementation),
+            "implementation_bundle": bundle_dict,
+            "repo_path": repo_path,
             "graph_trace": ["reproduction_implementation"],
         }
 
@@ -200,6 +218,20 @@ def build_reproduce_graph(
             "graph_trace": ["execution_diagnosis"],
         }
 
+    def sandbox_verify_node(state: ReproduceState) -> dict[str, Any]:
+        result = dependencies.sandbox_verify(dict(state))
+        return {
+            "sandbox_verification": result,
+            "graph_trace": ["sandbox_verify"],
+        }
+
+    def second_review(state: ReproduceState) -> dict[str, Any]:
+        review = dependencies.second_review_code(dict(state))
+        return {
+            "code_second_review": _as_dict(review),
+            "graph_trace": ["second_review"],
+        }
+
     def build_outputs(state: ReproduceState) -> dict[str, Any]:
         return {
             "report_paths": dependencies.build_outputs(dict(state)),
@@ -217,8 +249,10 @@ def build_reproduce_graph(
     builder.add_node("review_summary", command_summary("review"))
     builder.add_node("blocked_summary", command_summary("blocked"))
     builder.add_node("reproduction_implementation", reproduction_implementation)
+    builder.add_node("sandbox_verify", sandbox_verify_node)
     builder.add_node("code_review", code_review)
     builder.add_node("code_revise", code_revise)
+    builder.add_node("second_review", second_review)
     builder.add_node("execution_diagnosis", execution_diagnosis)
     builder.add_node("build_outputs", build_outputs)
     builder.add_edge(START, "parse_paper")
@@ -241,7 +275,15 @@ def build_reproduce_graph(
     )
     for summary in ("safe_summary", "review_summary", "blocked_summary"):
         builder.add_edge(summary, "reproduction_implementation")
-    builder.add_edge("reproduction_implementation", "code_review")
+    builder.add_edge("reproduction_implementation", "sandbox_verify")
+    builder.add_conditional_edges(
+        "sandbox_verify",
+        route_after_sandbox_verify,
+        {
+            "code_review": "code_review",
+            "second_review": "second_review",
+        },
+    )
     builder.add_conditional_edges(
         "code_review",
         route_after_code_review,
@@ -251,7 +293,15 @@ def build_reproduce_graph(
             "finish_with_warnings": "execution_diagnosis",
         },
     )
-    builder.add_edge("code_revise", "code_review")
+    builder.add_edge("code_revise", "sandbox_verify")
+    builder.add_conditional_edges(
+        "second_review",
+        route_after_second_review,
+        {
+            "accept": "execution_diagnosis",
+            "finish_with_warnings": "execution_diagnosis",
+        },
+    )
     builder.add_edge("execution_diagnosis", "build_outputs")
     builder.add_edge("build_outputs", END)
     compile_kwargs: dict[str, Any] = {}

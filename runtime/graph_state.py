@@ -56,8 +56,12 @@ class ReproduceState(TypedDict, total=False):
     execution_diagnosis: dict[str, Any]
     implementation_bundle: dict[str, Any]
     code_review: dict[str, Any]
+    code_second_review: dict[str, Any]
     code_revision_count: int
     code_max_revisions: int
+    code_debate_round: int
+    code_max_debate_rounds: int
+    sandbox_verification: dict[str, Any]
     report_paths: dict[str, str]
     graph_trace: Annotated[list[str], operator.add]
     issues: Annotated[list[dict[str, Any]], operator.add]

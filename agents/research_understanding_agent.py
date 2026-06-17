@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from agents.structured_agent import StructuredAgent
-from schemas.reproduction_schema import MethodModule, PaperUnderstanding
+from schemas.reproduction_schema import (
+    HyperParameter,
+    MethodModule,
+    MethodSpec,
+    PaperUnderstanding,
+)
 from tools.llm_client import LLMClient
 
 
@@ -31,6 +36,38 @@ class ResearchUnderstandingAgent(StructuredAgent[PaperUnderstanding]):
             ),
             llm_client=llm_client,
             model=model,
+        )
+
+    @staticmethod
+    def build_method_spec(understanding: PaperUnderstanding) -> MethodSpec:
+        """Deterministically convert paper understanding into a method spec."""
+        primary = understanding.method_modules[0] if understanding.method_modules else None
+        all_hps: list[HyperParameter] = []
+        loss_formulas: list[str] = []
+        arch_details: list[str] = []
+        for module in understanding.method_modules:
+            all_hps.extend(module.hyperparameters)
+            if module.loss_formula:
+                loss_formulas.append(module.loss_formula)
+            if module.architecture_details:
+                arch_details.append(module.architecture_details)
+        optimizer_str = ""
+        for hp in all_hps:
+            if hp.name.lower() in ("optimizer", "learning_rate", "lr", "betas", "weight_decay"):
+                optimizer_str += f"{hp.name}={hp.value} "
+        return MethodSpec(
+            model_name=primary.name if primary else "",
+            input_shape=primary.input_shape if primary else "",
+            output_shape=primary.output_shape if primary else "",
+            loss_formulas=loss_formulas,
+            forward_pass_pseudocode=understanding.end_to_end_dataflow,
+            training_step_pseudocode=understanding.training_details,
+            hyperparameters=all_hps,
+            initialization=primary.initialization if primary else "",
+            optimizer=optimizer_str.strip(),
+            architecture_modules=arch_details,
+            data_requirements=[ds.name for ds in understanding.datasets],
+            implementation_notes=understanding.implementation_blueprint,
         )
 
     def build_mock(self, input_data: dict[str, Any]) -> PaperUnderstanding:

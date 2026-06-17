@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel
@@ -66,6 +67,7 @@ from schemas.reproduction_schema import (
     ResourceLink,
 )
 from tools.code_writer import materialize_implementation
+from tools.command_runner import run_sandbox_verification
 from tools.llm_client import LLMClient, LLMClientError
 from tools.markdown_writer import save_markdown, save_shell_script
 from tools.pdf_parser import analyze_pdf_quality, parse_pdf
@@ -537,6 +539,13 @@ def run_reproduce_pipeline(
             "Reproduction Implementation Agent generating code "
             f"with {implementation_client.model}"
         )
+        method_spec_json = json.dumps(
+            ResearchUnderstandingAgent.build_method_spec(
+                PaperUnderstanding.model_validate(
+                    state.get("research_understanding") or {}
+                )
+            ).model_dump(mode="json")
+        ) if state.get("research_understanding") else "{}"
         implementation_input = {
             "research_understanding": state.get("research_understanding") or {},
             "repository_understanding": state.get("repository_understanding") or {},
@@ -547,6 +556,7 @@ def run_reproduce_pipeline(
             "goal": goal,
             "user_idea": user_idea,
             "approved_resource_links": result["resource_links"],
+            "method_spec": method_spec_json,
         }
         implementation_error_count = len(result["errors"])
         implementation = _run_structured_stage(
@@ -618,6 +628,10 @@ def run_reproduce_pipeline(
             "research_understanding": state.get("research_understanding") or {},
             "reproduction_plan": state.get("reproduction_plan") or {},
             "implementation_bundle": state.get("implementation_bundle") or {},
+            "role": "initial",
+            "sandbox_verification": json.dumps(
+                state.get("sandbox_verification") or {}, indent=2
+            ),
         }
         review = _run_structured_stage(
             result,
@@ -629,6 +643,52 @@ def run_reproduce_pipeline(
         )
         progress(f"Code review verdict: {review.verdict} (score: {review.overall_score})")
         return review
+
+    def second_review_code(state: dict[str, Any]) -> CodeReview:
+        if not generate_code or goal == "understand paper":
+            return CodeReview(
+                overall_score=5.0,
+                verdict="accept",
+                detected_problems=[],
+                revision_suggestions=[],
+            )
+        progress("Second Review Agent evaluating code (adversarial pass)")
+        review_input = {
+            "paper_text": state.get("paper_text", ""),
+            "research_understanding": state.get("research_understanding") or {},
+            "reproduction_plan": state.get("reproduction_plan") or {},
+            "implementation_bundle": state.get("implementation_bundle") or {},
+            "previous_review": state.get("code_review") or {},
+            "role": "adversarial",
+            "sandbox_verification": json.dumps(
+                state.get("sandbox_verification") or {}, indent=2
+            ),
+        }
+        review = _run_structured_stage(
+            result,
+            "Second Review Agent",
+            CodeReviewAgent,
+            client,
+            review_input,
+            fallback=lambda: CodeReviewAgent(client).build_mock(review_input),
+        )
+        progress(f"Second review verdict: {review.verdict} (score: {review.overall_score})")
+        return review
+
+    def sandbox_verify_fn(state: dict[str, Any]) -> dict[str, Any]:
+        if not generate_code or goal == "understand paper":
+            return {"passed": True, "results": [], "error": None}
+        progress("Sandbox verifying generated code")
+        repo_path = result.get("generated_repo_path") or result.get("repo_path") or state.get("repo_path") or ""
+        if not repo_path:
+            return {"passed": False, "results": [], "error": "No generated repo path"}
+        bundle = state.get("implementation_bundle") or {}
+        smoke_test = bundle.get("smoke_test_command", "python main.py --smoke-test") if isinstance(bundle, dict) else "python main.py --smoke-test"
+        verification = run_sandbox_verification(repo_path, smoke_test)
+        passed_count = sum(1 for r in verification.get("results", []) if r.get("passed"))
+        total = len(verification.get("results", []))
+        progress(f"Sandbox verification: {passed_count}/{total} checks passed")
+        return verification
 
     def revise_code(
         state: dict[str, Any],
@@ -646,6 +706,18 @@ def run_reproduce_pipeline(
             "user_idea": user_idea,
             "approved_resource_links": result["resource_links"],
             "revision_suggestions": revision_suggestions,
+            "sandbox_verification_errors": [
+                r for r in (state.get("sandbox_verification") or {}).get("results", [])
+                if not r.get("passed")
+            ],
+            "method_spec": json.dumps(
+                ResearchUnderstandingAgent.build_method_spec(
+                    PaperUnderstanding.model_validate(
+                        state.get("research_understanding") or {}
+                    )
+                ).model_dump(mode="json"),
+                indent=2,
+            ) if state.get("research_understanding") else "{}",
         }
         implementation = _run_structured_stage(
             result,
@@ -728,6 +800,8 @@ def run_reproduce_pipeline(
             plan_reproduction=plan_reproduction,
             generate_implementation=generate_implementation,
             review_code=review_code,
+            second_review_code=second_review_code,
+            sandbox_verify=sandbox_verify_fn,
             revise_code=revise_code,
             diagnose_execution=diagnose_execution,
             build_outputs=build_outputs,

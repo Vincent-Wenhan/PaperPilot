@@ -60,3 +60,19 @@ def route_after_code_review(state: dict[str, Any]) -> str:
     if revision_count >= max_revisions:
         return "finish_with_warnings"
     return "revise"
+
+
+def route_after_second_review(state: dict[str, Any]) -> str:
+    """Route after adversarial second review pass."""
+    review = state.get("code_second_review") or {}
+    verdict = str(review.get("verdict") or "revise")
+    if verdict == "accept":
+        return "accept"
+    return "finish_with_warnings"
+
+
+def route_after_sandbox_verify(state: dict[str, Any]) -> str:
+    """Route to code_review for first pass, second_review after a revision."""
+    if int(state.get("code_revision_count") or 0) > 0:
+        return "second_review"
+    return "code_review"

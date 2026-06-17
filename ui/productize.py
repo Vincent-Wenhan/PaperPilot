@@ -8,7 +8,7 @@ from typing import Any
 import streamlit as st
 
 from pipeline.productize_pipeline import execute_proposal, generate_proposals
-from schemas.product_schema import ProductProposal
+from schemas.product_schema import ProductOpportunity, ProductProposal, ResearchSynthesis
 from ui.llm_config import get_llm_client
 from ui.productize_helpers import (
     analysis_to_productize_paper,
@@ -314,16 +314,22 @@ def render_productize_mode() -> None:
             with col2:
                 if st.button("Generate Product", type="primary", key="execute_proposal_btn"):
                     # Rebuild ProductProposal
-                    from schemas.product_schema import PRD as PRDModel, MVPScope as MVPScopeModel, ProductOpportunity as ProductOpportunityModel
+                    from schemas.product_schema import PRD as PRDModel, MVPScope as MVPScopeModel
+                    opportunities: list[ProductOpportunity] = []
+                    for opp in selected_data.get("opportunities", []):
+                        if isinstance(opp, ProductOpportunity):
+                            opportunities.append(opp)
+                        elif isinstance(opp, dict):
+                            try:
+                                opportunities.append(ProductOpportunity(**opp))
+                            except Exception:
+                                pass
                     edited_proposal = ProductProposal(
                         product_name=selected_data.get("product_name", ""),
                         target_user=selected_data.get("target_user", ""),
                         product_goal=selected_data.get("product_goal", ""),
                         jtbd=selected_data.get("jtbd", ""),
-                        opportunities=[
-                            ProductOpportunityModel(**opp) if isinstance(opp, dict) else opp
-                            for opp in selected_data.get("opportunities", [])
-                        ],
+                        opportunities=opportunities,
                         value_proposition=selected_data.get("value_proposition", {}),
                         prd=PRDModel(**prd),
                         mvp_scope=MVPScopeModel(**selected_data.get("mvp_scope", {})),

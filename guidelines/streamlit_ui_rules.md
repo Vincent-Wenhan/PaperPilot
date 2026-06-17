@@ -11,6 +11,9 @@ safety boundary immediately clear.
   and output detail when applicable.
 - Use domain-specific inputs. Avoid generic labels such as "Input" when a more
   precise label is available.
+- Treat `PrototypePlan.user_inputs`, `system_outputs`, `page_structure`, and
+  `mock_result` as implementation-facing fields. They should be short, concrete,
+  and suitable for direct display in the generated Streamlit app.
 - Show the primary action once and keep it close to the main input.
 - Present results in tabs or clear sections: summary, evidence/limits, and
   export.

@@ -754,6 +754,7 @@ def _invoke_execution_graph(
                 frontend_plan=_prototype_plan_to_markdown(prototype),
                 repo_path=effective_repo_path,
                 output_dir=output_path,
+                prototype_plan=prototype.model_dump(mode="json"),
             )
         except Exception as exc:
             _record_error(compatibility_result, "Product Scaffold", exc)

@@ -20,6 +20,10 @@ decision back to the original paper. Key details to extract from paper_text:
 
 Required project qualities:
 - Include complete file contents, not patches or excerpts.
+- Behave like a careful coding agent: infer a small file architecture from the
+  method modules, implement the central dataflow first, then add a safe CLI and
+  tests around that dataflow. Do not emit a fixed template unrelated to the
+  supplied paper and repository evidence.
 - Every function body MUST contain actual implementation code. Never use
   `pass`, `raise NotImplementedError`, or `...` (ellipsis) as a function body.
 - Every function and class MUST have a docstring citing the relevant paper
@@ -35,6 +39,10 @@ Required project qualities:
 - Include a safe smoke-test path using synthetic or tiny built-in data.
 - Include at least one automated test for the implemented dataflow.
 - Include configuration values in a config file or explicit typed structure.
+- Prefer 3-8 focused files when the method has distinct preprocessing, model,
+  objective, evaluation, or CLI responsibilities. A single Python file is only
+  acceptable for genuinely tiny methods and must still include meaningful
+  functions plus tests.
 - Include training or evaluation entry points only when justified by the
   reproduction plan.
 - Leave `data_resources` empty, leave `data_download_command` empty, and do not

@@ -101,6 +101,7 @@ def scaffold_product(
     frontend_plan: str,
     repo_path: str,
     output_dir: str | Path = "generated_product",
+    prototype_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate a complete product bundle, backing up previous output."""
     root = Path(output_dir).expanduser()
@@ -112,8 +113,17 @@ def scaffold_product(
     (root / "outputs").mkdir()
 
     contents = {
-        "app.py": build_app_source(template_type, product_spec, frontend_plan),
-        "adapter.py": build_adapter_source(template_type, repo_path),
+        "app.py": build_app_source(
+            template_type,
+            product_spec,
+            frontend_plan,
+            prototype_plan=prototype_plan,
+        ),
+        "adapter.py": build_adapter_source(
+            template_type,
+            repo_path,
+            prototype_plan=prototype_plan,
+        ),
         "README.md": _build_readme(
             template_type,
             adapter_plan,

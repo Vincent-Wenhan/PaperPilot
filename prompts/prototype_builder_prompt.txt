@@ -9,14 +9,18 @@ Required planning qualities:
 - `page_structure` must describe 4-7 concrete sections in user workflow order:
   setup, input review, primary action, result summary, evidence/limitations,
   and export or next action.
+- `user_inputs` is consumed by the deterministic scaffold to create visible
+  Streamlit controls. Use concise domain labels that can appear directly in the
+  UI, not abstract descriptions such as "collect inputs".
 - `user_inputs` must name domain-specific controls, not only "file input" or
   "text input". Include thresholds, mode selectors, constraints, or context
   fields when they are useful for the selected product.
 - `system_outputs` must include at least one summary output, one structured
-  detail output, and one exportable artifact.
+  detail output, and one exportable artifact. These labels are shown in the
+  generated result page, so make them product-specific.
 - `mock_result` must contain realistic keys for the product domain, including
   confidence, explanation, evidence, limitation, or next_action fields when
-  applicable.
+  applicable. The generated adapter returns these fields in mock mode.
 - `adapter_boundary` must separate preprocessing, reviewed model loading,
   inference, postprocessing, and error handling.
 - `real_integration_placeholder` must name what the user must manually inspect

@@ -188,6 +188,36 @@ def _initial_result() -> PipelineResult:
     }
 
 
+def _merge_quality_into_review(
+    review: CodeReview,
+    quality: dict[str, Any],
+) -> CodeReview:
+    """Force a revision when deterministic generated-code quality is too low."""
+    if not quality or quality.get("passes_minimum_quality", True):
+        return review
+    detected_problems = list(review.detected_problems)
+    for issue in quality.get("issues") or []:
+        issue_text = str(issue)
+        if issue_text not in detected_problems:
+            detected_problems.append(issue_text)
+    revision_suggestions = list(review.revision_suggestions)
+    for suggestion in quality.get("suggestions") or []:
+        suggestion_text = str(suggestion)
+        if suggestion_text not in revision_suggestions:
+            revision_suggestions.append(suggestion_text)
+    quality_score = float(quality.get("overall_score") or review.overall_score)
+    capped_score = min(review.overall_score, quality_score, 3.0)
+    return review.model_copy(
+        update={
+            "overall_score": max(1.0, capped_score),
+            "runnability": min(review.runnability, max(1.0, quality_score)),
+            "detected_problems": detected_problems,
+            "revision_suggestions": revision_suggestions,
+            "verdict": "revise",
+        }
+    )
+
+
 def _save_outputs(
     result: PipelineResult,
     repo_scan: dict[str, Any] | None,
@@ -644,6 +674,7 @@ def run_reproduce_pipeline(
             review_input,
             fallback=lambda: CodeReviewAgent(client).build_mock(review_input),
         )
+        review = _merge_quality_into_review(review, result.get("code_quality") or {})
         progress(f"Code review verdict: {review.verdict} (score: {review.overall_score})")
         return review
 

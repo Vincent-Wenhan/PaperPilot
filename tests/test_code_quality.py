@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 
+from pipeline.reproduce_pipeline import _merge_quality_into_review
+from schemas.code_review_schema import CodeReview
 from schemas.reproduction_schema import GeneratedCodeFile, ImplementationBundle
 from tools.code_quality import assess_implementation_quality
 
@@ -121,6 +123,39 @@ class CodeQualityTests(unittest.TestCase):
         self.assertEqual(quality["metrics"]["python_files"], 4)
         self.assertTrue(quality["metrics"]["has_tests"])
         self.assertTrue(quality["passes_minimum_quality"])
+
+    def test_quality_gate_forces_revision_when_review_accepts_thin_code(self) -> None:
+        review = CodeReview(
+            overall_score=4.8,
+            verdict="accept",
+            detected_problems=[],
+            revision_suggestions=[],
+        )
+        quality = {
+            "overall_score": 2.4,
+            "passes_minimum_quality": False,
+            "issues": [
+                "Generated implementation is a thin single-file scaffold.",
+                "Generated bundle does not include tests under tests/.",
+            ],
+            "suggestions": [
+                "Separate configuration, method modules, and entry point when justified.",
+                "Add a smoke or dataflow test under tests/.",
+            ],
+        }
+
+        merged = _merge_quality_into_review(review, quality)
+
+        self.assertEqual(merged.verdict, "revise")
+        self.assertLessEqual(merged.overall_score, 3.0)
+        self.assertIn(
+            "Generated implementation is a thin single-file scaffold.",
+            merged.detected_problems,
+        )
+        self.assertIn(
+            "Add a smoke or dataflow test under tests/.",
+            merged.revision_suggestions,
+        )
 
 
 if __name__ == "__main__":

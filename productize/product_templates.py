@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 SUPPORTED_TEMPLATES = ("image", "text", "video", "file")
 
@@ -171,19 +172,80 @@ def _extract_core_features(product_spec: str) -> list[str]:
     return features[:5]
 
 
+def _as_list(value: Any, fallback: list[str]) -> list[str]:
+    if isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        return items or fallback
+    return fallback
+
+
+def _clean_label(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()[:80] or "Input"
+
+
+def _build_dynamic_input_block(user_inputs: list[str]) -> str:
+    lines = [
+        "context_values = {}",
+        'st.markdown("### Task Setup")',
+    ]
+    for index, label in enumerate(user_inputs[:5], 1):
+        safe_label = _clean_label(label)
+        lowered = safe_label.lower()
+        key = f"dynamic_input_{index}"
+        if any(
+            word in lowered
+            for word in ("threshold", "confidence", "sensitivity", "score")
+        ):
+            lines.append(
+                f"context_values[{safe_label!r}] = st.slider({safe_label!r}, 0.0, 1.0, 0.65, 0.05, key={key!r})"
+            )
+        elif any(
+            word in lowered
+            for word in ("mode", "type", "selector", "category", "module")
+        ):
+            lines.append(
+                f"context_values[{safe_label!r}] = st.selectbox({safe_label!r}, [\"Default\", \"Focused\", \"Broad\"], key={key!r})"
+            )
+        else:
+            lines.append(
+                f"context_values[{safe_label!r}] = st.text_input({safe_label!r}, key={key!r})"
+            )
+    return "\n".join(lines)
+
+
 def build_app_source(
     template_type: str,
     product_spec: str = "",
     frontend_plan: str = "",
+    prototype_plan: dict[str, Any] | None = None,
 ) -> str:
     """Return a standalone Streamlit application for one product template."""
     template = _normalize_template(template_type)
+    prototype_plan = prototype_plan or {}
     product_name = _extract_product_name(product_spec)
     core_features = _extract_core_features(product_spec) or [
         "Review input",
         "Run mock analysis",
         "Export structured findings",
     ]
+    page_structure = _as_list(
+        prototype_plan.get("page_structure"),
+        ["Set up task", "Review input", "Run mock analysis", "Export results"],
+    )
+    user_inputs = _as_list(
+        prototype_plan.get("user_inputs"),
+        [f"{template} input", "Decision context"],
+    )
+    system_outputs = _as_list(
+        prototype_plan.get("system_outputs"),
+        ["Summary result", "Structured detail", "Downloadable JSON"],
+    )
+    mock_result_preview = (
+        prototype_plan.get("mock_result")
+        if isinstance(prototype_plan.get("mock_result"), dict)
+        else {}
+    )
+    dynamic_input_block = _build_dynamic_input_block(user_inputs)
     plan_excerpt = (frontend_plan or "Mock-first workflow").strip()[:1000]
     return f'''"""Generated PaperPilot {template} product prototype."""
 
@@ -198,6 +260,10 @@ from adapter import ModelAdapter
 
 PRODUCT_NAME = {product_name!r}
 CORE_FEATURES = {core_features!r}
+PAGE_STRUCTURE = {page_structure!r}
+USER_INPUTS = {user_inputs!r}
+SYSTEM_OUTPUTS = {system_outputs!r}
+MOCK_RESULT_PREVIEW = {mock_result_preview!r}
 FRONTEND_PLAN = {plan_excerpt!r}
 
 
@@ -232,6 +298,12 @@ for index, feature in enumerate(CORE_FEATURES):
             unsafe_allow_html=True,
         )
 
+st.markdown("### Workflow Map")
+for step_number, section in enumerate(PAGE_STRUCTURE, 1):
+    st.markdown(f"{{step_number}}. {{section}}")
+
+{dynamic_input_block}
+
 {_INPUT_BLOCKS[template].strip()}
 
 notes = st.text_area(
@@ -252,6 +324,7 @@ if st.button(button_label, type="primary", disabled=run_disabled):
             {{
                 "confidence_threshold": confidence_threshold,
                 "output_detail": output_detail,
+                "configured_inputs": context_values,
                 "notes": notes,
             }}
         )
@@ -263,6 +336,12 @@ if st.button(button_label, type="primary", disabled=run_disabled):
             metric_cols[0].metric("Mode", "Mock" if mock_mode else "Manual integration")
             metric_cols[1].metric("Threshold", f"{{confidence_threshold:.2f}}")
             metric_cols[2].metric("Detail", output_detail)
+            st.markdown("#### Expected Outputs")
+            for output in SYSTEM_OUTPUTS:
+                st.markdown(f"- {{output}}")
+            if MOCK_RESULT_PREVIEW:
+                st.markdown("#### Planned Mock Fields")
+                st.json(MOCK_RESULT_PREVIEW)
             st.json(result)
         with evidence_tab:
             st.markdown("#### Prototype Plan")
@@ -285,10 +364,20 @@ if st.button(button_label, type="primary", disabled=run_disabled):
 '''
 
 
-def build_adapter_source(template_type: str, repo_path: str | Path) -> str:
+def build_adapter_source(
+    template_type: str,
+    repo_path: str | Path,
+    prototype_plan: dict[str, Any] | None = None,
+) -> str:
     """Return a mock-first adapter without importing or executing source code."""
     template = _normalize_template(template_type)
     safe_repo_path = repr(str(repo_path))
+    prototype_plan = prototype_plan or {}
+    mock_result = prototype_plan.get("mock_result")
+    if isinstance(mock_result, dict) and mock_result:
+        mock_result_source = repr({"type": template, **mock_result})
+    else:
+        mock_result_source = _MOCK_RESULTS[template]
     return f'''"""Mock-first adapter generated by PaperPilot."""
 
 from __future__ import annotations
@@ -336,5 +425,5 @@ class ModelAdapter:
                 "Real prediction is not configured. Enable it only after "
                 "manual review and implementation."
             )
-        return {_MOCK_RESULTS[template]}
+        return {mock_result_source}
 '''

@@ -49,6 +49,31 @@ class ProductScaffoldTests(unittest.TestCase):
                             "- Evidence intake\n"
                             "- Result review\n"
                         ),
+                        prototype_plan={
+                            "page_structure": [
+                                "Upload a learner answer sheet",
+                                "Review weak concept evidence",
+                            ],
+                            "user_inputs": [
+                                "Course module selector",
+                                "Misconception sensitivity threshold",
+                            ],
+                            "system_outputs": [
+                                "Ranked misconception summary",
+                                "Teacher intervention checklist",
+                            ],
+                            "mock_result": {
+                                "confidence": 0.82,
+                                "next_action": "Assign a targeted mini lesson",
+                            },
+                            "adapter_boundary": [
+                                "preprocess uploaded answer sheet",
+                                "postprocess misconception evidence",
+                            ],
+                            "real_integration_placeholder": (
+                                "Review repository inference.py before disabling mock mode."
+                            ),
+                        },
                         repo_path="../workspace/demo",
                         output_dir=output_dir,
                     )
@@ -76,6 +101,15 @@ class ProductScaffoldTests(unittest.TestCase):
                     self.assertIn("st.sidebar", app_source)
                     self.assertIn("st.tabs", app_source)
                     self.assertIn("Rank evidence snippets", app_source)
+                    self.assertIn("Course module selector", app_source)
+                    self.assertIn("Misconception sensitivity threshold", app_source)
+                    self.assertIn("Ranked misconception summary", app_source)
+                    self.assertIn("next_action", app_source)
+
+                    adapter_source = (output_dir / "adapter.py").read_text(
+                        encoding="utf-8"
+                    )
+                    self.assertIn("Assign a targeted mini lesson", adapter_source)
 
     def test_scaffold_backs_up_existing_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

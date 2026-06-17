@@ -334,3 +334,122 @@ def run_command(
         "stderr": result.stderr[-MAX_OUTPUT_CHARS:],
         "success": result.returncode == 0,
     }
+
+
+def run_sandbox_verification(
+    repo_path: str,
+    smoke_test_command: str = "python main.py --smoke-test",
+) -> dict[str, Any]:
+    """Run generated code through a series of verification checks.
+
+    Copies the repo into a sandbox temp directory and runs:
+    1. pip install -r requirements.txt
+    2. python import check for each .py file
+    3. python main.py --help (safe gate)
+    4. smoke test command
+
+    Returns a dict with ``passed``, ``results`` list, and ``sandbox_dir``.
+    """
+    from pathlib import Path
+
+    resolved = Path(repo_path).expanduser().resolve()
+    if not resolved.is_dir():
+        return {
+            "passed": False,
+            "results": [],
+            "sandbox_dir": "",
+            "error": f"Repo path does not exist: {repo_path}",
+        }
+
+    sandbox_root = WORKSPACE_DIR / "sandboxes"
+    sandbox_root.mkdir(parents=True, exist_ok=True)
+    sandbox_dir = Path(tempfile.mkdtemp(prefix="verify_", dir=str(sandbox_root)))
+
+    try:
+        _copytree(resolved, sandbox_dir)
+    except OSError as exc:
+        return {
+            "passed": False,
+            "results": [],
+            "sandbox_dir": str(sandbox_dir),
+            "error": f"Failed to copy repo to sandbox: {exc}",
+        }
+
+    results: list[dict[str, Any]] = []
+
+    # 1. pip install
+    pip_result = run_command_sandbox("pip install -r requirements.txt", str(sandbox_dir), timeout=300)
+    results.append({
+        "step": "pip install",
+        "command": "pip install -r requirements.txt",
+        "exit_code": pip_result.exit_code,
+        "stdout": pip_result.stdout,
+        "stderr": pip_result.stderr,
+        "passed": pip_result.executed and pip_result.exit_code == 0,
+    })
+
+    # 2. import check for each .py file
+    py_files = sorted(resolved.rglob("*.py"))
+    for py_file in py_files:
+        rel = py_file.relative_to(resolved)
+        module = str(rel.with_suffix("")).replace("\\", "/").replace("/", ".")
+        # Skip __init__ and test files for import check
+        if module.endswith("__init__") or "test" in module.lower():
+            continue
+        check_cmd = f"python -c \"import {module}\""
+        try:
+            check_result = subprocess.run(
+                ["python", "-c", f"import {module}"],
+                cwd=str(sandbox_dir),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            results.append({
+                "step": "import_check",
+                "command": check_cmd,
+                "exit_code": check_result.returncode,
+                "stdout": check_result.stdout[-MAX_OUTPUT_CHARS:],
+                "stderr": check_result.stderr[-MAX_OUTPUT_CHARS:],
+                "passed": check_result.returncode == 0,
+            })
+        except subprocess.TimeoutExpired:
+            results.append({
+                "step": "import_check",
+                "command": check_cmd,
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "Timeout exceeded.",
+                "timeout": True,
+                "passed": False,
+            })
+
+    # 3. python main.py --help
+    help_cmd = "python main.py --help"
+    help_result = run_command_sandbox(help_cmd, str(sandbox_dir), timeout=60)
+    results.append({
+        "step": "help_check",
+        "command": help_cmd,
+        "exit_code": help_result.exit_code,
+        "stdout": help_result.stdout,
+        "stderr": help_result.stderr,
+        "passed": help_result.executed and help_result.exit_code == 0,
+    })
+
+    # 4. smoke test
+    smoke_result = run_command_sandbox(smoke_test_command, str(sandbox_dir), timeout=120)
+    results.append({
+        "step": "smoke_test",
+        "command": smoke_test_command,
+        "exit_code": smoke_result.exit_code,
+        "stdout": smoke_result.stdout,
+        "stderr": smoke_result.stderr,
+        "passed": smoke_result.executed and smoke_result.exit_code == 0,
+    })
+
+    all_passed = all(r.get("passed", False) for r in results)
+    return {
+        "passed": all_passed,
+        "results": results,
+        "sandbox_dir": str(sandbox_dir),
+    }

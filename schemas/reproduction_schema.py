@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from schemas.runner_schema import CommandPlan
 
@@ -20,6 +20,15 @@ class HyperParameter(BaseModel):
     name: str = ""
     value: str = ""
     evidence: list[str] = Field(default_factory=list)
+
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def coerce_evidence(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [v]
+        if isinstance(v, list):
+            return v
+        return v
 
 
 class MethodModule(BaseModel):

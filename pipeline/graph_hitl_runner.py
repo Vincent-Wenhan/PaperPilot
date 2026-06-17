@@ -75,8 +75,7 @@ def resume_graph(graph: Any, thread_id: str, action: str = "confirm") -> dict[st
         try:
             graph.invoke(resume_input, config)
             snapshot = graph.get_state(config)
-            if not snapshot.next:
-                return dict(snapshot.values)
+            return dict(snapshot.values)
         except Exception as exc:
             last_error = exc
     snapshot = graph.get_state(config)

@@ -763,6 +763,8 @@ def run_reproduce_pipeline(
             _record_error(result, "HITL: Research Understanding", "Rejected by user")
         elif hitl_action == "reject" and hitl_stage == "experiment":
             _record_error(result, "HITL: Reproduction Planner", "Rejected by user")
+        elif hitl_action == "confirm":
+            pass  # Resume the graph without modification
         state = resume_graph(graph, hitl_thread_id, hitl_action)
     else:
         state = invoke_until_pause_or_complete(

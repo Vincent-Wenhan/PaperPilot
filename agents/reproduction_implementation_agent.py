@@ -17,13 +17,21 @@ from tools.llm_client import LLMClient
 class ReproductionImplementationAgent(StructuredAgent[ImplementationBundle]):
     """Turn paper understanding and a reproduction plan into runnable code."""
 
-    def __init__(self, llm_client: LLMClient | None = None) -> None:
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        model: str | None = None,
+    ) -> None:
+        if llm_client is None and model is None:
+            from config import LLM_IMPLEMENTATION_MODEL, LLM_MODEL
+            model = LLM_IMPLEMENTATION_MODEL or LLM_MODEL
         super().__init__(
             name="Reproduction Implementation Agent",
             prompt_path="reproduction_implementation_prompt.txt",
             schema_type=ImplementationBundle,
             guideline_names=("reproduction_checklist.md", "safety_rules.md"),
             llm_client=llm_client,
+            model=model,
         )
 
     def build_mock(self, input_data: dict[str, Any]) -> ImplementationBundle:

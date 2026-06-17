@@ -12,7 +12,14 @@ from tools.llm_client import LLMClient
 class ResearchUnderstandingAgent(StructuredAgent[PaperUnderstanding]):
     """Merge paper reading and method extraction into one reasoning stage."""
 
-    def __init__(self, llm_client: LLMClient | None = None) -> None:
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        model: str | None = None,
+    ) -> None:
+        if llm_client is None and model is None:
+            from config import LLM_RESEARCH_MODEL, LLM_MODEL
+            model = LLM_RESEARCH_MODEL or LLM_MODEL
         super().__init__(
             name="Research Understanding Agent",
             prompt_path="research_understanding_prompt.txt",
@@ -23,6 +30,7 @@ class ResearchUnderstandingAgent(StructuredAgent[PaperUnderstanding]):
                 "safety_rules.md",
             ),
             llm_client=llm_client,
+            model=model,
         )
 
     def build_mock(self, input_data: dict[str, Any]) -> PaperUnderstanding:

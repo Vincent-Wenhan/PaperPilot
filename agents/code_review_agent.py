@@ -11,13 +11,21 @@ from schemas.code_review_schema import CodeReview
 class CodeReviewAgent(StructuredAgent[CodeReview]):
     """Score generated code for paper fidelity, completeness, correctness, and runnability."""
 
-    def __init__(self, llm_client=None) -> None:
+    def __init__(
+        self,
+        llm_client=None,
+        model: str | None = None,
+    ) -> None:
+        if llm_client is None and model is None:
+            from config import LLM_CODE_REVIEW_MODEL, LLM_MODEL
+            model = LLM_CODE_REVIEW_MODEL or LLM_MODEL
         super().__init__(
             name="Code Review Agent",
             prompt_path="code_review_prompt.txt",
             schema_type=CodeReview,
             guideline_names=("reproduction_checklist.md", "code_review_rules.md"),
             llm_client=llm_client,
+            model=model,
         )
 
     def build_mock(self, input_data: dict[str, Any]) -> CodeReview:

@@ -8,7 +8,7 @@ from typing import Any
 import streamlit as st
 
 from pipeline.productize_pipeline import execute_proposal, generate_proposals
-from schemas.product_schema import ProductOpportunity, ProductProposal, ResearchSynthesis
+from schemas.product_schema import ProductOpportunity, ProductProposal
 from ui.llm_config import get_llm_client
 from ui.productize_helpers import (
     analysis_to_productize_paper,

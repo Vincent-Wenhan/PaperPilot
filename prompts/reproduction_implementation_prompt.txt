@@ -20,6 +20,12 @@ decision back to the original paper. Key details to extract from paper_text:
 
 Required project qualities:
 - Include complete file contents, not patches or excerpts.
+- Every function body MUST contain actual implementation code. Never use
+  `pass`, `raise NotImplementedError`, or `...` (ellipsis) as a function body.
+- Every function and class MUST have a docstring citing the relevant paper
+  [Page N] evidence.
+- In code comments above every tensor operation, annotate the expected tensor
+  shape (e.g. `# (B, C, H, W) -> (B, num_classes)`).
 - Include README.md with paper evidence, implemented scope, assumptions,
   omitted features, setup, smoke-test command, and expected output.
 - PaperPilot will deterministically add a minimal README, safe `main.py`, or
@@ -42,5 +48,27 @@ Required project qualities:
   paths, parent-directory paths, or `.git` files.
 - Keep the dependency set minimal and compatible with the supplied hardware.
 - Prefer code that runs over broad but incomplete scaffolding.
+
+## Explicitly Forbidden
+- `pass` inside any function or method body
+- `raise NotImplementedError` (implement a minimal version instead)
+- `...` (ellipsis) as a placeholder for missing code
+- Undefined variables or unimported modules
+- Hardcoded absolute file paths
+- Empty function bodies
+
+## Method Specification (Pre-extracted)
+{method_spec}
+
+Use this pre-extracted method specification as the authoritative source for:
+- Exact loss function formulas and variable definitions
+- Tensor shapes for all inputs and outputs
+- All hyperparameter values (learning rate, betas, weight decay, etc.)
+- Weight initialization method
+- Exact model architecture configuration
+
+The method spec is extracted directly from the paper. Do not invent or modify
+these values. If a field is empty or "Not specified", note it as an assumption
+rather than guessing.
 
 Return only JSON matching the required schema.

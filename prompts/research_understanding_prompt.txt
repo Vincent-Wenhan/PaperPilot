@@ -19,5 +19,39 @@ Use only paper evidence. Every important method, dataset, metric, experiment,
 and reproduction claim must cite at least one provided `[Page N]` marker in its
 local evidence field or the top-level evidence list. Do not treat the title,
 author list, or abstract alone as a complete analysis. Prefer precise technical
-detail over broad summary language. Output only JSON matching the required
-schema.
+detail over broad summary language.
+
+## Scientific Detail Extraction (Mandatory)
+
+For every method module, you MUST extract and include the following fields:
+
+1. **Loss Function** (`loss_formula`): Provide the exact LaTeX formula for each
+   loss term. Example: `\mathcal{L} = -\frac{1}{N}\sum_{i} y_i \log(\hat{y}_i)`.
+
+2. **Tensor Shapes** (`input_shape` / `output_shape`): For each module's inputs
+   and outputs, provide exact shapes as strings.
+   Example: `"(batch_size, 3, 224, 224)"` or `"(B, num_classes)"`.
+   If the paper does not state shapes explicitly, infer from context and mark
+   with "(inferred)".
+
+3. **Hyperparameters** (`hyperparameters`): Extract every optimizer and training
+   hyperparameter. Record each with name, exact value, and [Page N] evidence:
+   - Learning rate, betas, epsilon, weight_decay, momentum
+   - Batch size, number of epochs, learning rate schedule
+   - Gradient clipping, warmup steps, dropout rate
+
+4. **Initialization** (`initialization`): Record the exact weight and bias
+   initialization method. Example: `"Xavier uniform for all weights,
+   zero for biases"`. If not specified, state "Not specified in paper"
+   and note standard defaults.
+
+5. **Architecture Details** (`architecture_details`): Describe exact layer
+   configurations with specific numbers:
+   - Hidden dimensions, number of layers, activation functions
+   - Normalization type, skip connections, attention heads
+   - Embedding dimensions, kernel sizes, stride/padding values
+
+If any of these items cannot be extracted from the paper, record them under
+`missing_information` rather than omitting them silently.
+
+Output only JSON matching the required schema.

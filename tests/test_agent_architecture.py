@@ -16,6 +16,7 @@ HIGH_LEVEL_AGENTS = {
     "RepositoryUnderstandingAgent",
     "ReproductionPlannerAgent",
     "ReproductionImplementationAgent",
+    "CodeReviewAgent",
     "ExecutionDiagnosisAgent",
     "ResearchSynthesizerAgent",
     "ProductPlannerAgent",
@@ -76,6 +77,7 @@ class AgentArchitectureTests(unittest.TestCase):
             "repository_understanding_agent.py",
             "reproduction_planner_agent.py",
             "reproduction_implementation_agent.py",
+            "code_review_agent.py",
             "execution_diagnosis_agent.py",
             "research_synthesizer_agent.py",
             "product_planner_agent.py",
@@ -166,6 +168,8 @@ class AgentArchitectureTests(unittest.TestCase):
         self.assertEqual(result["generated_repo_path"], "/tmp/generated")
         self.assertTrue(result["implementation_bundle"])
         self.assertEqual(result["implementation_model"], "code-model")
+        self.assertIn("code_quality", result)
+        self.assertIn("overall_score", result["code_quality"])
         self.assertIn("Generated Reproduction Implementation", result["code_info"])
         self.assertTrue(result["research_understanding"])
         self.assertTrue(result["repository_understanding"])

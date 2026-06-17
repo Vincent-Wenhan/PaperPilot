@@ -67,6 +67,7 @@ from schemas.reproduction_schema import (
     ResourceLink,
 )
 from tools.code_writer import materialize_implementation
+from tools.code_quality import assess_implementation_quality
 from tools.command_runner import run_sandbox_verification
 from tools.llm_client import LLMClient, LLMClientError
 from tools.markdown_writer import save_markdown, save_shell_script
@@ -152,6 +153,7 @@ def _initial_result() -> PipelineResult:
         "reproduction_plan": {},
         "execution_diagnosis": {},
         "implementation_bundle": {},
+        "code_quality": {},
         "implementation_model": "",
         "resource_links": [],
         "paper_context": {},
@@ -596,6 +598,7 @@ def run_reproduce_pipeline(
                     f"Main model retry `{client.model}` succeeded and replaced the fallback code.",
                 )
         result["implementation_bundle"] = implementation.model_dump(mode="json")
+        result["code_quality"] = assess_implementation_quality(implementation)
         try:
             materialized = materialize_implementation(implementation)
             result["generated_repo_path"] = str(materialized["repo_path"])
@@ -730,6 +733,7 @@ def run_reproduce_pipeline(
             ).build_mock(implementation_input),
         )
         result["implementation_bundle"] = implementation.model_dump(mode="json")
+        result["code_quality"] = assess_implementation_quality(implementation)
         try:
             materialized = materialize_implementation(implementation)
             result["generated_repo_path"] = str(materialized["repo_path"])

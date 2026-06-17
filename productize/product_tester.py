@@ -52,11 +52,20 @@ def inspect_generated_product(
         if (root / "README.md").is_file()
         else ""
     )
+    app_text = (
+        (root / "app.py").read_text(encoding="utf-8")
+        if (root / "app.py").is_file()
+        else ""
+    )
     can_run_mock = (
         "mock_mode: bool = True" in adapter_text
         and "if self.mock_mode" in adapter_text
     )
     readme_has_run_command = "streamlit run app.py" in readme_text
+    has_rich_layout = all(
+        marker in app_text
+        for marker in ("st.sidebar", "st.tabs", "Confidence threshold", "Core Workflow")
+    )
     files = (
         sorted(
             str(path.relative_to(root))
@@ -75,6 +84,8 @@ def inspect_generated_product(
         notes.append("Mock-mode markers were not found in adapter.py.")
     if not readme_has_run_command:
         notes.append("README.md does not include the Streamlit run command.")
+    if not has_rich_layout:
+        notes.append("Generated app.py does not include the rich layout markers.")
     if not notes:
         notes.append("Static product checks passed.")
 
@@ -84,6 +95,7 @@ def inspect_generated_product(
         "files": files,
         "can_run_mock": can_run_mock,
         "readme_has_run_command": readme_has_run_command,
+        "has_rich_layout": has_rich_layout,
         "syntax_ok": not compile_errors,
         "compile_errors": compile_errors,
         "notes": notes,

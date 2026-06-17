@@ -112,7 +112,7 @@ def scaffold_product(
     (root / "outputs").mkdir()
 
     contents = {
-        "app.py": build_app_source(template_type),
+        "app.py": build_app_source(template_type, product_spec, frontend_plan),
         "adapter.py": build_adapter_source(template_type, repo_path),
         "README.md": _build_readme(
             template_type,

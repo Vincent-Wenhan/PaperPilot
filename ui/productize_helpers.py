@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shlex
 from typing import Any
 
 import streamlit as st
@@ -98,6 +99,37 @@ def run_analysis_for_productize(
     return result
 
 
+def generated_product_run_command(scaffold_result: dict[str, Any]) -> str:
+    """Return the shell command for the actual generated product directory."""
+    output_dir = str(scaffold_result.get("output_dir") or "generated_product")
+    return f"cd {shlex.quote(output_dir)}\nstreamlit run app.py"
+
+
+def summarize_generated_product(result: dict[str, Any]) -> dict[str, Any]:
+    """Build a compact generated-product status summary for the UI."""
+    scaffold = result.get("scaffold_result") or {}
+    inspection = result.get("inspection") or {}
+    scaffold_success = bool(scaffold.get("success"))
+    syntax_ok = bool(inspection.get("syntax_ok"))
+    can_run_mock = bool(inspection.get("can_run_mock"))
+    has_rich_layout = bool(inspection.get("has_rich_layout"))
+    if scaffold_success and syntax_ok and can_run_mock and has_rich_layout:
+        status = "ready"
+    elif scaffold_success:
+        status = "needs_review"
+    else:
+        status = "failed"
+    return {
+        "status": status,
+        "output_dir": str(scaffold.get("output_dir") or ""),
+        "file_count": len(scaffold.get("files") or []),
+        "syntax_ok": syntax_ok,
+        "can_run_mock": can_run_mock,
+        "has_rich_layout": has_rich_layout,
+        "run_command": generated_product_run_command(scaffold),
+    }
+
+
 def show_evaluation_scores(evaluation: dict[str, Any]) -> None:
     """Render rubric scores as a simple bar chart."""
     if not evaluation:
@@ -149,6 +181,17 @@ def show_productize_result(result: dict[str, Any]) -> None:
     else:
         st.success("Product prototype generation completed.")
 
+    summary = summarize_generated_product(result)
+    st.subheader("Generated Product")
+    metric_columns = st.columns(4)
+    metric_columns[0].metric("Status", summary["status"])
+    metric_columns[1].metric("Files", summary["file_count"])
+    metric_columns[2].metric("Syntax", "ok" if summary["syntax_ok"] else "review")
+    metric_columns[3].metric("Layout", "rich" if summary["has_rich_layout"] else "basic")
+    if summary["output_dir"]:
+        st.caption(f"Output directory: `{summary['output_dir']}`")
+    st.code(summary["run_command"], language="bash")
+
     tabs = st.tabs(
         [
             "Capability Cards",
@@ -197,4 +240,4 @@ def show_productize_result(result: dict[str, Any]) -> None:
         st.markdown(result.get("test_report") or "Not generated.")
 
     st.subheader("How to Run Generated Product")
-    st.code("cd generated_product\nstreamlit run app.py", language="bash")
+    st.code(summary["run_command"], language="bash")

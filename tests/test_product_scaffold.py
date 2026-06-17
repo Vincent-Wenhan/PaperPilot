@@ -34,9 +34,21 @@ class ProductScaffoldTests(unittest.TestCase):
                     output_dir = Path(temp_dir) / "generated_product"
                     result = scaffold_product(
                         template_type=template_type,
-                        product_spec="# Demo Product",
+                        product_spec=(
+                            "# Demo Product\n\n"
+                            "## Product Name\n\nEvidence Explorer\n\n"
+                            "## PRD\n\n"
+                            "### Core Features\n"
+                            "- Rank evidence snippets\n"
+                            "- Export structured findings\n"
+                        ),
                         adapter_plan="# Adapter Plan",
-                        frontend_plan="# Frontend Plan",
+                        frontend_plan=(
+                            "# Frontend Plan\n\n"
+                            "## Page Structure\n"
+                            "- Evidence intake\n"
+                            "- Result review\n"
+                        ),
                         repo_path="../workspace/demo",
                         output_dir=output_dir,
                     )
@@ -57,6 +69,13 @@ class ProductScaffoldTests(unittest.TestCase):
                     self.assertTrue(inspection["syntax_ok"])
                     self.assertTrue(inspection["can_run_mock"])
                     self.assertTrue(inspection["readme_has_run_command"])
+                    self.assertTrue(inspection["has_rich_layout"])
+
+                    app_source = (output_dir / "app.py").read_text(encoding="utf-8")
+                    self.assertIn("Evidence Explorer", app_source)
+                    self.assertIn("st.sidebar", app_source)
+                    self.assertIn("st.tabs", app_source)
+                    self.assertIn("Rank evidence snippets", app_source)
 
     def test_scaffold_backs_up_existing_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -88,6 +107,7 @@ class ProductScaffoldTests(unittest.TestCase):
             self.assertIn("adapter.py", inspection["missing_files"])
             self.assertFalse(inspection["syntax_ok"])
             self.assertTrue(inspection["compile_errors"])
+            self.assertFalse(inspection["has_rich_layout"])
 
     def test_inspector_does_not_write_bytecode_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

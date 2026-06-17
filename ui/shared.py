@@ -131,6 +131,15 @@ def show_outputs(result: dict[str, Any]) -> None:
         generated_files = result.get("generated_files") or []
         if generated_repo_path and generated_files:
             st.subheader("Generated Code")
+            code_quality = result.get("code_quality") or {}
+            if code_quality:
+                score = code_quality.get("overall_score", "n/a")
+                if code_quality.get("passes_minimum_quality"):
+                    st.success(f"Generated code quality score: {score}/5")
+                else:
+                    st.warning(f"Generated code quality score: {score}/5")
+                for issue in code_quality.get("issues", []):
+                    st.caption(f"- {issue}")
             st.download_button(
                 label="Download generated reproduction code",
                 data=build_generated_code_zip(generated_repo_path, generated_files),
@@ -212,5 +221,4 @@ def show_downloads(result: dict[str, Any] | None = None) -> None:
                 )
             else:
                 st.info(f"{filename} not yet generated.")
-
 

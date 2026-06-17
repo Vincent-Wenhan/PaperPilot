@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 SUPPORTED_TEMPLATES = ("image", "text", "video", "file")
@@ -141,9 +142,49 @@ def select_product_template(
     return "file"
 
 
-def build_app_source(template_type: str) -> str:
+def _extract_product_name(product_spec: str) -> str:
+    match = re.search(
+        r"##\s+Product Name\s*\n+\s*([^\n#]+)",
+        product_spec,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip()
+    first_heading = re.search(r"^#\s+(.+)$", product_spec, flags=re.MULTILINE)
+    if first_heading:
+        return first_heading.group(1).strip()
+    return "Generated Product Prototype"
+
+
+def _extract_core_features(product_spec: str) -> list[str]:
+    features: list[str] = []
+    capture = False
+    for line in product_spec.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("### core features"):
+            capture = True
+            continue
+        if capture and stripped.startswith("#"):
+            break
+        if capture and stripped.startswith("- "):
+            features.append(stripped[2:].strip())
+    return features[:5]
+
+
+def build_app_source(
+    template_type: str,
+    product_spec: str = "",
+    frontend_plan: str = "",
+) -> str:
     """Return a standalone Streamlit application for one product template."""
     template = _normalize_template(template_type)
+    product_name = _extract_product_name(product_spec)
+    core_features = _extract_core_features(product_spec) or [
+        "Review input",
+        "Run mock analysis",
+        "Export structured findings",
+    ]
+    plan_excerpt = (frontend_plan or "Mock-first workflow").strip()[:1000]
     return f'''"""Generated PaperPilot {template} product prototype."""
 
 from __future__ import annotations
@@ -155,26 +196,85 @@ import streamlit as st
 from adapter import ModelAdapter
 
 
-st.set_page_config(page_title="Generated Product Prototype", layout="wide")
-st.title("Generated Product Prototype")
+PRODUCT_NAME = {product_name!r}
+CORE_FEATURES = {core_features!r}
+FRONTEND_PLAN = {plan_excerpt!r}
+
+
+st.set_page_config(page_title=PRODUCT_NAME, layout="wide")
+st.markdown("""
+<style>
+.pp-panel {{border: 1px solid #dde3ea; border-radius: 8px; padding: 1rem; background: #fbfcfe; min-height: 5.5rem;}}
+.pp-muted {{color: #5f6b7a; font-size: 0.92rem;}}
+</style>
+""", unsafe_allow_html=True)
+
+with st.sidebar:
+    st.header("Run Settings")
+    # ModelAdapter defaults to mock_mode=True; keep this visible for review.
+    mock_mode = st.toggle("Mock mode", value=True)
+    confidence_threshold = st.slider("Confidence threshold", 0.0, 1.0, 0.65, 0.05)
+    output_detail = st.selectbox("Output detail", ["Concise", "Detailed"])
+    st.caption("Real model integration requires manual adapter.py review.")
+
+st.title(PRODUCT_NAME)
 st.caption(
-    "This limited-scope prototype runs in mock mode by default. "
-    "Review adapter.py before enabling a real research model."
+    "Mock-first research product prototype. It demonstrates the product "
+    "workflow without importing or executing the source repository."
 )
+
+st.markdown("### Core Workflow")
+feature_columns = st.columns(min(len(CORE_FEATURES), 3))
+for index, feature in enumerate(CORE_FEATURES):
+    with feature_columns[index % len(feature_columns)]:
+        st.markdown(
+            f"<div class='pp-panel'><strong>{{feature}}</strong></div>",
+            unsafe_allow_html=True,
+        )
 
 {_INPUT_BLOCKS[template].strip()}
 
+notes = st.text_area(
+    "Decision context",
+    placeholder="Optional constraints, user segment, or scenario.",
+)
+
 if st.button(button_label, type="primary", disabled=run_disabled):
     try:
-        adapter = ModelAdapter(mock_mode=True)
+        adapter = ModelAdapter(mock_mode=mock_mode)
         adapter.setup()
         adapter.load_model()
         result = adapter.predict(input_data)
     except Exception as exc:
         st.error(f"Product execution failed: {{exc}}")
     else:
-        st.subheader("Result")
-        st.json(result)
+        result.update(
+            {{
+                "confidence_threshold": confidence_threshold,
+                "output_detail": output_detail,
+                "notes": notes,
+            }}
+        )
+        summary_tab, evidence_tab, export_tab = st.tabs(
+            ["Summary", "Evidence & Limits", "Export"]
+        )
+        with summary_tab:
+            metric_cols = st.columns(3)
+            metric_cols[0].metric("Mode", "Mock" if mock_mode else "Manual integration")
+            metric_cols[1].metric("Threshold", f"{{confidence_threshold:.2f}}")
+            metric_cols[2].metric("Detail", output_detail)
+            st.json(result)
+        with evidence_tab:
+            st.markdown("#### Prototype Plan")
+            st.markdown(FRONTEND_PLAN)
+            st.markdown("#### Limitations")
+            st.markdown(
+                "- Outputs are deterministic mock responses.\\n"
+                "- Real checkpoints, datasets, and repository scripts are not executed.\\n"
+                "- Adapter integration must be reviewed manually."
+            )
+        with export_tab:
+            st.write("Download the structured mock result for review or demo notes.")
         result_json = json.dumps(result, ensure_ascii=False, indent=2)
         st.download_button(
             "Download result",

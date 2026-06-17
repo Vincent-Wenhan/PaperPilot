@@ -6,6 +6,7 @@ from graphs.reproduce_graph import (
     ReproduceGraphDependencies,
     build_reproduce_graph,
 )
+from schemas.code_review_schema import CodeReview
 from schemas.reproduction_schema import (
     ExecutionDiagnosis,
     ImplementationBundle,
@@ -14,6 +15,21 @@ from schemas.reproduction_schema import (
     ReproductionPlan,
 )
 from schemas.runner_schema import CommandPlan
+
+
+def _accept_review(state: dict[str, object]) -> CodeReview:
+    return CodeReview(overall_score=5.0, verdict="accept")
+
+
+def _revise_noop(
+    state: dict[str, object],
+    suggestions: list[str],
+) -> ImplementationBundle:
+    return ImplementationBundle()
+
+
+def _sandbox_pass(state: dict[str, object]) -> dict[str, object]:
+    return {"passed": True, "results": [], "error": None}
 
 
 class ReproduceBranchTests(unittest.TestCase):
@@ -42,7 +58,11 @@ class ReproduceBranchTests(unittest.TestCase):
                 understand_repository=understand_repository,
                 plan_reproduction=lambda research, repository, inputs: ReproductionPlan(),
                 generate_implementation=lambda state: ImplementationBundle(),
+                review_code=_accept_review,
+                revise_code=_revise_noop,
                 diagnose_execution=lambda plan, results: ExecutionDiagnosis(),
+                sandbox_verify=_sandbox_pass,
+                second_review_code=_accept_review,
                 build_outputs=lambda state: {"saved": True},
             )
         )
@@ -81,7 +101,11 @@ class ReproduceBranchTests(unittest.TestCase):
                     implementation_strategy=repository["repo_source"]
                 ),
                 generate_implementation=lambda state: ImplementationBundle(),
+                review_code=_accept_review,
+                revise_code=_revise_noop,
                 diagnose_execution=lambda plan, results: ExecutionDiagnosis(),
+                sandbox_verify=_sandbox_pass,
+                second_review_code=_accept_review,
                 build_outputs=lambda state: {},
             )
         )
@@ -114,6 +138,8 @@ class ReproduceRiskRoutingTests(unittest.TestCase):
                     command_plans=commands
                 ),
                 generate_implementation=lambda state: ImplementationBundle(),
+                review_code=_accept_review,
+                revise_code=_revise_noop,
                 diagnose_execution=lambda plan, results: ExecutionDiagnosis(
                     feasibility=(
                         "planned_not_executed"
@@ -121,6 +147,8 @@ class ReproduceRiskRoutingTests(unittest.TestCase):
                         else "unexpected_execution"
                     )
                 ),
+                sandbox_verify=_sandbox_pass,
+                second_review_code=_accept_review,
                 build_outputs=lambda state: {},
             )
         )

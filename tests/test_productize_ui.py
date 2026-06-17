@@ -124,6 +124,36 @@ class ProductizeUiTests(unittest.TestCase):
         self.assertEqual(paper["title"], "Example Paper")
         self.assertEqual(paper["method_info"], "method")
 
+    def test_generated_product_run_command_uses_actual_output_dir(self) -> None:
+        command = productize_helpers.generated_product_run_command(
+            {"output_dir": "/tmp/PaperPilot/generated_product/Evidence Explorer"}
+        )
+
+        self.assertEqual(
+            command,
+            "cd '/tmp/PaperPilot/generated_product/Evidence Explorer'\nstreamlit run app.py",
+        )
+
+    def test_generated_product_summary_prefers_inspection_status(self) -> None:
+        summary = productize_helpers.summarize_generated_product(
+            {
+                "scaffold_result": {
+                    "success": True,
+                    "output_dir": "/tmp/generated",
+                    "files": ["app.py", "adapter.py"],
+                },
+                "inspection": {
+                    "syntax_ok": True,
+                    "can_run_mock": True,
+                    "has_rich_layout": True,
+                },
+            }
+        )
+
+        self.assertEqual(summary["status"], "ready")
+        self.assertEqual(summary["file_count"], 2)
+        self.assertEqual(summary["output_dir"], "/tmp/generated")
+
     def test_run_analysis_for_productize_uses_existing_pipeline(self) -> None:
         client = LLMClient(mock_mode=True)
         expected = {

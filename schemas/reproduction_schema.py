@@ -16,6 +16,12 @@ class ResourceLink(BaseModel):
     evidence: str = ""
 
 
+class HyperParameter(BaseModel):
+    name: str = ""
+    value: str = ""
+    evidence: list[str] = Field(default_factory=list)
+
+
 class MethodModule(BaseModel):
     name: str = ""
     purpose: str = ""
@@ -24,7 +30,29 @@ class MethodModule(BaseModel):
     mechanism: list[str] = Field(default_factory=list)
     trainable_components: list[str] = Field(default_factory=list)
     implementation_notes: list[str] = Field(default_factory=list)
+    loss_formula: str = ""
+    input_shape: str = ""
+    output_shape: str = ""
+    hyperparameters: list[HyperParameter] = Field(default_factory=list)
+    initialization: str = ""
+    architecture_details: str = ""
     evidence: list[str] = Field(default_factory=list)
+
+
+class MethodSpec(BaseModel):
+    """Pseudo-code spec bridging paper understanding to implementation."""
+    model_name: str = ""
+    input_shape: str = ""
+    output_shape: str = ""
+    loss_formulas: list[str] = Field(default_factory=list)
+    forward_pass_pseudocode: list[str] = Field(default_factory=list)
+    training_step_pseudocode: list[str] = Field(default_factory=list)
+    hyperparameters: list[HyperParameter] = Field(default_factory=list)
+    initialization: str = ""
+    optimizer: str = ""
+    architecture_modules: list[str] = Field(default_factory=list)
+    data_requirements: list[str] = Field(default_factory=list)
+    implementation_notes: list[str] = Field(default_factory=list)
 
 
 class ObjectiveTerm(BaseModel):

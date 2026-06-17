@@ -26,8 +26,11 @@ class StructuredAgent(BaseAgent, ABC, Generic[SchemaT]):
         schema_type: type[SchemaT],
         guideline_names: tuple[str, ...],
         llm_client: LLMClient | None = None,
+        model: str | None = None,
     ) -> None:
         self.schema_type = schema_type
+        if llm_client is None and model is not None:
+            llm_client = LLMClient(model=model)
         super().__init__(name=name, prompt_path=prompt_path, llm_client=llm_client)
         self.system_prompt = (
             f"{self.system_prompt}\n\n# Approved Guidelines\n\n"

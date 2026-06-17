@@ -58,30 +58,6 @@ class ReproduceGraphDependencies:
     build_outputs: Callable[[dict[str, Any]], dict[str, Any]]
 
 
-@dataclass(frozen=True)
-class ReproduceGraphDependencies:
-    parse_paper: Callable[[str], str]
-    understand_research: Callable[[str, str], PaperUnderstanding | dict[str, Any]]
-    prepare_repository: Callable[[str], dict[str, Any]]
-    understand_repository: Callable[
-        [dict[str, Any], dict[str, Any], str],
-        RepositoryUnderstanding | dict[str, Any],
-    ]
-    plan_reproduction: Callable[
-        [dict[str, Any], dict[str, Any], dict[str, Any]],
-        ReproductionPlan | dict[str, Any],
-    ]
-    generate_implementation: Callable[
-        [dict[str, Any]],
-        ImplementationBundle | dict[str, Any],
-    ]
-    diagnose_execution: Callable[
-        [dict[str, Any], list[dict[str, Any]]],
-        ExecutionDiagnosis | dict[str, Any],
-    ]
-    build_outputs: Callable[[dict[str, Any]], dict[str, Any]]
-
-
 def _as_dict(value: Any) -> dict[str, Any]:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")

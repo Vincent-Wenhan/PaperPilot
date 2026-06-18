@@ -32,8 +32,8 @@ import {
   type ApiRun,
 } from "@/lib/api";
 import {
-  agentEvents,
   planSteps,
+  type AgentEvent,
   type PlanStep,
   type ProjectNavItem,
   type RunMode,
@@ -82,27 +82,16 @@ const defaultRunForm: RunFormState = {
 
 export function WorkspaceShell() {
   const [apiRun, setApiRun] = useState<ApiRun | null>(null);
-  const [timelineEvents, setTimelineEvents] = useState(agentEvents);
+  const [timelineEvents, setTimelineEvents] = useState<AgentEvent[]>([]);
   const [runForm, setRunForm] = useState<RunFormState>(defaultRunForm);
   const [creatingRun, setCreatingRun] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedNavId, setSelectedNavId] = useState("run");
   const [planState, setPlanState] = useState(planSteps);
-  const [chatMessages, setChatMessages] = useState([
-    {
-      role: "agent" as const,
-      text: "@repo scan found train.py, eval.py, and config/default.yaml.",
-    },
-    {
-      role: "user" as const,
-      text: "@run.sh keep the first check CPU-only and skip dataset download.",
-    },
-    {
-      role: "agent" as const,
-      text: "Updated plan: smoke test first, full training remains blocked.",
-    },
-  ]);
+  const [chatMessages, setChatMessages] = useState<
+    Array<{ role: "agent" | "user"; text: string }>
+  >([]);
   const [chatInput, setChatInput] = useState("");
   const [approvalStatus, setApprovalStatus] = useState<
     "pending" | "approved" | "edited" | "rejected"
@@ -132,6 +121,7 @@ export function WorkspaceShell() {
     const haystack = `${item.label} ${item.meta}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
+  const displayedChatMessages = buildChatMessages(timelineEvents, chatMessages);
 
   useEffect(() => {
     if (!apiRun || apiRun.status !== "running") {
@@ -149,13 +139,8 @@ export function WorkspaceShell() {
         }
         setApiRun(nextRun);
         setTimelineEvents(nextEvents.map(eventFromApi));
+        setPlanState(planForRunStatus(nextRun));
         if (nextRun.status !== "running") {
-          setPlanState((steps) =>
-            steps.map((step) => ({
-              ...step,
-              status: nextRun.status === "failed" ? "failed" : "success",
-            })),
-          );
           setNotice(nextRun.summary);
         }
       } catch (error) {
@@ -202,7 +187,7 @@ export function WorkspaceShell() {
     setApiRun(null);
     setRunForm(defaultRunForm);
     setPlanState(planSteps);
-    setTimelineEvents(agentEvents);
+    setTimelineEvents([]);
     setSelectedNavId("paper");
     setApprovalStatus("pending");
     setNotice("New workspace ready. Enter inputs and create a backend run.");
@@ -230,7 +215,7 @@ export function WorkspaceShell() {
       });
       const runEvents = await fetchRunEvents(run.run_id).catch(() => []);
       setApiRun(run);
-      setPlanState(planFromRun(run));
+      setPlanState(planForRunStatus(run));
       setTimelineEvents(
         runEvents.length ? runEvents.map(eventFromApi) : eventsFromRun(run),
       );
@@ -270,25 +255,20 @@ export function WorkspaceShell() {
   }
 
   function continueRun() {
-    setPlanState((steps) =>
-      steps.map((step) =>
-        step.status === "pending" ? { ...step, status: "running" } : step,
-      ),
-    );
-    setNotice("Continue queued. Runner remains gated by approval.");
-    addTimelineEvent("Continue requested; waiting on reviewed command approval.");
+    if (!apiRun) {
+      setNotice("Create a backend run before refreshing agent state.");
+      return;
+    }
+    void refreshCurrentRun(apiRun.run_id);
   }
 
   function approvePlan() {
-    setPlanState((steps) =>
-      steps.map((step) =>
-        step.enabled && step.status === "pending"
-          ? { ...step, status: "success" }
-          : step,
-      ),
+    setNotice(
+      apiRun
+        ? "Plan review acknowledged. Backend agent execution continues from server events."
+        : "Plan review acknowledged locally.",
     );
-    setNotice("Plan approved for the current preview run.");
-    addTimelineEvent("Editable plan approved by user.", "success");
+    addTimelineEvent("Editable plan review acknowledged.", "success");
   }
 
   function togglePlanStep(stepId: string) {
@@ -308,7 +288,9 @@ export function WorkspaceShell() {
       { role: "user", text },
       {
         role: "agent",
-        text: "This preview keeps commands behind human approval. Open Runner and choose Approve, Edit, or Reject.",
+        text: apiRun
+          ? "I am showing backend run events for this workspace. Use Event Stream and Logs for live agent progress."
+          : "Create a backend run first so the chat can reference real PaperPilot events.",
       },
     ]);
     setChatInput("");
@@ -328,8 +310,25 @@ export function WorkspaceShell() {
       // Keep local preview responsive even when the API server is offline.
     }
     setApprovalStatus(nextStatus);
-    setNotice(`Action ${nextStatus}.`);
+    setNotice(`Action ${nextStatus} recorded for this workbench session.`);
     addTimelineEvent(`Action ${nextStatus}: python main.py --smoke-test`, "success");
+  }
+
+  async function refreshCurrentRun(runId: string) {
+    setNotice("Refreshing backend run state...");
+    try {
+      const [nextRun, nextEvents] = await Promise.all([
+        fetchRun(runId),
+        fetchRunEvents(runId),
+      ]);
+      setApiRun(nextRun);
+      setTimelineEvents(nextEvents.map(eventFromApi));
+      setPlanState(planForRunStatus(nextRun));
+      setNotice(nextRun.summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "refresh failed";
+      setNotice(`Could not refresh backend run state: ${message}`);
+    }
   }
 
   return (
@@ -629,7 +628,7 @@ export function WorkspaceShell() {
               </button>
               <button className="command-button primary" type="button" onClick={continueRun}>
                 <Play size={15} />
-                Continue
+                Refresh
               </button>
             </div>
           </div>
@@ -670,7 +669,7 @@ export function WorkspaceShell() {
                 <StatusPill status="running" />
               </div>
               <div className="chat-thread">
-                {chatMessages.map((message, index) => (
+                {displayedChatMessages.map((message, index) => (
                   <ChatBubble
                     key={`${message.role}-${index}`}
                     role={message.role}
@@ -766,6 +765,7 @@ export function WorkspaceShell() {
         </section>
 
         <InspectorPanel
+          events={timelineEvents}
           refreshToken={apiRun?.updated_at ?? ""}
           runId={apiRun?.run_id ?? "run_mock_reproduce"}
           runStatus={apiRun?.status ?? "pending"}
@@ -841,6 +841,45 @@ function planFromRun(run: ApiRun): PlanStep[] {
           ? ("waiting_review" as const)
           : ("pending" as const),
   }));
+}
+
+function planForRunStatus(run: ApiRun): PlanStep[] {
+  if (run.status === "success") {
+    return run.plan.map((label, index) => ({
+      id: `${run.run_id}-plan-${index}`,
+      label,
+      enabled: true,
+      status: "success" as const,
+    }));
+  }
+  if (run.status === "failed") {
+    return run.plan.map((label, index) => ({
+      id: `${run.run_id}-plan-${index}`,
+      label,
+      enabled: true,
+      status: "failed" as const,
+    }));
+  }
+  return planFromRun(run);
+}
+
+function buildChatMessages(
+  events: AgentEvent[],
+  manualMessages: Array<{ role: "agent" | "user"; text: string }>,
+) {
+  const eventMessages = events.slice(-5).map((event) => ({
+    role: "agent" as const,
+    text: `${event.agent}: ${event.message}`,
+  }));
+  if (!eventMessages.length && !manualMessages.length) {
+    return [
+      {
+        role: "agent" as const,
+        text: "Start a backend run to see artifact-aware agent context here.",
+      },
+    ];
+  }
+  return [...eventMessages, ...manualMessages];
 }
 
 function eventsFromRun(run: ApiRun) {

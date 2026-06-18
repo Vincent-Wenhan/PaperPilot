@@ -123,7 +123,12 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             workspace = root / "workspace"
             outputs.mkdir()
             workspace.mkdir()
+            (outputs / "other").mkdir()
             (outputs / "report.md").write_text("# Report\n", encoding="utf-8")
+            (outputs / "other" / "report.md").write_text(
+                "# Other\n",
+                encoding="utf-8",
+            )
             (workspace / "main.py").write_text("print('ok')\n", encoding="utf-8")
             (workspace / "sandboxes").mkdir()
             (workspace / "sandboxes" / "scratch.py").write_text(
@@ -136,7 +141,18 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
                 artifact_roots=[outputs],
             )
             listed_artifacts = artifacts.list_artifacts(run_id="run_test")
-            self.assertEqual(listed_artifacts[0].path, "outputs/report.md")
+            self.assertIn(
+                "outputs/report.md",
+                {item.path for item in listed_artifacts},
+            )
+            filtered_artifacts = artifacts.list_artifacts(
+                run_id="run_test",
+                prefixes=["outputs/other"],
+            )
+            self.assertEqual(
+                [item.path for item in filtered_artifacts],
+                ["outputs/other/report.md"],
+            )
             report = artifacts.read_artifact("outputs/report.md")
             self.assertIn("# Report", report.content)
 

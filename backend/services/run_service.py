@@ -107,7 +107,12 @@ class InMemoryRunService:
             self._runs[run_id] = run
             self._events[run_id] = self._build_run_events(run)
             self._actions[run_id] = [
-                action.model_copy(update={"run_id": run_id})
+                action.model_copy(
+                    update={
+                        "action_id": f"act_{run_id}_smoke_test",
+                        "run_id": run_id,
+                    }
+                )
                 for action in build_mock_actions(run_id)
             ]
         if start_pipeline:

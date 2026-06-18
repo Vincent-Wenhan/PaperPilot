@@ -771,7 +771,8 @@ h3 {
 }
 
 .artifact-row,
-.tool-call {
+.tool-call,
+.empty-state {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
@@ -780,6 +781,13 @@ h3 {
   border-radius: var(--radius);
   padding: 10px;
   background: #fff;
+}
+
+.empty-state {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .artifact-row code,

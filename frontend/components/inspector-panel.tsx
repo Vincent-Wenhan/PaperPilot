@@ -14,6 +14,7 @@ import {
 import { useEffect, useState } from "react";
 
 import {
+  type AgentEvent,
   approvalRequest,
   artifacts,
   codeFiles,
@@ -43,10 +44,12 @@ const tabs: Array<{ id: InspectorTab; label: string; icon: LucideIcon }> = [
 ];
 
 export function InspectorPanel({
+  events = [],
   refreshToken = "",
   runId,
   runStatus = "pending",
 }: {
+  events?: AgentEvent[];
   refreshToken?: string;
   runId: string;
   runStatus?: "pending" | "running" | "success" | "waiting_review" | "failed" | "revised";
@@ -158,6 +161,9 @@ export function InspectorPanel({
       <div className="inspector-content">
         {activeTab === "artifacts" && (
           <div className="stack">
+            {!artifactRows.length && (
+              <div className="empty-state">No artifacts for this run yet.</div>
+            )}
             {artifactRows.map((artifact) => (
               <div className="artifact-row" key={artifact.id}>
                 <div>
@@ -331,7 +337,14 @@ export function InspectorPanel({
         {activeTab === "logs" && (
           <pre className="terminal-block">
             <code>
-              {"> node_started repository_understanding\n> tool_call code_search argparse\n> human_review_required run_command\n> waiting_for_user action act_001\n"}
+              {events.length
+                ? events
+                    .map(
+                      (event) =>
+                        `> ${event.eventType} ${event.agent}: ${event.message}`,
+                    )
+                    .join("\n")
+                : "> no backend events for this run yet"}
             </code>
           </pre>
         )}

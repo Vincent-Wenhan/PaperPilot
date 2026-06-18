@@ -77,7 +77,15 @@ class ImplementationBlueprintTests(unittest.TestCase):
         )
 
         self.assertEqual(blueprint.project_name, "paperpilot_reproduction")
-        self.assertTrue(blueprint.files)
+        files_by_path = {item.path: item for item in blueprint.files}
+        self.assertIn("README.md", files_by_path)
+        self.assertIn("config.py", files_by_path)
+        self.assertIn("model.py", files_by_path)
+        self.assertIn("main.py", files_by_path)
+        self.assertIn("tests/test_dataflow.py", files_by_path)
+        self.assertIn("requirements.txt", files_by_path)
+        self.assertIn("run_model", files_by_path["model.py"].required_symbols)
+        self.assertIn("python main.py --smoke-test", blueprint.required_entrypoints)
         self.assertTrue(blueprint.quality_requirements)
         self.assertTrue(blueprint.forbidden_patterns)
 

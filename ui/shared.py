@@ -86,7 +86,7 @@ def build_generated_code_zip(repo_path: str, files: list[str]) -> bytes:
 
 def summarize_generated_project(result: dict[str, Any]) -> dict[str, Any]:
     """Build a compact generated-project workbench summary for the UI."""
-    blueprint = result.get("implementation_blueprint") or {}
+    planned_files = _planned_blueprint_items(result.get("implementation_blueprint"))
     quality = result.get("code_quality") or {}
     bundle = result.get("implementation_bundle") or {}
     generated_files = result.get("generated_files") or []
@@ -95,12 +95,23 @@ def summarize_generated_project(result: dict[str, Any]) -> dict[str, Any]:
         "status": "ready" if passes and generated_files else "needs_review",
         "generated_repo_path": str(result.get("generated_repo_path") or ""),
         "implementation_model": str(result.get("implementation_model") or ""),
-        "blueprint_file_count": len(blueprint.get("files") or []),
+        "blueprint_file_count": len(planned_files),
         "generated_file_count": len(generated_files),
         "quality_score": quality.get("overall_score", "n/a"),
         "blueprint_quality": result.get("blueprint_quality") or {},
         "smoke_test_command": bundle.get("smoke_test_command", ""),
     }
+
+
+def _planned_blueprint_items(blueprint: Any) -> list[Any]:
+    if isinstance(blueprint, dict):
+        files = blueprint.get("files") or []
+        return files if isinstance(files, list) else []
+    if isinstance(blueprint, list):
+        return blueprint
+    if isinstance(blueprint, str) and blueprint.strip():
+        return [blueprint]
+    return []
 
 
 def _render_generated_project_summary(result: dict[str, Any]) -> None:
@@ -121,14 +132,18 @@ def _render_generated_project_summary(result: dict[str, Any]) -> None:
     blueprint_quality = summary["blueprint_quality"]
     if blueprint_quality:
         st.caption(f"Blueprint quality: `{blueprint_quality}`")
-    blueprint = result.get("implementation_blueprint") or {}
-    planned_files = blueprint.get("files") or []
+    planned_files = _planned_blueprint_items(result.get("implementation_blueprint"))
     if planned_files:
         with st.expander("Blueprint"):
             for item in planned_files:
-                path = str(item.get("path") or "planned file")
-                responsibility = str(item.get("responsibility") or "").strip()
-                symbols = item.get("required_symbols") or []
+                if isinstance(item, dict):
+                    path = str(item.get("path") or "planned file")
+                    responsibility = str(item.get("responsibility") or "").strip()
+                    symbols = item.get("required_symbols") or []
+                else:
+                    path = "planned item"
+                    responsibility = str(item).strip()
+                    symbols = []
                 symbol_text = ", ".join(str(symbol) for symbol in symbols if symbol)
                 detail = responsibility
                 if symbol_text:

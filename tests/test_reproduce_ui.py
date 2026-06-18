@@ -21,3 +21,17 @@ def test_summarize_generated_project_includes_blueprint_quality() -> None:
     assert summary["generated_file_count"] == 3
     assert summary["quality_score"] == 4.2
     assert summary["smoke_test_command"] == "python main.py --smoke-test"
+
+
+def test_summarize_generated_project_accepts_legacy_list_blueprint() -> None:
+    summary = summarize_generated_project(
+        {
+            "generated_files": ["main.py"],
+            "implementation_blueprint": ["Implement encoder."],
+            "code_quality": {"passes_minimum_quality": True},
+        }
+    )
+
+    assert summary["status"] == "ready"
+    assert summary["blueprint_file_count"] == 1
+    assert summary["generated_file_count"] == 1

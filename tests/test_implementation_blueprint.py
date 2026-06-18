@@ -89,6 +89,49 @@ class ImplementationBlueprintTests(unittest.TestCase):
         self.assertTrue(blueprint.quality_requirements)
         self.assertTrue(blueprint.forbidden_patterns)
 
+    def test_module_file_paths_are_unique_and_do_not_collide_with_static_files(
+        self,
+    ) -> None:
+        blueprint = build_implementation_blueprint(
+            PaperUnderstanding(
+                method_modules=[
+                    MethodModule(name="Main", purpose="Reserved main module"),
+                    MethodModule(name="Config", purpose="Reserved config module"),
+                    MethodModule(name="Main", purpose="Duplicate main module"),
+                ]
+            ),
+            RepositoryUnderstanding(),
+            ReproductionPlan(),
+            hardware="CPU only",
+            goal="minimal training experiment",
+        )
+
+        paths = [item.path for item in blueprint.files]
+        self.assertEqual(len(paths), len(set(paths)))
+
+        static_paths = {
+            "README.md",
+            "config.py",
+            "main.py",
+            "tests/test_dataflow.py",
+            "requirements.txt",
+        }
+        module_paths = [
+            item.path
+            for item in blueprint.files
+            if item.responsibility
+            in {
+                "Reserved main module",
+                "Reserved config module",
+                "Duplicate main module",
+            }
+        ]
+
+        self.assertEqual(3, len(module_paths))
+        self.assertTrue(static_paths.issubset(paths))
+        self.assertFalse(static_paths.intersection(module_paths))
+        self.assertEqual(len(module_paths), len(set(module_paths)))
+
     def test_coverage_flags_missing_planned_file_and_symbol(self) -> None:
         blueprint = build_implementation_blueprint(
             PaperUnderstanding(
@@ -125,6 +168,30 @@ class ImplementationBlueprintTests(unittest.TestCase):
         self.assertGreater(coverage["metrics"]["missing_symbol_count"], 0)
         self.assertTrue(coverage["issues"])
         self.assertTrue(coverage["suggestions"])
+
+    def test_python_symbol_coverage_ignores_comment_only_occurrence(self) -> None:
+        blueprint = build_implementation_blueprint(
+            PaperUnderstanding(title=""),
+            RepositoryUnderstanding(),
+            ReproductionPlan(),
+            hardware="CPU only",
+            goal="run official demo",
+        )
+        bundle = ImplementationBundle(
+            files=[
+                GeneratedCodeFile(
+                    path="model.py",
+                    purpose="fallback",
+                    content="# run_model\nVALUE = 1\n",
+                )
+            ]
+        )
+
+        coverage = assess_blueprint_coverage(bundle, blueprint)
+
+        self.assertFalse(coverage["passes_blueprint_coverage"])
+        self.assertIn("missing_required_symbols", coverage["issue_codes"])
+        self.assertGreater(coverage["metrics"]["missing_symbol_count"], 0)
 
 
 if __name__ == "__main__":

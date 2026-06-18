@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 
 from schemas.reproduction_schema import (
@@ -15,6 +16,13 @@ from schemas.reproduction_schema import (
 )
 
 SMOKE_TEST_COMMAND = "python main.py --smoke-test"
+STATIC_BLUEPRINT_PATHS = {
+    "README.md",
+    "config.py",
+    "main.py",
+    "tests/test_dataflow.py",
+    "requirements.txt",
+}
 
 
 def _safe_project_name(title: str) -> str:
@@ -31,16 +39,70 @@ def _required_symbol(name: str, index: int) -> str:
     return f"run_{_safe_module_stem(name, index)}"
 
 
-def _module_blueprint_file(module: MethodModule, index: int) -> BlueprintFile:
+def _unique_module_path(stem: str, index: int, used_paths: set[str]) -> str:
+    candidate = f"{stem}.py"
+    if candidate not in used_paths:
+        used_paths.add(candidate)
+        return candidate
+
+    candidate = f"{stem}_{index}.py"
+    suffix = index
+    while candidate in used_paths:
+        suffix += 1
+        candidate = f"{stem}_{suffix}.py"
+    used_paths.add(candidate)
+    return candidate
+
+
+def _module_blueprint_file(
+    module: MethodModule, index: int, used_paths: set[str]
+) -> BlueprintFile:
     stem = _safe_module_stem(module.name, index)
     symbol = _required_symbol(module.name, index)
     responsibility = module.purpose or f"Implement method module {stem}"
     return BlueprintFile(
-        path=f"{stem}.py",
+        path=_unique_module_path(stem, index, used_paths),
         responsibility=responsibility,
         required_symbols=[symbol],
         test_relevance=f"Dataflow test imports {symbol} and verifies smoke behavior.",
     )
+
+
+def _assignment_target_names(target: ast.expr) -> set[str]:
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        names: set[str] = set()
+        for element in target.elts:
+            names.update(_assignment_target_names(element))
+        return names
+    return set()
+
+
+def _python_declared_symbols(content: str) -> set[str]:
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return set()
+
+    symbols: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            symbols.add(node.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                symbols.update(_assignment_target_names(target))
+        elif isinstance(node, ast.AnnAssign):
+            symbols.update(_assignment_target_names(node.target))
+        elif isinstance(node, ast.AugAssign):
+            symbols.update(_assignment_target_names(node.target))
+    return symbols
+
+
+def _content_declares_symbol(path: str, content: str, symbol: str) -> bool:
+    if path.endswith(".py"):
+        return symbol in _python_declared_symbols(content)
+    return symbol in content
 
 
 def build_implementation_blueprint(
@@ -84,8 +146,9 @@ def build_implementation_blueprint(
         ),
     ]
 
+    used_paths = set(STATIC_BLUEPRINT_PATHS)
     module_files = [
-        _module_blueprint_file(module, index)
+        _module_blueprint_file(module, index, used_paths)
         for index, module in enumerate(paper.method_modules[:3], start=1)
     ]
     if not module_files:
@@ -154,7 +217,9 @@ def assess_blueprint_coverage(
         if generated is None:
             continue
         for symbol in item.required_symbols:
-            if symbol and symbol not in generated.content:
+            if symbol and not _content_declares_symbol(
+                item.path, generated.content, symbol
+            ):
                 missing_symbols.append(f"{item.path}:{symbol}")
 
     missing_entrypoints = [

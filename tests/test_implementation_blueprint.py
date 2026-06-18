@@ -91,12 +91,20 @@ class ImplementationBlueprintTests(unittest.TestCase):
             hardware="CPU only",
             goal="minimal training experiment",
         )
+        planned_method_file = next(
+            item for item in blueprint.files if item.path == "encoder.py"
+        )
         bundle = ImplementationBundle(
             files=[
                 GeneratedCodeFile(
                     path="main.py",
                     purpose="entry",
                     content="def main() -> None:\n    print('ok')\n",
+                ),
+                GeneratedCodeFile(
+                    path=planned_method_file.path,
+                    purpose=planned_method_file.responsibility,
+                    content="def helper() -> None:\n    pass\n",
                 )
             ]
         )
@@ -105,6 +113,8 @@ class ImplementationBlueprintTests(unittest.TestCase):
 
         self.assertFalse(coverage["passes_blueprint_coverage"])
         self.assertIn("missing_blueprint_files", coverage["issue_codes"])
+        self.assertIn("missing_required_symbols", coverage["issue_codes"])
+        self.assertGreater(coverage["metrics"]["missing_symbol_count"], 0)
         self.assertTrue(coverage["issues"])
         self.assertTrue(coverage["suggestions"])
 

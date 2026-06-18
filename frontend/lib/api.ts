@@ -113,6 +113,29 @@ export type ApiWorkbenchSnapshot = {
   files: ApiFileNode[];
 };
 
+export type ApiGraphNode = {
+  id: string;
+  label: string;
+  agent: string;
+  status: WorkflowStatus;
+  startedAt: string;
+  finishedAt: string;
+  inputArtifacts: string[];
+  outputArtifacts: string[];
+  toolCalls: Array<{
+    eventId: string;
+    type: string;
+    message: string;
+    payload: Record<string, unknown>;
+    timestamp: string;
+  }>;
+  issues: Array<{
+    eventId: string;
+    message: string;
+    payload: Record<string, unknown>;
+  }>;
+};
+
 export async function uploadPdf(file: File): Promise<{ pdf_path: string }> {
   const formData = new FormData();
   formData.append("file", file);
@@ -188,6 +211,16 @@ export async function fetchRunEvents(runId: string) {
     throw new Error(`Run events API returned ${response.status}`);
   }
   return response.json() as Promise<ApiEvent[]>;
+}
+
+export async function fetchRunGraph(runId: string) {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}/graph`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Run graph API returned ${response.status}`);
+  }
+  return response.json() as Promise<ApiGraphNode[]>;
 }
 
 export async function testLlmConnection(request: ApiLlmConnectionRequest) {

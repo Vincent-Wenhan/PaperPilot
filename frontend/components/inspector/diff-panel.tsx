@@ -2,6 +2,7 @@
 
 import { Check } from "lucide-react";
 import { StatusPill } from "@/components/status-pill";
+import { DiffViewer } from "@/components/code/diff-viewer";
 import type { WorkflowStatus } from "@/lib/mock-data";
 
 type DiffPanelProps = {
@@ -13,6 +14,12 @@ type DiffPanelProps = {
   onReject: () => void;
   onRevise: () => void;
 };
+
+function statusToStep(s: WorkflowStatus): "proposed" | "applied" | "rejected" {
+  if (s === "success" || s === "revised") return "applied";
+  if (s === "failed") return "rejected";
+  return "proposed";
+}
 
 export function DiffPanel({
   patchFile,
@@ -32,26 +39,29 @@ export function DiffPanel({
         </div>
         <StatusPill status={patchStatus} />
       </div>
-      <div className="diff-grid">
-        <pre className="diff-pane old">
-          <code>{oldCode}</code>
-        </pre>
-        <pre className="diff-pane new">
-          <code>{newCode}</code>
-        </pre>
-      </div>
-      <div className="action-row">
-        <button className="command-button primary" type="button" onClick={onApprove}>
-          <Check size={15} />
-          Approve Patch
-        </button>
-        <button className="command-button" type="button" onClick={onReject}>
-          Reject
-        </button>
-        <button className="command-button" type="button" onClick={onRevise}>
-          Ask Revision
-        </button>
-      </div>
+      <DiffViewer
+        oldCode={oldCode}
+        newCode={newCode}
+        filePath={patchFile}
+        patchStatus={statusToStep(patchStatus)}
+        onApprove={onApprove}
+        onReject={onReject}
+        onRevise={onRevise}
+      />
+      {patchStatus !== "success" && patchStatus !== "failed" && (
+        <div className="action-row">
+          <button className="command-button primary" type="button" onClick={onApprove}>
+            <Check size={15} />
+            Approve Patch
+          </button>
+          <button className="command-button" type="button" onClick={onReject}>
+            Reject
+          </button>
+          <button className="command-button" type="button" onClick={onRevise}>
+            Ask Revision
+          </button>
+        </div>
+      )}
     </div>
   );
 }

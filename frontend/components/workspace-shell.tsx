@@ -21,7 +21,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { InspectorPanel } from "@/components/inspector-panel";
 import { StatusPill } from "@/components/status-pill";
-import { WorkflowGraph } from "@/components/workflow-graph";
 import { TopBar } from "@/components/layout/top-bar";
 import { ProjectSidebar } from "@/components/layout/project-sidebar";
 import { CenterWorkspace } from "@/components/layout/center-workspace";

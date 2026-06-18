@@ -10,7 +10,7 @@ import {
 
 import { StatusPill } from "@/components/status-pill";
 import type { AgentEvent, PlanStep, RunMode, WorkflowStatus } from "@/lib/mock-data";
-import { WorkflowGraph } from "@/components/workflow-graph";
+import { WorkflowGraph, type GraphNodeData } from "@/components/workflow-graph";
 
 type CenterWorkspaceProps = {
   mode: RunMode;
@@ -19,6 +19,7 @@ type CenterWorkspaceProps = {
   timelineEvents: AgentEvent[];
   chatMessages: Array<{ role: "agent" | "user"; text: string }>;
   approvalStatus: "pending" | "approved" | "edited" | "rejected";
+  graphNodes?: GraphNodeData[];
   onTogglePlanStep: (stepId: string) => void;
   onApprovePlan: () => void;
   onAskAgent: () => void;
@@ -35,6 +36,7 @@ export function CenterWorkspace({
   timelineEvents,
   chatMessages,
   approvalStatus,
+  graphNodes,
   onTogglePlanStep,
   onApprovePlan,
   onAskAgent,
@@ -135,7 +137,7 @@ export function CenterWorkspace({
             <span className="legend-item review">review</span>
           </div>
         </div>
-        <WorkflowGraph />
+        <WorkflowGraph nodes={graphNodes} />
       </section>
 
       <section className="workspace-band two-columns bottom-band">

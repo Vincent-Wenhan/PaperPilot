@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Check,
   Code2,
   FileText,
   GitCompare,
@@ -30,6 +29,13 @@ import {
   fetchFiles,
   type ApiFileNode,
 } from "@/lib/api";
+import { ArtifactsPanel } from "@/components/inspector/artifacts-panel";
+import { CodePanel } from "@/components/inspector/code-panel";
+import { DiffPanel } from "@/components/inspector/diff-panel";
+import { RunnerPanel } from "@/components/inspector/runner-panel";
+import { ToolCallPanel } from "@/components/inspector/tool-call-panel";
+import { LogsPanel } from "@/components/inspector/logs-panel";
+import { PreviewPanel } from "@/components/inspector/preview-panel";
 
 type InspectorTab = "artifacts" | "code" | "diff" | "runner" | "tools" | "logs" | "preview";
 
@@ -66,6 +72,7 @@ export function InspectorPanel({
     "waiting_review" | "success" | "failed" | "revised"
   >("waiting_review");
   const [runnerMessage, setRunnerMessage] = useState(runnerReview.diagnosis);
+
   const activeMockFile =
     codeFiles.find((file) => file.id === activeFileId) ?? codeFiles[0];
   const activeApiFile = apiFiles.find((file) => file.path === activeFileId);
@@ -82,49 +89,30 @@ export function InspectorPanel({
     let cancelled = false;
     Promise.all([fetchArtifacts(runId), fetchFiles(runId)])
       .then(([apiArtifacts, files]) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         setArtifactRows(apiArtifacts.map(artifactFromApi));
         setApiFiles(files);
-        if (files[0]?.path) {
-          setActiveFileId(files[0].path);
-        }
+        if (files[0]?.path) setActiveFileId(files[0].path);
       })
-      .catch(() => {
-        // Preserve mock inspector data when the FastAPI server is unavailable.
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [refreshToken, runId]);
 
   useEffect(() => {
-    if (!activeApiFile) {
-      return;
-    }
+    if (!activeApiFile) return;
     let cancelled = false;
     fetchFileContent(runId, activeApiFile.path)
       .then((file) => {
-        if (!cancelled) {
-          setApiFileContent(file.content);
-        }
+        if (!cancelled) setApiFileContent(file.content);
       })
       .catch(() => {
-        if (!cancelled) {
-          setApiFileContent("");
-        }
+        if (!cancelled) setApiFileContent("");
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [activeApiFile, runId]);
 
   const fileTabs = apiFiles.length
-    ? apiFiles.map((file) => ({
-        id: file.path,
-        label: file.name,
-      }))
+    ? apiFiles.map((file) => ({ id: file.path, label: file.name }))
     : codeFiles.map((file) => ({
         id: file.id,
         label: file.path.split("/").pop() ?? file.path,
@@ -159,217 +147,56 @@ export function InspectorPanel({
       </div>
 
       <div className="inspector-content">
-        {activeTab === "artifacts" && (
-          <div className="stack">
-            {!artifactRows.length && (
-              <div className="empty-state">No artifacts for this run yet.</div>
-            )}
-            {artifactRows.map((artifact) => (
-              <div className="artifact-row" key={artifact.id}>
-                <div>
-                  <strong>{artifact.name}</strong>
-                  <span>{artifact.kind}</span>
-                  <code>{artifact.path}</code>
-                </div>
-                <StatusPill status={artifact.status} />
-              </div>
-            ))}
-          </div>
-        )}
+        {activeTab === "artifacts" && <ArtifactsPanel artifactRows={artifactRows} />}
 
-        {activeTab === "code" && activeFile && (
-          <div className="code-tab">
-            <div className="file-tabs">
-              {fileTabs.map((file) => (
-                <button
-                  key={file.id}
-                  className={activeFileId === file.id ? "file-tab active" : "file-tab"}
-                  onClick={() => setActiveFileId(file.id)}
-                  type="button"
-                >
-                  {file.label}
-                </button>
-              ))}
-            </div>
-            <div className="code-meta">
-              <span>{activeFile.path}</span>
-              <span>{activeFile.language}</span>
-            </div>
-            <pre className="code-block">
-              <code>{activeFile.content}</code>
-            </pre>
-          </div>
+        {activeTab === "code" && (
+          <CodePanel
+            fileTabs={fileTabs}
+            activeFileId={activeFileId}
+            activeFile={activeFile}
+            apiFiles={apiFiles}
+            onSelectFile={setActiveFileId}
+          />
         )}
 
         {activeTab === "diff" && (
-          <div className="stack">
-            <div className="diff-header">
-              <div>
-                <p className="eyebrow">Patch proposal</p>
-                <strong>{patchPreview.file}</strong>
-              </div>
-              <StatusPill status={patchStatus} />
-            </div>
-            <div className="diff-grid">
-              <pre className="diff-pane old">
-                <code>{patchPreview.oldCode}</code>
-              </pre>
-              <pre className="diff-pane new">
-                <code>{patchPreview.newCode}</code>
-              </pre>
-            </div>
-            <div className="action-row">
-              <button
-                className="command-button primary"
-                type="button"
-                onClick={() => setPatchStatus("success")}
-              >
-                <Check size={15} />
-                Approve Patch
-              </button>
-              <button
-                className="command-button"
-                type="button"
-                onClick={() => setPatchStatus("failed")}
-              >
-                Reject
-              </button>
-              <button
-                className="command-button"
-                type="button"
-                onClick={() => setPatchStatus("revised")}
-              >
-                Ask Revision
-              </button>
-            </div>
-          </div>
+          <DiffPanel
+            patchFile={patchPreview.file}
+            oldCode={patchPreview.oldCode}
+            newCode={patchPreview.newCode}
+            patchStatus={patchStatus}
+            onApprove={() => setPatchStatus("success")}
+            onReject={() => setPatchStatus("failed")}
+            onRevise={() => setPatchStatus("revised")}
+          />
         )}
 
         {activeTab === "runner" && (
-          <div className="stack">
-            <div className="action-request">
-              <p className="eyebrow">Action request</p>
-              <h3>{approvalRequest.tool}</h3>
-              <dl>
-                <div>
-                  <dt>Agent</dt>
-                  <dd>{approvalRequest.agent}</dd>
-                </div>
-                <div>
-                  <dt>Command</dt>
-                  <dd>
-                    <code>{approvalRequest.command}</code>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Risk</dt>
-                  <dd>{approvalRequest.risk}</dd>
-                </div>
-                <div>
-                  <dt>Reason</dt>
-                  <dd>{approvalRequest.reason}</dd>
-                </div>
-              </dl>
-            </div>
-            <div className="runner-grid">
-              <span>Purpose</span>
-              <strong>{runnerReview.purpose}</strong>
-              <span>Working dir</span>
-              <code>{runnerReview.cwd}</code>
-              <span>Expected</span>
-              <strong>{runnerReview.expectedOutput}</strong>
-              <span>Exit code</span>
-              <strong>{runnerStatus === "success" ? 0 : runnerReview.exitCode ?? "not run"}</strong>
-            </div>
-            <pre className="terminal-block">
-              <code>{runnerMessage}</code>
-            </pre>
-            <div className="action-row">
-              <button
-                className="command-button primary"
-                type="button"
-                onClick={() => {
-                  setRunnerStatus("success");
-                  setRunnerMessage("Approved. Preview runner recorded a successful bounded smoke test.");
-                }}
-              >
-                <Check size={15} />
-                Approve
-              </button>
-              <button
-                className="command-button"
-                type="button"
-                onClick={() => {
-                  setRunnerStatus("revised");
-                  setRunnerMessage("Edited command to python main.py --help for a safer first check.");
-                }}
-              >
-                Edit
-              </button>
-              <button
-                className="command-button"
-                type="button"
-                onClick={() => {
-                  setRunnerStatus("failed");
-                  setRunnerMessage("Rejected. No command will run until the plan is revised.");
-                }}
-              >
-                Reject
-              </button>
-            </div>
-          </div>
+          <RunnerPanel
+            approvalRequest={approvalRequest}
+            runnerReview={runnerReview}
+            runnerStatus={runnerStatus}
+            runnerMessage={runnerMessage}
+            onApprove={() => {
+              setRunnerStatus("success");
+              setRunnerMessage("Approved. Preview runner recorded a successful bounded smoke test.");
+            }}
+            onEdit={() => {
+              setRunnerStatus("revised");
+              setRunnerMessage("Edited command to python main.py --help for a safer first check.");
+            }}
+            onReject={() => {
+              setRunnerStatus("failed");
+              setRunnerMessage("Rejected. No command will run until the plan is revised.");
+            }}
+          />
         )}
 
-        {activeTab === "tools" && (
-          <div className="stack">
-            {toolCalls.map((call) => (
-              <div className="tool-call" key={call.id}>
-                <div>
-                  <code>{call.action}</code>
-                  <p>{call.observation}</p>
-                </div>
-                <StatusPill status={call.status} />
-              </div>
-            ))}
-          </div>
-        )}
+        {activeTab === "tools" && <ToolCallPanel toolCalls={toolCalls} />}
 
-        {activeTab === "logs" && (
-          <pre className="terminal-block">
-            <code>
-              {events.length
-                ? events
-                    .map(
-                      (event) =>
-                        `> ${event.eventType} ${event.agent}: ${event.message}`,
-                    )
-                    .join("\n")
-                : "> no backend events for this run yet"}
-            </code>
-          </pre>
-        )}
+        {activeTab === "logs" && <LogsPanel events={events} />}
 
-        {activeTab === "preview" && (
-          <div className="preview-frame">
-            <div className="preview-toolbar">
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="preview-body">
-              <p className="eyebrow">Generated Product</p>
-              <h3>Mock-first analysis console</h3>
-              <div className="preview-metric">
-                <span>Demo readiness</span>
-                <strong>4.2 / 5</strong>
-              </div>
-              <div className="preview-metric">
-                <span>Adapter mode</span>
-                <strong>Mock</strong>
-              </div>
-            </div>
-          </div>
-        )}
+        {activeTab === "preview" && <PreviewPanel />}
       </div>
     </aside>
   );

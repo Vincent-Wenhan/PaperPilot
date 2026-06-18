@@ -82,6 +82,43 @@ class PrototypePlan(BaseModel):
     mock_first: bool = True
 
 
+class UIControl(BaseModel):
+    control_id: str = ""
+    label: str = ""
+    control_type: str = "text_input"
+    default: object | None = None
+    options: list[str] = Field(default_factory=list)
+    help_text: str = ""
+    required: bool = False
+
+
+class ResultComponent(BaseModel):
+    component_id: str = ""
+    label: str = ""
+    component_type: str = "summary"
+    source_key: str = ""
+    description: str = ""
+
+
+class UIStateCopy(BaseModel):
+    empty: str = "Provide an input to start the mock workflow."
+    loading: str = "Running mock analysis."
+    success: str = "Mock analysis completed."
+    error: str = "The mock workflow could not complete."
+
+
+class ProductUISpec(BaseModel):
+    product_name: str = ""
+    template_type: str = "file"
+    layout_mode: str = "workflow_dashboard"
+    page_sections: list[str] = Field(default_factory=list)
+    input_controls: list[UIControl] = Field(default_factory=list)
+    result_components: list[ResultComponent] = Field(default_factory=list)
+    mock_result_schema: dict[str, str] = Field(default_factory=dict)
+    states: UIStateCopy = Field(default_factory=UIStateCopy)
+    visual_rules: list[str] = Field(default_factory=list)
+
+
 class ProductProposal(BaseModel):
     """One complete product proposal, used in the proposal review stage."""
     product_name: str = ""

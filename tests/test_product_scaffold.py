@@ -156,10 +156,10 @@ class ProductScaffoldTests(unittest.TestCase):
                         default="Default",
                     ),
                     UIControl(
-                        control_id="confidence_threshold",
-                        label="Confidence threshold",
+                        control_id="review_mode",
+                        label="Strictness threshold",
                         control_type="slider",
-                        default=0.7,
+                        default=1.4,
                     ),
                 ],
                 result_components=[
@@ -200,7 +200,13 @@ class ProductScaffoldTests(unittest.TestCase):
             self.assertIn("Review mode", app_source)
             self.assertIn("Evidence summary", app_source)
             self.assertIn("Paste evidence to start.", app_source)
+            self.assertIn("context_values['review_mode']", app_source)
+            self.assertIn("context_values['review_mode_2']", app_source)
+            self.assertIn("key='ui_control_review_mode'", app_source)
+            self.assertIn("key='ui_control_review_mode_2'", app_source)
+            self.assertIn("st.slider('Strictness threshold', 0.0, 1.0, 1.0", app_source)
             inspection = inspect_generated_product(output_dir)
+            self.assertTrue(inspection["has_rich_layout"])
             self.assertTrue(inspection["ui_spec_coverage"]["structured_controls"])
             self.assertTrue(inspection["ui_spec_coverage"]["result_components"])
             self.assertTrue(inspection["ui_spec_coverage"]["state_copy"])

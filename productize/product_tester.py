@@ -62,10 +62,6 @@ def inspect_generated_product(
         and "if self.mock_mode" in adapter_text
     )
     readme_has_run_command = "streamlit run app.py" in readme_text
-    has_rich_layout = all(
-        marker in app_text
-        for marker in ("st.sidebar", "st.tabs", "Confidence threshold", "Core Workflow")
-    )
     ui_spec_coverage = {
         "structured_controls": (
             "UI_SPEC_MARKERS" in app_text and "structured_controls" in app_text
@@ -76,6 +72,18 @@ def inspect_generated_product(
         "state_copy": "UI_SPEC_MARKERS" in app_text and "state_copy" in app_text,
         "mock_schema": "UI_SPEC_MARKERS" in app_text and "mock_schema" in app_text,
     }
+    legacy_rich_layout = all(
+        marker in app_text
+        for marker in ("st.sidebar", "st.tabs", "Confidence threshold", "Core Workflow")
+    )
+    structured_rich_layout = (
+        all(
+            ui_spec_coverage[marker]
+            for marker in ("structured_controls", "result_components", "state_copy")
+        )
+        and all(marker in app_text for marker in ("st.sidebar", "st.tabs", "Core Workflow"))
+    )
+    has_rich_layout = legacy_rich_layout or structured_rich_layout
     files = (
         sorted(
             str(path.relative_to(root))

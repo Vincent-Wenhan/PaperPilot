@@ -220,16 +220,24 @@ def _build_ui_spec_input_block(spec: ProductUISpec) -> str:
         "context_values = {}",
         'st.markdown("### Task Setup")',
     ]
+    used_control_ids: set[str] = set()
     for index, control in enumerate(spec.input_controls[:8], 1):
-        control_id = control.control_id or f"control_{index}"
+        base_control_id = control.control_id or f"control_{index}"
+        control_id = base_control_id
+        suffix = 2
+        while control_id in used_control_ids:
+            control_id = f"{base_control_id}_{suffix}"
+            suffix += 1
+        used_control_ids.add(control_id)
         label = _clean_label(control.label or control_id.replace("_", " ").title())
         default = control.default
         options = [str(option) for option in control.options] or ["Default"]
         key = f"ui_control_{control_id}"
         if control.control_type == "slider":
             slider_default = default if isinstance(default, (int, float)) else 0.5
+            slider_default = min(max(float(slider_default), 0.0), 1.0)
             lines.append(
-                f"context_values[{control_id!r}] = st.slider({label!r}, 0.0, 1.0, {float(slider_default)!r}, 0.05, key={key!r})"
+                f"context_values[{control_id!r}] = st.slider({label!r}, 0.0, 1.0, {slider_default!r}, 0.05, key={key!r})"
             )
         elif control.control_type == "selectbox":
             lines.append(

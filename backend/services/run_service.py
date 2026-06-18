@@ -65,6 +65,12 @@ class InMemoryRunService:
         run_id = f"run_{uuid4().hex[:12]}"
         now = utc_now()
         plan = REPRODUCE_PLAN if request.mode == "reproduce" else PRODUCTIZE_PLAN
+        inputs = {
+            "pdf_path": request.pdf_path,
+            "github_url": request.github_url,
+            "target_user": request.target_user,
+            "product_goal": request.product_goal,
+        }
         summary = (
             "Reproduce workflow planned and waiting for runner approval."
             if request.mode == "reproduce"
@@ -79,18 +85,58 @@ class InMemoryRunService:
             created_at=now,
             updated_at=now,
             summary=summary,
+            inputs=inputs,
             plan=plan,
         )
         self._runs[run_id] = run
-        self._events[run_id] = [
-            event.model_copy(update={"run_id": run_id})
-            for event in build_mock_events(run_id)
-        ]
+        self._events[run_id] = self._build_run_events(run)
         self._actions[run_id] = [
             action.model_copy(update={"run_id": run_id})
             for action in build_mock_actions(run_id)
         ]
         return deepcopy(run)
+
+    def _build_run_events(self, run: RunRecord) -> list[WorkbenchEvent]:
+        """Create input-aware run events for newly submitted workbench runs."""
+        paper = run.inputs.get("pdf_path") or "paper input"
+        repo = run.inputs.get("github_url") or "repository input"
+        task = run.task or "No task provided"
+        now = utc_now()
+        return [
+            WorkbenchEvent(
+                event_id=f"evt_{uuid4().hex[:10]}",
+                run_id=run.run_id,
+                node="run_intake",
+                agent="Workbench",
+                event_type="run_created",
+                status="success",
+                message=f"Created {run.mode} run for project {run.project_id}.",
+                payload={"inputs": run.inputs},
+                created_at=now,
+            ),
+            WorkbenchEvent(
+                event_id=f"evt_{uuid4().hex[:10]}",
+                run_id=run.run_id,
+                node="input_review",
+                agent="Input Router",
+                event_type="input_received",
+                status="running",
+                message=f"Received paper: {paper}; repository: {repo}.",
+                payload={"paper": paper, "repository": repo},
+                created_at=now,
+            ),
+            WorkbenchEvent(
+                event_id=f"evt_{uuid4().hex[:10]}",
+                run_id=run.run_id,
+                node="planner",
+                agent="Planning Agent",
+                event_type="plan_generated",
+                status="waiting_review",
+                message=f"Generated editable plan for task: {task}",
+                payload={"plan": run.plan},
+                created_at=now,
+            ),
+        ]
 
     def get_run(self, run_id: str) -> RunRecord | None:
         run = self._runs.get(run_id)

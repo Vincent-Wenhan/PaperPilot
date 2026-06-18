@@ -45,6 +45,7 @@ class RunRecord(BaseModel):
     created_at: str
     updated_at: str
     summary: str
+    inputs: dict[str, str] = Field(default_factory=dict)
     plan: list[str] = Field(default_factory=list)
 
 

@@ -14,31 +14,57 @@ import {
   Settings,
   ShieldCheck,
 } from "lucide-react";
-import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { useState } from "react";
 
 import { InspectorPanel } from "@/components/inspector-panel";
 import { StatusPill } from "@/components/status-pill";
 import { WorkflowGraph } from "@/components/workflow-graph";
 import {
-  eventFromApi,
-  fetchWorkbenchSnapshot,
   approveAction,
+  createRun,
   editAction,
+  eventFromApi,
+  fetchRunEvents,
   rejectAction,
   type ApiRun,
 } from "@/lib/api";
 import {
-  activeProject,
   agentEvents,
   planSteps,
-  projectNavItems,
+  type PlanStep,
+  type ProjectNavItem,
+  type RunMode,
   type WorkflowStatus,
 } from "@/lib/mock-data";
+
+type RunFormState = {
+  project_id: string;
+  mode: RunMode;
+  task: string;
+  pdf_path: string;
+  github_url: string;
+  target_user: string;
+  product_goal: string;
+};
+
+const defaultRunForm: RunFormState = {
+  project_id: "paperpilot_workspace",
+  mode: "reproduce",
+  task: "",
+  pdf_path: "",
+  github_url: "",
+  target_user: "",
+  product_goal: "",
+};
+
+const modelName = "gpt-4o-mini";
 
 export function WorkspaceShell() {
   const [apiRun, setApiRun] = useState<ApiRun | null>(null);
   const [timelineEvents, setTimelineEvents] = useState(agentEvents);
+  const [runForm, setRunForm] = useState<RunFormState>(defaultRunForm);
+  const [creatingRun, setCreatingRun] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedNavId, setSelectedNavId] = useState("run");
   const [planState, setPlanState] = useState(planSteps);
@@ -60,39 +86,26 @@ export function WorkspaceShell() {
   const [approvalStatus, setApprovalStatus] = useState<
     "pending" | "approved" | "edited" | "rejected"
   >("pending");
-  const [notice, setNotice] = useState("Workbench ready. Actions are preview-safe.");
+  const [notice, setNotice] = useState(
+    "Enter a paper, repository, and task, then create a backend run.",
+  );
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchWorkbenchSnapshot()
-      .then((snapshot) => {
-        if (cancelled) {
-          return;
-        }
-        setApiRun(snapshot.active_run);
-        setTimelineEvents(snapshot.events.map(eventFromApi));
-        setPlanState(
-          snapshot.active_run.plan.map((label, index) => ({
-            id: `api-plan-${index}`,
-            label,
-            enabled: true,
-            status:
-              index < 3
-                ? ("success" as const)
-                : index === 4
-                  ? ("waiting_review" as const)
-                  : ("pending" as const),
-          })),
-        );
-      })
-      .catch(() => {
-        // Keep the mock-first shell usable when the FastAPI server is not running.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+  const currentProject = apiRun?.project_id ?? runForm.project_id;
+  const currentMode = apiRun?.mode ?? runForm.mode;
+  const currentTask =
+    apiRun?.task || runForm.task || "New PaperPilot research run";
+  const paperInput = apiRun?.inputs?.pdf_path ?? runForm.pdf_path;
+  const repoInput = apiRun?.inputs?.github_url ?? runForm.github_url;
+  const productGoal = apiRun?.inputs?.product_goal ?? runForm.product_goal;
+  const targetUser = apiRun?.inputs?.target_user ?? runForm.target_user;
+  const projectNavItems = buildNavItems({
+    run: apiRun,
+    form: runForm,
+    paperInput,
+    repoInput,
+    productGoal,
+    targetUser,
+  });
   const visibleNavItems = projectNavItems.filter((item) => {
     const haystack = `${item.label} ${item.meta}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
@@ -114,6 +127,67 @@ export function WorkspaceShell() {
       },
       ...events,
     ]);
+  }
+
+  function updateRunForm<K extends keyof RunFormState>(
+    key: K,
+    value: RunFormState[K],
+  ) {
+    setRunForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function resetWorkspace() {
+    setApiRun(null);
+    setRunForm(defaultRunForm);
+    setPlanState(planSteps);
+    setTimelineEvents(agentEvents);
+    setSelectedNavId("paper");
+    setApprovalStatus("pending");
+    setNotice("New workspace ready. Enter inputs and create a backend run.");
+  }
+
+  async function submitRun(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const hasInput =
+      runForm.task.trim() ||
+      runForm.pdf_path.trim() ||
+      runForm.github_url.trim() ||
+      runForm.product_goal.trim();
+
+    if (!hasInput) {
+      setNotice("Add at least a task, paper path/title, repository URL, or product goal.");
+      return;
+    }
+
+    setCreatingRun(true);
+    setNotice("Creating run through FastAPI...");
+    try {
+      const run = await createRun({
+        ...runForm,
+        project_id: runForm.project_id.trim() || "paperpilot_workspace",
+        task:
+          runForm.task.trim() ||
+          (runForm.mode === "reproduce"
+            ? "Reproduce the submitted paper and repository."
+            : "Productize the submitted research into a mock-first MVP."),
+        mock: false,
+      });
+      const runEvents = await fetchRunEvents(run.run_id).catch(() => []);
+      setApiRun(run);
+      setPlanState(planFromRun(run));
+      setTimelineEvents(
+        runEvents.length ? runEvents.map(eventFromApi) : eventsFromRun(run),
+      );
+      setSelectedNavId("run");
+      setApprovalStatus("pending");
+      setNotice(`Created backend run ${run.run_id}. Review the editable plan before continuing.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown API error";
+      setNotice(`Could not create backend run: ${message}`);
+      addTimelineEvent(`Run creation failed: ${message}`, "failed");
+    } finally {
+      setCreatingRun(false);
+    }
   }
 
   function continueRun() {
@@ -193,14 +267,14 @@ export function WorkspaceShell() {
         </div>
 
         <div className="topbar-context">
-          <span>Project: {apiRun?.project_id ?? activeProject.name}</span>
-          <span>Mode: {apiRun?.mode ?? activeProject.mode}</span>
-          <span>Model: {activeProject.model}</span>
+          <span>Project: {currentProject}</span>
+          <span>Mode: {currentMode}</span>
+          <span>Model: {modelName}</span>
         </div>
 
         <div className="run-state">
-          <span>{apiRun?.summary ?? activeProject.runStatus}</span>
-          <StatusPill status={apiRun?.status ?? "waiting_review"} />
+          <span>{apiRun?.summary ?? "No backend run created yet"}</span>
+          <StatusPill status={apiRun?.status ?? "pending"} />
         </div>
       </header>
 
@@ -209,9 +283,14 @@ export function WorkspaceShell() {
           <div className="navigator-header">
             <div>
               <p className="eyebrow">Workspace</p>
-              <h1>{activeProject.name}</h1>
+              <h1>{currentTask}</h1>
             </div>
-            <button className="icon-button" title="New project" type="button">
+            <button
+              className="icon-button"
+              title="New run"
+              type="button"
+              onClick={resetWorkspace}
+            >
               <Plus size={17} />
             </button>
           </div>
@@ -225,6 +304,85 @@ export function WorkspaceShell() {
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
+
+          <form className="run-form" onSubmit={submitRun}>
+            <div className="form-row">
+              <label>
+                <span>Mode</span>
+                <select
+                  value={runForm.mode}
+                  onChange={(event) =>
+                    updateRunForm("mode", event.target.value as RunMode)
+                  }
+                >
+                  <option value="reproduce">Reproduce</option>
+                  <option value="productize">Productize</option>
+                </select>
+              </label>
+              <label>
+                <span>Project</span>
+                <input
+                  value={runForm.project_id}
+                  onChange={(event) => updateRunForm("project_id", event.target.value)}
+                  placeholder="project_id"
+                />
+              </label>
+            </div>
+            <label>
+              <span>Paper / PDF</span>
+              <input
+                value={runForm.pdf_path}
+                onChange={(event) => updateRunForm("pdf_path", event.target.value)}
+                placeholder="PDF path, title, or paper URL"
+              />
+            </label>
+            <label>
+              <span>Repository</span>
+              <input
+                value={runForm.github_url}
+                onChange={(event) => updateRunForm("github_url", event.target.value)}
+                placeholder="GitHub URL or local repo path"
+              />
+            </label>
+            <label>
+              <span>Task</span>
+              <textarea
+                value={runForm.task}
+                onChange={(event) => updateRunForm("task", event.target.value)}
+                placeholder="What should PaperPilot do?"
+                rows={3}
+              />
+            </label>
+            {runForm.mode === "productize" && (
+              <>
+                <label>
+                  <span>Target User</span>
+                  <input
+                    value={runForm.target_user}
+                    onChange={(event) =>
+                      updateRunForm("target_user", event.target.value)
+                    }
+                    placeholder="e.g. lab teams, students, clinicians"
+                  />
+                </label>
+                <label>
+                  <span>Product Goal</span>
+                  <textarea
+                    value={runForm.product_goal}
+                    onChange={(event) =>
+                      updateRunForm("product_goal", event.target.value)
+                    }
+                    placeholder="Mock-first product outcome"
+                    rows={2}
+                  />
+                </label>
+              </>
+            )}
+            <button className="command-button primary" disabled={creatingRun} type="submit">
+              <Play size={15} />
+              {creatingRun ? "Creating..." : "Create Run"}
+            </button>
+          </form>
 
           <nav className="nav-section" aria-label="Project navigation">
             <NavGroup
@@ -260,7 +418,7 @@ export function WorkspaceShell() {
           <div className="workspace-toolbar">
             <div>
               <p className="eyebrow">Run</p>
-              <h2>Reproduce workflow</h2>
+              <h2>{currentMode === "reproduce" ? "Reproduce workflow" : "Productize workflow"}</h2>
             </div>
             <div className="toolbar-actions">
               <button className="command-button" type="button" onClick={askAgent}>
@@ -411,6 +569,110 @@ export function WorkspaceShell() {
   );
 }
 
+function buildNavItems({
+  run,
+  form,
+  paperInput,
+  repoInput,
+  productGoal,
+  targetUser,
+}: {
+  run: ApiRun | null;
+  form: RunFormState;
+  paperInput: string;
+  repoInput: string;
+  productGoal: string;
+  targetUser: string;
+}): ProjectNavItem[] {
+  const hasPaper = Boolean(paperInput.trim());
+  const hasRepo = Boolean(repoInput.trim());
+  const productMeta = [targetUser, productGoal].filter(Boolean).join(" / ");
+  return [
+    {
+      id: "paper",
+      label: hasPaper ? compactLabel(paperInput) : "No paper selected",
+      meta: hasPaper ? "paper input ready" : "add PDF path, title, or paper URL",
+      status: hasPaper ? "success" : "pending",
+    },
+    {
+      id: "repo",
+      label: hasRepo ? compactLabel(repoInput) : "No repository selected",
+      meta: hasRepo ? "repository input ready" : "add GitHub URL or local repo path",
+      status: hasRepo ? "success" : "pending",
+    },
+    {
+      id: "run",
+      label: run?.run_id ?? "No backend run yet",
+      meta: run ? `${run.mode} workflow` : `${form.mode} draft`,
+      status: run?.status ?? "pending",
+    },
+    {
+      id: "product",
+      label: productGoal ? compactLabel(productGoal) : "Product goal",
+      meta: productMeta || "optional for productize mode",
+      status: productGoal ? "revised" : "pending",
+    },
+  ];
+}
+
+function compactLabel(value: string) {
+  const trimmed = value.trim();
+  if (trimmed.length <= 36) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, 33)}...`;
+}
+
+function planFromRun(run: ApiRun): PlanStep[] {
+  return run.plan.map((label, index) => ({
+    id: `${run.run_id}-plan-${index}`,
+    label,
+    enabled: true,
+    status:
+      index === 0
+        ? ("running" as const)
+        : label.toLowerCase().includes("review")
+          ? ("waiting_review" as const)
+          : ("pending" as const),
+  }));
+}
+
+function eventsFromRun(run: ApiRun) {
+  const timestamp = new Date().toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const paper = run.inputs?.pdf_path || "paper input";
+  const repo = run.inputs?.github_url || "repository input";
+  return [
+    {
+      id: `${run.run_id}-created`,
+      time: timestamp,
+      agent: "Workbench",
+      eventType: "run_created",
+      message: `Created ${run.mode} run from current inputs.`,
+      status: "success" as const,
+    },
+    {
+      id: `${run.run_id}-inputs`,
+      time: timestamp,
+      agent: "Input Router",
+      eventType: "input_received",
+      message: `Paper: ${paper}; repository: ${repo}.`,
+      status: "running" as const,
+    },
+    {
+      id: `${run.run_id}-plan`,
+      time: timestamp,
+      agent: "Planning Agent",
+      eventType: "plan_generated",
+      message: `Editable plan generated for: ${run.task}`,
+      status: "waiting_review" as const,
+    },
+  ];
+}
+
 function NavGroup({
   title,
   icon,
@@ -420,7 +682,7 @@ function NavGroup({
 }: {
   title: string;
   icon: ReactNode;
-  items: typeof projectNavItems;
+  items: ProjectNavItem[];
   selectedId: string;
   onSelect: (id: string) => void;
 }) {

@@ -38,12 +38,22 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
                 mode="reproduce",
                 project_id="project_test",
                 task="Reproduce with bounded runner",
+                pdf_path="papers/custom.pdf",
+                github_url="https://github.com/example/custom-paper",
             )
         )
 
         self.assertEqual(run.project_id, "project_test")
         self.assertEqual(run.mode, "reproduce")
-        self.assertGreater(len(service.list_events(run.run_id)), 0)
+        self.assertEqual(run.inputs["pdf_path"], "papers/custom.pdf")
+        self.assertEqual(
+            run.inputs["github_url"],
+            "https://github.com/example/custom-paper",
+        )
+        events = service.list_events(run.run_id)
+        self.assertGreater(len(events), 0)
+        self.assertIn("papers/custom.pdf", " ".join(event.message for event in events))
+        self.assertNotIn("train.py, eval.py", " ".join(event.message for event in events))
         action = service.list_actions(run.run_id)[0]
 
         approved = service.approve_action(action.action_id)

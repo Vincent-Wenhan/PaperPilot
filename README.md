@@ -207,10 +207,13 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The workbench uses mock run data when no API is
-available, and uses the FastAPI facade for artifacts, files, patch proposals,
-syntax checks, reviewed commands, and action approvals when the API is running.
-Existing Streamlit pipelines are unchanged.
+Open `http://localhost:3000`. Use the left **Run Intake** form to enter a
+project id, paper/PDF path or title, optional repository URL, and task, then
+click **Create Run**. That creates a backend run through `POST /api/runs`,
+stores the submitted inputs, and refreshes the editable plan and event stream
+from the FastAPI facade. The right inspector keeps sample artifacts/code as an
+offline fallback until live pipeline artifacts are attached. Existing Streamlit
+pipelines are unchanged.
 
 If port `8000` is already in use on Windows, the API may already be running.
 Check it before starting a second server:

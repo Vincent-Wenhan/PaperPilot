@@ -10,7 +10,19 @@ export type ApiRun = {
   status: WorkflowStatus;
   task: string;
   summary: string;
+  inputs: Record<string, string>;
   plan: string[];
+};
+
+export type ApiRunCreateRequest = {
+  mode: "reproduce" | "productize";
+  project_id: string;
+  task: string;
+  pdf_path?: string;
+  github_url?: string;
+  target_user?: string;
+  product_goal?: string;
+  mock?: boolean;
 };
 
 export type ApiEvent = {
@@ -75,6 +87,28 @@ export async function fetchWorkbenchSnapshot() {
     throw new Error(`Workbench API returned ${response.status}`);
   }
   return response.json() as Promise<ApiWorkbenchSnapshot>;
+}
+
+export async function createRun(request: ApiRunCreateRequest) {
+  const response = await fetch(`${API_BASE}/api/runs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw new Error(`Run creation failed with ${response.status}`);
+  }
+  return response.json() as Promise<ApiRun>;
+}
+
+export async function fetchRunEvents(runId: string) {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}/events`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Run events API returned ${response.status}`);
+  }
+  return response.json() as Promise<ApiEvent[]>;
 }
 
 export async function fetchArtifacts(runId: string) {

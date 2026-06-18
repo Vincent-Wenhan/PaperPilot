@@ -133,6 +133,78 @@ class ProductScaffoldTests(unittest.TestCase):
                 "keep me",
             )
 
+    def test_scaffold_renders_structured_ui_spec(self) -> None:
+        from schemas.product_schema import (
+            ProductUISpec,
+            ResultComponent,
+            UIControl,
+            UIStateCopy,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "generated_product"
+            ui_spec = ProductUISpec(
+                product_name="Evidence Console",
+                template_type="text",
+                page_sections=["Prepare case", "Run analysis", "Review evidence"],
+                input_controls=[
+                    UIControl(
+                        control_id="review_mode",
+                        label="Review mode",
+                        control_type="selectbox",
+                        options=["Default", "Strict"],
+                        default="Default",
+                    ),
+                    UIControl(
+                        control_id="confidence_threshold",
+                        label="Confidence threshold",
+                        control_type="slider",
+                        default=0.7,
+                    ),
+                ],
+                result_components=[
+                    ResultComponent(
+                        component_id="confidence",
+                        label="Confidence",
+                        component_type="metric",
+                        source_key="confidence",
+                    ),
+                    ResultComponent(
+                        component_id="evidence",
+                        label="Evidence summary",
+                        component_type="summary",
+                        source_key="evidence",
+                    ),
+                ],
+                mock_result_schema={"confidence": "float", "evidence": "list"},
+                states=UIStateCopy(
+                    empty="Paste evidence to start.",
+                    loading="Reviewing evidence.",
+                    success="Evidence review complete.",
+                    error="Evidence review failed.",
+                ),
+            )
+
+            scaffold_product(
+                template_type="text",
+                product_spec="# Product\n\n## Product Name\n\nEvidence Console",
+                adapter_plan="# Adapter",
+                frontend_plan="# Frontend",
+                repo_path="../workspace",
+                output_dir=output_dir,
+                ui_spec=ui_spec.model_dump(mode="json"),
+            )
+
+            app_source = (output_dir / "app.py").read_text(encoding="utf-8")
+            self.assertIn("Evidence Console", app_source)
+            self.assertIn("Review mode", app_source)
+            self.assertIn("Evidence summary", app_source)
+            self.assertIn("Paste evidence to start.", app_source)
+            inspection = inspect_generated_product(output_dir)
+            self.assertTrue(inspection["ui_spec_coverage"]["structured_controls"])
+            self.assertTrue(inspection["ui_spec_coverage"]["result_components"])
+            self.assertTrue(inspection["ui_spec_coverage"]["state_copy"])
+
     def test_inspector_reports_missing_and_invalid_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir)

@@ -21,6 +21,7 @@ from graphs.productize_graph import (
     build_productize_proposal_graph,
 )
 from productize import inspect_generated_product, scaffold_product, select_product_template
+from productize.ui_spec import build_product_ui_spec
 from pipeline.productize_renderers import render_opportunities
 from pipeline.graph_checkpointer import get_shared_checkpointer
 from pipeline.productize_graph_hitl import (
@@ -286,6 +287,7 @@ def _new_product_result() -> ProductResult:
         "product_spec": "",
         "template_type": "",
         "prototype_plan": {},
+        "ui_spec": {},
         "adapter_plan": "",
         "frontend_plan": "",
         "scaffold_result": {},
@@ -746,6 +748,8 @@ def _invoke_execution_graph(
         progress("Generating product scaffold")
         plan = ProductPlan.model_validate(state["product_plan"])
         prototype = PrototypePlan.model_validate(state["prototype_plan"])
+        ui_spec = build_product_ui_spec(plan, prototype)
+        compatibility_result["ui_spec"] = ui_spec.model_dump(mode="json")
         try:
             return scaffold_product(
                 template_type=str(state["template_type"]),
@@ -755,6 +759,7 @@ def _invoke_execution_graph(
                 repo_path=effective_repo_path,
                 output_dir=output_path,
                 prototype_plan=prototype.model_dump(mode="json"),
+                ui_spec=ui_spec.model_dump(mode="json"),
             )
         except Exception as exc:
             _record_error(compatibility_result, "Product Scaffold", exc)

@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from schemas.product_schema import ProductUISpec
+
 SUPPORTED_TEMPLATES = ("image", "text", "video", "file")
 
 _TEMPLATE_KEYWORDS = {
@@ -213,14 +215,193 @@ def _build_dynamic_input_block(user_inputs: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _build_ui_spec_input_block(spec: ProductUISpec) -> str:
+    lines = [
+        "context_values = {}",
+        'st.markdown("### Task Setup")',
+    ]
+    for index, control in enumerate(spec.input_controls[:8], 1):
+        control_id = control.control_id or f"control_{index}"
+        label = _clean_label(control.label or control_id.replace("_", " ").title())
+        default = control.default
+        options = [str(option) for option in control.options] or ["Default"]
+        key = f"ui_control_{control_id}"
+        if control.control_type == "slider":
+            slider_default = default if isinstance(default, (int, float)) else 0.5
+            lines.append(
+                f"context_values[{control_id!r}] = st.slider({label!r}, 0.0, 1.0, {float(slider_default)!r}, 0.05, key={key!r})"
+            )
+        elif control.control_type == "selectbox":
+            lines.append(
+                f"context_values[{control_id!r}] = st.selectbox({label!r}, {options!r}, key={key!r})"
+            )
+        elif control.control_type == "textarea":
+            lines.append(
+                f"context_values[{control_id!r}] = st.text_area({label!r}, value={str(default or '')!r}, key={key!r})"
+            )
+        else:
+            lines.append(
+                f"context_values[{control_id!r}] = st.text_input({label!r}, value={str(default or '')!r}, key={key!r})"
+            )
+    if not spec.input_controls:
+        lines.append('st.caption("No additional controls were specified.")')
+    return "\n".join(lines)
+
+
+def _build_ui_spec_result_block(spec: ProductUISpec) -> str:
+    lines: list[str] = []
+    for index, component in enumerate(spec.result_components[:8], 1):
+        label = _clean_label(component.label or f"Result {index}")
+        source_key = component.source_key or component.component_id or f"result_{index}"
+        fallback = component.description or "Not available in mock result."
+        if component.component_type == "metric":
+            lines.append(
+                f"st.metric({label!r}, result.get({source_key!r}, {fallback!r}))"
+            )
+        elif component.component_type == "table":
+            lines.append(
+                f"st.dataframe(result.get({source_key!r}, []), use_container_width=True)"
+            )
+        else:
+            lines.append(f"st.markdown({('#### ' + label)!r})")
+            lines.append(
+                f"st.write(result.get({source_key!r}, {fallback!r}))"
+            )
+    if not lines:
+        lines.append('st.markdown("#### Summary")')
+        lines.append('st.write(result.get("result", result))')
+    return "\n".join(lines)
+
+
+def _indent_block(source: str, spaces: int) -> str:
+    prefix = " " * spaces
+    return "\n".join(
+        f"{prefix}{line}" if line else line for line in source.splitlines()
+    )
+
+
 def build_app_source(
     template_type: str,
     product_spec: str = "",
     frontend_plan: str = "",
     prototype_plan: dict[str, Any] | None = None,
+    ui_spec: dict[str, Any] | None = None,
 ) -> str:
     """Return a standalone Streamlit application for one product template."""
     template = _normalize_template(template_type)
+    if ui_spec is not None:
+        spec = ProductUISpec.model_validate(ui_spec)
+        product_name = spec.product_name or _extract_product_name(product_spec)
+        page_structure = spec.page_sections or [
+            "Set up task",
+            "Run mock analysis",
+            "Review evidence and limitations",
+        ]
+        mock_schema = spec.mock_result_schema
+        input_block = _build_ui_spec_input_block(spec)
+        result_block = _build_ui_spec_result_block(spec)
+        plan_excerpt = (frontend_plan or "Mock-first workflow").strip()[:1000]
+        return f'''"""Generated PaperPilot {template} product prototype."""
+
+from __future__ import annotations
+
+import json
+
+import streamlit as st
+
+from adapter import ModelAdapter
+
+
+PRODUCT_NAME = {product_name!r}
+PAGE_STRUCTURE = {page_structure!r}
+FRONTEND_PLAN = {plan_excerpt!r}
+UI_SPEC = {spec.model_dump(mode="json")!r}
+UI_SPEC_MARKERS = {{
+    "structured_controls": True,
+    "result_components": True,
+    "state_copy": True,
+    "mock_schema": True,
+}}
+MOCK_RESULT_SCHEMA = {mock_schema!r}
+
+
+st.set_page_config(page_title=PRODUCT_NAME, layout="wide")
+st.markdown("""
+<style>
+.pp-panel {{border: 1px solid #dde3ea; border-radius: 8px; padding: 1rem; background: #fbfcfe; min-height: 5.5rem;}}
+.pp-muted {{color: #5f6b7a; font-size: 0.92rem;}}
+</style>
+""", unsafe_allow_html=True)
+
+with st.sidebar:
+    st.header("Run Settings")
+    mock_mode = st.toggle("Mock mode", value=True)
+    output_detail = st.selectbox("Output detail", ["Concise", "Detailed"])
+    st.caption("Real model integration requires manual adapter.py review.")
+
+st.title(PRODUCT_NAME)
+st.caption(
+    "Mock-first research product prototype. It demonstrates the product "
+    "workflow without importing or executing the source repository."
+)
+
+st.markdown("### Core Workflow")
+for step_number, section in enumerate(PAGE_STRUCTURE, 1):
+    st.markdown(f"{{step_number}}. {{section}}")
+
+{input_block}
+
+input_data = context_values
+run_disabled = False
+button_label = "Run Model"
+
+st.info({spec.states.empty!r})
+
+if st.button(button_label, type="primary", disabled=run_disabled):
+    try:
+        with st.spinner({spec.states.loading!r}):
+            adapter = ModelAdapter(mock_mode=mock_mode)
+            adapter.setup()
+            adapter.load_model()
+            result = adapter.predict(input_data)
+    except Exception as exc:
+        st.error({spec.states.error!r})
+        st.exception(exc)
+    else:
+        result.update(
+            {{
+                "output_detail": output_detail,
+                "configured_inputs": context_values,
+            }}
+        )
+        st.success({spec.states.success!r})
+        summary_tab, evidence_tab, export_tab = st.tabs(
+            ["Summary", "Evidence & Limits", "Export"]
+        )
+        with summary_tab:
+{_indent_block(result_block, 12)}
+            st.json(result)
+        with evidence_tab:
+            st.markdown("#### Mock Result Schema")
+            st.json(MOCK_RESULT_SCHEMA)
+            st.markdown("#### Prototype Plan")
+            st.markdown(FRONTEND_PLAN)
+            st.markdown("#### Limitations")
+            st.markdown(
+                "- Outputs are deterministic mock responses.\\n"
+                "- Real checkpoints, datasets, and repository scripts are not executed.\\n"
+                "- Adapter integration must be reviewed manually."
+            )
+        with export_tab:
+            st.write("Download the structured mock result for review or demo notes.")
+        result_json = json.dumps(result, ensure_ascii=False, indent=2)
+        st.download_button(
+            "Download result",
+            data=result_json,
+            file_name="product_result.json",
+            mime="application/json",
+        )
+'''
     prototype_plan = prototype_plan or {}
     product_name = _extract_product_name(product_spec)
     core_features = _extract_core_features(product_spec) or [

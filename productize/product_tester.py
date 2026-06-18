@@ -66,6 +66,16 @@ def inspect_generated_product(
         marker in app_text
         for marker in ("st.sidebar", "st.tabs", "Confidence threshold", "Core Workflow")
     )
+    ui_spec_coverage = {
+        "structured_controls": (
+            "UI_SPEC_MARKERS" in app_text and "structured_controls" in app_text
+        ),
+        "result_components": (
+            "UI_SPEC_MARKERS" in app_text and "result_components" in app_text
+        ),
+        "state_copy": "UI_SPEC_MARKERS" in app_text and "state_copy" in app_text,
+        "mock_schema": "UI_SPEC_MARKERS" in app_text and "mock_schema" in app_text,
+    }
     files = (
         sorted(
             str(path.relative_to(root))
@@ -96,6 +106,7 @@ def inspect_generated_product(
         "can_run_mock": can_run_mock,
         "readme_has_run_command": readme_has_run_command,
         "has_rich_layout": has_rich_layout,
+        "ui_spec_coverage": ui_spec_coverage,
         "syntax_ok": not compile_errors,
         "compile_errors": compile_errors,
         "notes": notes,

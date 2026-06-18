@@ -66,6 +66,26 @@ class ProductPipelineTests(unittest.TestCase):
             self.assertEqual(len(result["capability_cards"]), 1)
             self.assertEqual(result["evaluation"]["demo_readiness"], "ready_with_mock")
 
+    def test_pipeline_result_includes_ui_spec_and_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "generated_product"
+            result = run_productize_pipeline(
+                paper_info="A text classification paper.",
+                method_info="Classifier returns confidence and evidence.",
+                repo_info="Repository has inference.py.",
+                repo_path="/tmp/source-repository",
+                target_user="Teachers",
+                product_goal="Review student misconceptions",
+                llm_client=LLMClient(mock_mode=True),
+                preferred_type="text",
+                output_dir=output_dir,
+            )
+
+            self.assertTrue(result["ui_spec"]["input_controls"])
+            self.assertTrue(
+                result["inspection"]["ui_spec_coverage"]["structured_controls"]
+            )
+
     def test_agent_failure_records_error_and_keeps_mock_product(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "generated_product"

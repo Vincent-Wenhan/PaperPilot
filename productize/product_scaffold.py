@@ -102,6 +102,7 @@ def scaffold_product(
     repo_path: str,
     output_dir: str | Path = "generated_product",
     prototype_plan: dict[str, Any] | None = None,
+    ui_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate a complete product bundle, backing up previous output."""
     root = Path(output_dir).expanduser()
@@ -118,6 +119,7 @@ def scaffold_product(
             product_spec,
             frontend_plan,
             prototype_plan=prototype_plan,
+            ui_spec=ui_spec,
         ),
         "adapter.py": build_adapter_source(
             template_type,

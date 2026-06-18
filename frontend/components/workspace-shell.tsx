@@ -22,6 +22,7 @@ import { useEffect, useRef, useState } from "react";
 import { InspectorPanel } from "@/components/inspector-panel";
 import { StatusPill } from "@/components/status-pill";
 import { WorkflowGraph } from "@/components/workflow-graph";
+import { TopBar } from "@/components/layout/top-bar";
 import {
   approveAction,
   createRun,
@@ -401,28 +402,13 @@ export function WorkspaceShell() {
 
   return (
     <main className="workbench-shell">
-      <header className="topbar">
-        <div className="brand-block">
-          <div className="brand-mark">
-            <Layers size={18} />
-          </div>
-          <div>
-            <span className="brand-name">PaperPilot</span>
-            <span className="brand-subtitle">Research Agent IDE</span>
-          </div>
-        </div>
-
-        <div className="topbar-context">
-          <span>Project: {currentProject}</span>
-          <span>Mode: {currentMode}</span>
-          <span>Model: {currentModel}</span>
-        </div>
-
-        <div className="run-state">
-          <span>{apiRun?.summary ?? "No backend run created yet"}</span>
-          <StatusPill status={apiRun?.status ?? "pending"} />
-        </div>
-      </header>
+      <TopBar
+        project={currentProject}
+        mode={currentMode}
+        model={currentModel}
+        summary={apiRun?.summary ?? ""}
+        runStatus={apiRun?.status ?? "pending"}
+      />
 
       <section className="workspace-grid">
         <aside className="navigator">

@@ -13,6 +13,7 @@ from backend.schemas import (
     WorkbenchEvent,
 )
 from backend.services.workbench_mock import (
+    build_mock_run,
     build_mock_actions,
     build_mock_events,
     utc_now,
@@ -50,6 +51,15 @@ class InMemoryRunService:
         self._runs: dict[str, RunRecord] = {}
         self._events: dict[str, list[WorkbenchEvent]] = {}
         self._actions: dict[str, list[ActionRequest]] = {}
+        self.seed_mock_run()
+
+    def seed_mock_run(self) -> RunRecord:
+        """Register the mock workbench run so action endpoints can mutate it."""
+        run = build_mock_run()
+        self._runs[run.run_id] = run
+        self._events[run.run_id] = build_mock_events(run.run_id)
+        self._actions[run.run_id] = build_mock_actions(run.run_id)
+        return deepcopy(run)
 
     def create_run(self, request: RunCreateRequest) -> RunRecord:
         run_id = f"run_{uuid4().hex[:12]}"

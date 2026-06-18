@@ -118,6 +118,31 @@ export async function approveAction(actionId: string) {
   return response.json();
 }
 
+export async function rejectAction(actionId: string) {
+  const response = await fetch(`${API_BASE}/api/actions/${actionId}/reject`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(`Action rejection failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function editAction(actionId: string, editedCommand: string) {
+  const response = await fetch(`${API_BASE}/api/actions/${actionId}/edit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      edited_command: editedCommand,
+      reason: "Edited from Workbench preview",
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Action edit failed with ${response.status}`);
+  }
+  return response.json();
+}
+
 export function eventFromApi(event: ApiEvent): AgentEvent {
   return {
     id: event.event_id,

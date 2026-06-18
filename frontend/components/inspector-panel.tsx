@@ -48,6 +48,13 @@ export function InspectorPanel({ runId }: { runId: string }) {
   const [artifactRows, setArtifactRows] = useState(artifacts);
   const [apiFiles, setApiFiles] = useState<ApiFileNode[]>([]);
   const [apiFileContent, setApiFileContent] = useState("");
+  const [patchStatus, setPatchStatus] = useState<
+    "waiting_review" | "success" | "failed" | "revised"
+  >("waiting_review");
+  const [runnerStatus, setRunnerStatus] = useState<
+    "waiting_review" | "success" | "failed" | "revised"
+  >("waiting_review");
+  const [runnerMessage, setRunnerMessage] = useState(runnerReview.diagnosis);
   const activeMockFile =
     codeFiles.find((file) => file.id === activeFileId) ?? codeFiles[0];
   const activeApiFile = apiFiles.find((file) => file.path === activeFileId);
@@ -187,7 +194,7 @@ export function InspectorPanel({ runId }: { runId: string }) {
                 <p className="eyebrow">Patch proposal</p>
                 <strong>{patchPreview.file}</strong>
               </div>
-              <StatusPill status="waiting_review" />
+              <StatusPill status={patchStatus} />
             </div>
             <div className="diff-grid">
               <pre className="diff-pane old">
@@ -198,14 +205,26 @@ export function InspectorPanel({ runId }: { runId: string }) {
               </pre>
             </div>
             <div className="action-row">
-              <button className="command-button primary" type="button">
+              <button
+                className="command-button primary"
+                type="button"
+                onClick={() => setPatchStatus("success")}
+              >
                 <Check size={15} />
                 Approve Patch
               </button>
-              <button className="command-button" type="button">
+              <button
+                className="command-button"
+                type="button"
+                onClick={() => setPatchStatus("failed")}
+              >
                 Reject
               </button>
-              <button className="command-button" type="button">
+              <button
+                className="command-button"
+                type="button"
+                onClick={() => setPatchStatus("revised")}
+              >
                 Ask Revision
               </button>
             </div>
@@ -246,20 +265,41 @@ export function InspectorPanel({ runId }: { runId: string }) {
               <span>Expected</span>
               <strong>{runnerReview.expectedOutput}</strong>
               <span>Exit code</span>
-              <strong>{runnerReview.exitCode ?? "not run"}</strong>
+              <strong>{runnerStatus === "success" ? 0 : runnerReview.exitCode ?? "not run"}</strong>
             </div>
             <pre className="terminal-block">
-              <code>{runnerReview.diagnosis}</code>
+              <code>{runnerMessage}</code>
             </pre>
             <div className="action-row">
-              <button className="command-button primary" type="button">
+              <button
+                className="command-button primary"
+                type="button"
+                onClick={() => {
+                  setRunnerStatus("success");
+                  setRunnerMessage("Approved. Preview runner recorded a successful bounded smoke test.");
+                }}
+              >
                 <Check size={15} />
                 Approve
               </button>
-              <button className="command-button" type="button">
+              <button
+                className="command-button"
+                type="button"
+                onClick={() => {
+                  setRunnerStatus("revised");
+                  setRunnerMessage("Edited command to python main.py --help for a safer first check.");
+                }}
+              >
                 Edit
               </button>
-              <button className="command-button" type="button">
+              <button
+                className="command-button"
+                type="button"
+                onClick={() => {
+                  setRunnerStatus("failed");
+                  setRunnerMessage("Rejected. No command will run until the plan is revised.");
+                }}
+              >
                 Reject
               </button>
             </div>

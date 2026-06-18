@@ -212,6 +212,38 @@ available, and uses the FastAPI facade for artifacts, files, patch proposals,
 syntax checks, reviewed commands, and action approvals when the API is running.
 Existing Streamlit pipelines are unchanged.
 
+If port `8000` is already in use on Windows, the API may already be running.
+Check it before starting a second server:
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/health"
+```
+
+If you need to stop existing workbench processes:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+```
+
+Then restart the API and UI:
+
+```powershell
+cd <path-to-PaperPilot>
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+```powershell
+cd <path-to-PaperPilot>\frontend
+npm run dev -- --hostname 127.0.0.1 --port 3000
+```
+
+If your prompt already shows `(base)`, you do not need to run
+`conda activate base`. The `CondaError: Run 'conda init' before 'conda activate'`
+message is unrelated to PaperPilot startup.
+
 ## Mock Mode
 
 Real LLM analysis is the default. Mock mode must be explicitly enabled with the

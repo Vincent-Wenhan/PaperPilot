@@ -228,6 +228,11 @@ h3 {
   color: var(--text);
 }
 
+.nav-item.active {
+  border-color: rgba(23, 107, 93, 0.46);
+  background: #eff8f5;
+}
+
 .search-box {
   height: 38px;
   gap: 8px;
@@ -363,6 +368,19 @@ h3 {
   color: #fff;
 }
 
+.notice-strip {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(23, 107, 93, 0.24);
+  border-radius: var(--radius);
+  background: #eef8f5;
+  color: #174b42;
+  padding: 8px 11px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
 .workspace-band {
   display: grid;
   gap: 16px;
@@ -415,6 +433,11 @@ h3 {
   width: 15px;
   height: 15px;
   accent-color: var(--accent);
+}
+
+.plan-step:has(input:not(:checked)) {
+  color: var(--soft);
+  background: #f6f7f8;
 }
 
 .chat-panel {
@@ -940,7 +963,7 @@ h3 {
     width: 100%;
   }
 
-  .toolbar-actions .command-button {
+.toolbar-actions .command-button {
     flex: 1;
   }
 

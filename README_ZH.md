@@ -195,6 +195,37 @@ npm run dev
 proposal、syntax check、reviewed command 和 action approval 接口。现有
 Streamlit pipeline 不受影响。
 
+如果 Windows 报 `WinError 10048` 或提示 `8000` 端口已占用，通常说明 API
+已经在后台运行。可以先检查：
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/health"
+```
+
+如果需要关闭已有 Workbench 进程：
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+```
+
+然后重新启动 API 和 UI：
+
+```powershell
+cd <path-to-PaperPilot>
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+```powershell
+cd <path-to-PaperPilot>\frontend
+npm run dev -- --hostname 127.0.0.1 --port 3000
+```
+
+如果命令行提示符已经显示 `(base)`，不需要再运行 `conda activate base`。
+`CondaError: Run 'conda init' before 'conda activate'` 和 PaperPilot 启动无关。
+
 ## Mock Mode 演示
 
 项目默认进行真实 LLM 分析。需要演示本地流程时，可通过 Streamlit 侧边栏的 **Mock Mode** 开关显式开启 Mock Mode。

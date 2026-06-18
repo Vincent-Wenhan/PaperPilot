@@ -23,6 +23,9 @@ import { WorkflowGraph } from "@/components/workflow-graph";
 import {
   eventFromApi,
   fetchWorkbenchSnapshot,
+  approveAction,
+  editAction,
+  rejectAction,
   type ApiRun,
 } from "@/lib/api";
 import {
@@ -30,11 +33,34 @@ import {
   agentEvents,
   planSteps,
   projectNavItems,
+  type WorkflowStatus,
 } from "@/lib/mock-data";
 
 export function WorkspaceShell() {
   const [apiRun, setApiRun] = useState<ApiRun | null>(null);
   const [timelineEvents, setTimelineEvents] = useState(agentEvents);
+  const [query, setQuery] = useState("");
+  const [selectedNavId, setSelectedNavId] = useState("run");
+  const [planState, setPlanState] = useState(planSteps);
+  const [chatMessages, setChatMessages] = useState([
+    {
+      role: "agent" as const,
+      text: "@repo scan found train.py, eval.py, and config/default.yaml.",
+    },
+    {
+      role: "user" as const,
+      text: "@run.sh keep the first check CPU-only and skip dataset download.",
+    },
+    {
+      role: "agent" as const,
+      text: "Updated plan: smoke test first, full training remains blocked.",
+    },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [approvalStatus, setApprovalStatus] = useState<
+    "pending" | "approved" | "edited" | "rejected"
+  >("pending");
+  const [notice, setNotice] = useState("Workbench ready. Actions are preview-safe.");
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +71,19 @@ export function WorkspaceShell() {
         }
         setApiRun(snapshot.active_run);
         setTimelineEvents(snapshot.events.map(eventFromApi));
+        setPlanState(
+          snapshot.active_run.plan.map((label, index) => ({
+            id: `api-plan-${index}`,
+            label,
+            enabled: true,
+            status:
+              index < 3
+                ? ("success" as const)
+                : index === 4
+                  ? ("waiting_review" as const)
+                  : ("pending" as const),
+          })),
+        );
       })
       .catch(() => {
         // Keep the mock-first shell usable when the FastAPI server is not running.
@@ -54,18 +93,91 @@ export function WorkspaceShell() {
     };
   }, []);
 
-  const planItems =
-    apiRun?.plan.map((label, index) => ({
-      id: `api-plan-${index}`,
-      label,
-      enabled: true,
-      status:
-        index < 3
-          ? ("success" as const)
-          : index === 4
-            ? ("waiting_review" as const)
-            : ("pending" as const),
-    })) ?? planSteps;
+  const visibleNavItems = projectNavItems.filter((item) => {
+    const haystack = `${item.label} ${item.meta}`.toLowerCase();
+    return haystack.includes(query.toLowerCase());
+  });
+
+  function addTimelineEvent(message: string, status: WorkflowStatus = "running") {
+    setTimelineEvents((events) => [
+      {
+        id: `local-${Date.now()}`,
+        time: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        agent: "Workbench",
+        eventType: "ui_action",
+        message,
+        status,
+      },
+      ...events,
+    ]);
+  }
+
+  function continueRun() {
+    setPlanState((steps) =>
+      steps.map((step) =>
+        step.status === "pending" ? { ...step, status: "running" } : step,
+      ),
+    );
+    setNotice("Continue queued. Runner remains gated by approval.");
+    addTimelineEvent("Continue requested; waiting on reviewed command approval.");
+  }
+
+  function approvePlan() {
+    setPlanState((steps) =>
+      steps.map((step) =>
+        step.enabled && step.status === "pending"
+          ? { ...step, status: "success" }
+          : step,
+      ),
+    );
+    setNotice("Plan approved for the current preview run.");
+    addTimelineEvent("Editable plan approved by user.", "success");
+  }
+
+  function togglePlanStep(stepId: string) {
+    setPlanState((steps) =>
+      steps.map((step) =>
+        step.id === stepId ? { ...step, enabled: !step.enabled } : step,
+      ),
+    );
+    setNotice("Plan step toggled.");
+  }
+
+  function askAgent() {
+    const text =
+      chatInput.trim() || "@terminal explain why the run is waiting for approval";
+    setChatMessages((messages) => [
+      ...messages,
+      { role: "user", text },
+      {
+        role: "agent",
+        text: "This preview keeps commands behind human approval. Open Runner and choose Approve, Edit, or Reject.",
+      },
+    ]);
+    setChatInput("");
+    setNotice("Agent response added to the chat panel.");
+  }
+
+  async function updateApproval(nextStatus: "approved" | "edited" | "rejected") {
+    try {
+      if (nextStatus === "approved") {
+        await approveAction("act_smoke_test");
+      } else if (nextStatus === "edited") {
+        await editAction("act_smoke_test", "python main.py --help");
+      } else {
+        await rejectAction("act_smoke_test");
+      }
+    } catch {
+      // Keep local preview responsive even when the API server is offline.
+    }
+    setApprovalStatus(nextStatus);
+    setNotice(`Action ${nextStatus}.`);
+    addTimelineEvent(`Action ${nextStatus}: python main.py --smoke-test`, "success");
+  }
 
   return (
     <main className="workbench-shell">
@@ -106,24 +218,35 @@ export function WorkspaceShell() {
 
           <div className="search-box">
             <Search size={16} />
-            <input aria-label="Search workspace" placeholder="Search runs, files, agents" />
+            <input
+              aria-label="Search workspace"
+              placeholder="Search runs, files, agents"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
           </div>
 
           <nav className="nav-section" aria-label="Project navigation">
             <NavGroup
               title="Inputs"
               icon={<FileText size={16} />}
-              items={projectNavItems.slice(0, 2)}
+              items={visibleNavItems.filter((item) => ["paper", "repo"].includes(item.id))}
+              selectedId={selectedNavId}
+              onSelect={setSelectedNavId}
             />
             <NavGroup
               title="Runs"
               icon={<Activity size={16} />}
-              items={projectNavItems.slice(2, 3)}
+              items={visibleNavItems.filter((item) => item.id === "run")}
+              selectedId={selectedNavId}
+              onSelect={setSelectedNavId}
             />
             <NavGroup
               title="Artifacts"
               icon={<Boxes size={16} />}
-              items={projectNavItems.slice(3)}
+              items={visibleNavItems.filter((item) => item.id === "product")}
+              selectedId={selectedNavId}
+              onSelect={setSelectedNavId}
             />
           </nav>
 
@@ -140,16 +263,17 @@ export function WorkspaceShell() {
               <h2>Reproduce workflow</h2>
             </div>
             <div className="toolbar-actions">
-              <button className="command-button" type="button">
+              <button className="command-button" type="button" onClick={askAgent}>
                 <MessageSquareText size={15} />
                 Ask Agent
               </button>
-              <button className="command-button primary" type="button">
+              <button className="command-button primary" type="button" onClick={continueRun}>
                 <Play size={15} />
                 Continue
               </button>
             </div>
           </div>
+          <div className="notice-strip">{notice}</div>
 
           <section className="workspace-band two-columns">
             <div className="tool-panel plan-panel">
@@ -158,14 +282,18 @@ export function WorkspaceShell() {
                   <p className="eyebrow">Co-planning</p>
                   <h2>Editable plan</h2>
                 </div>
-                <button className="icon-button" title="Approve plan" type="button">
+                <button className="icon-button" title="Approve plan" type="button" onClick={approvePlan}>
                   <CheckSquare size={17} />
                 </button>
               </div>
               <div className="plan-list">
-                {planItems.map((step) => (
+                {planState.map((step) => (
                   <label className="plan-step" key={step.id}>
-                    <input type="checkbox" defaultChecked={step.enabled} />
+                    <input
+                      type="checkbox"
+                      checked={step.enabled}
+                      onChange={() => togglePlanStep(step.id)}
+                    />
                     <span>{step.label}</span>
                     <StatusPill status={step.status} />
                   </label>
@@ -182,22 +310,27 @@ export function WorkspaceShell() {
                 <StatusPill status="running" />
               </div>
               <div className="chat-thread">
-                <ChatBubble
-                  role="agent"
-                  text="@repo scan found train.py, eval.py, and config/default.yaml."
-                />
-                <ChatBubble
-                  role="user"
-                  text="@run.sh keep the first check CPU-only and skip dataset download."
-                />
-                <ChatBubble
-                  role="agent"
-                  text="Updated plan: smoke test first, full training remains blocked."
-                />
+                {chatMessages.map((message, index) => (
+                  <ChatBubble
+                    key={`${message.role}-${index}`}
+                    role={message.role}
+                    text={message.text}
+                  />
+                ))}
               </div>
               <div className="composer">
                 <span>@</span>
-                <input aria-label="Agent message" placeholder="paper, repo, prd, code, terminal" />
+                <input
+                  aria-label="Agent message"
+                  placeholder="paper, repo, prd, code, terminal"
+                  value={chatInput}
+                  onChange={(event) => setChatInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      askAgent();
+                    }
+                  }}
+                />
               </div>
             </div>
           </section>
@@ -251,16 +384,20 @@ export function WorkspaceShell() {
               </div>
               <div className="approval-summary">
                 <code>python main.py --smoke-test</code>
-                <p>Medium-risk generated-code check. It is bounded to synthetic input and requires explicit approval.</p>
+                <p>
+                  Medium-risk generated-code check. Current decision:
+                  {" "}
+                  <strong>{approvalStatus}</strong>.
+                </p>
               </div>
               <div className="action-row">
-                <button className="command-button primary" type="button">
+                <button className="command-button primary" type="button" onClick={() => updateApproval("approved")}>
                   Approve
                 </button>
-                <button className="command-button" type="button">
+                <button className="command-button" type="button" onClick={() => updateApproval("edited")}>
                   Edit
                 </button>
-                <button className="command-button" type="button">
+                <button className="command-button" type="button" onClick={() => updateApproval("rejected")}>
                   Reject
                 </button>
               </div>
@@ -278,10 +415,14 @@ function NavGroup({
   title,
   icon,
   items,
+  selectedId,
+  onSelect,
 }: {
   title: string;
   icon: ReactNode;
   items: typeof projectNavItems;
+  selectedId: string;
+  onSelect: (id: string) => void;
 }) {
   return (
     <section className="nav-group">
@@ -290,7 +431,12 @@ function NavGroup({
         <span>{title}</span>
       </div>
       {items.map((item) => (
-        <button className="nav-item" key={item.id} type="button">
+        <button
+          className={selectedId === item.id ? "nav-item active" : "nav-item"}
+          key={item.id}
+          type="button"
+          onClick={() => onSelect(item.id)}
+        >
           <div>
             <strong>{item.label}</strong>
             <span>{item.meta}</span>

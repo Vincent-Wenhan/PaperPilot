@@ -6,7 +6,8 @@ import ast
 import re
 from typing import Any
 
-from schemas.reproduction_schema import ImplementationBundle
+from schemas.reproduction_schema import ImplementationBlueprint, ImplementationBundle
+from tools.implementation_blueprint import assess_blueprint_coverage
 
 
 PLACEHOLDER_PATTERNS = (
@@ -43,7 +44,10 @@ def _python_complexity(source: str) -> dict[str, int]:
     return {"functions": functions, "classes": classes}
 
 
-def assess_implementation_quality(bundle: ImplementationBundle) -> dict[str, Any]:
+def assess_implementation_quality(
+    bundle: ImplementationBundle,
+    blueprint: ImplementationBlueprint | None = None,
+) -> dict[str, Any]:
     """Score a generated implementation bundle without executing its code."""
     paths = _normalized_paths(bundle)
     python_files = [
@@ -62,6 +66,17 @@ def assess_implementation_quality(bundle: ImplementationBundle) -> dict[str, Any
     issue_codes: list[str] = []
     issues: list[str] = []
     suggestions: list[str] = []
+    blueprint_quality = (
+        assess_blueprint_coverage(bundle, blueprint)
+        if blueprint is not None
+        else {
+            "passes_blueprint_coverage": True,
+            "issue_codes": [],
+            "issues": [],
+            "suggestions": [],
+            "metrics": {},
+        }
+    )
 
     all_text = "\n".join(item.content for item in bundle.files).lower()
     if not python_files:
@@ -103,6 +118,18 @@ def assess_implementation_quality(bundle: ImplementationBundle) -> dict[str, Any
         issues.append("Generated implementation is a thin single-file scaffold.")
         suggestions.append("Separate configuration, method modules, and entry point when justified.")
 
+    for code in blueprint_quality["issue_codes"]:
+        if code not in issue_codes:
+            issue_codes.append(str(code))
+    for issue in blueprint_quality["issues"]:
+        issue_text = str(issue)
+        if issue_text not in issues:
+            issues.append(issue_text)
+    for suggestion in blueprint_quality["suggestions"]:
+        suggestion_text = str(suggestion)
+        if suggestion_text not in suggestions:
+            suggestions.append(suggestion_text)
+
     score = 5.0
     score -= 1.0 if "placeholder_body" in issue_codes else 0.0
     score -= 0.8 if "missing_tests" in issue_codes else 0.0
@@ -119,13 +146,29 @@ def assess_implementation_quality(bundle: ImplementationBundle) -> dict[str, Any
         score += 0.3
     overall_score = max(1.0, min(5.0, round(score, 2)))
 
+    blueprint_metrics = dict(blueprint_quality["metrics"])
+    if "planned_file_count" in blueprint_metrics:
+        blueprint_metrics.setdefault(
+            "planned_files",
+            blueprint_metrics["planned_file_count"],
+        )
+    if "missing_file_count" in blueprint_metrics:
+        blueprint_metrics.setdefault(
+            "missing_files",
+            blueprint_metrics["missing_file_count"],
+        )
+
     return {
         "overall_score": overall_score,
-        "passes_minimum_quality": overall_score >= 3.5 and not {
-            "placeholder_body",
-            "missing_python",
-            "missing_tests",
-        }.intersection(issue_codes),
+        "passes_minimum_quality": (
+            overall_score >= 3.5
+            and not {
+                "placeholder_body",
+                "missing_python",
+                "missing_tests",
+            }.intersection(issue_codes)
+            and bool(blueprint_quality["passes_blueprint_coverage"])
+        ),
         "issue_codes": issue_codes,
         "issues": issues,
         "suggestions": suggestions,
@@ -139,5 +182,6 @@ def assess_implementation_quality(bundle: ImplementationBundle) -> dict[str, Any
             "has_requirements": has_requirements,
             "functions": complexity["functions"],
             "classes": complexity["classes"],
+            "blueprint": blueprint_metrics,
         },
     }

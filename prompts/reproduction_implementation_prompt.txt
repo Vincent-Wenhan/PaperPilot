@@ -79,4 +79,11 @@ The method spec is extracted directly from the paper. Do not invent or modify
 these values. If a field is empty or "Not specified", note it as an assumption
 rather than guessing.
 
+## Implementation Blueprint
+{implementation_blueprint}
+
+Follow this blueprint as the project contract. Generate every planned file,
+implement every required symbol, use the listed smoke-test entrypoint, and
+explain any evidence-driven deviation in `assumptions`.
+
 Return only JSON matching the required schema.

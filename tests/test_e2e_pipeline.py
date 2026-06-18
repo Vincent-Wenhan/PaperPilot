@@ -11,6 +11,37 @@ from main import run_paperpilot
 from tools.llm_client import LLMClient
 
 
+def test_mock_reproduce_result_includes_implementation_blueprint(tmp_path):
+    import fitz
+    from main import run_paperpilot
+    from tools.llm_client import LLMClient
+
+    pdf = tmp_path / "paper.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text(
+        (72, 72),
+        "A paper describing an encoder and a contrastive objective.",
+    )
+    doc.save(pdf)
+    doc.close()
+
+    result = run_paperpilot(
+        pdf_path=str(pdf),
+        github_url="",
+        hardware="CPU only",
+        gpu_info="",
+        goal="minimal training experiment",
+        llm_client=LLMClient(mock_mode=True),
+        generate_code=True,
+        paper_name="blueprint_test",
+    )
+
+    assert result["implementation_blueprint"]["files"]
+    assert "blueprint_quality" in result
+    assert result["code_quality"]["metrics"]["blueprint"]["planned_files"] > 0
+
+
 class E2EPipelineTests(unittest.TestCase):
     def test_mock_reproduce_pipeline_produces_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

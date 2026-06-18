@@ -60,6 +60,7 @@ from runtime.checkpointing import build_graph_config
 from schemas.code_review_schema import CodeReview
 from schemas.reproduction_schema import (
     ExecutionDiagnosis,
+    ImplementationBlueprint,
     ImplementationBundle,
     PaperUnderstanding,
     RepositoryUnderstanding,
@@ -69,6 +70,7 @@ from schemas.reproduction_schema import (
 from tools.code_writer import materialize_implementation
 from tools.code_quality import assess_implementation_quality
 from tools.command_runner import run_sandbox_verification
+from tools.implementation_blueprint import build_implementation_blueprint
 from tools.llm_client import LLMClient, LLMClientError
 from tools.markdown_writer import save_markdown, save_shell_script
 from tools.pdf_parser import analyze_pdf_quality, parse_pdf
@@ -152,7 +154,9 @@ def _initial_result() -> PipelineResult:
         "repository_understanding": {},
         "reproduction_plan": {},
         "execution_diagnosis": {},
+        "implementation_blueprint": {},
         "implementation_bundle": {},
+        "blueprint_quality": {},
         "code_quality": {},
         "implementation_model": "",
         "resource_links": [],
@@ -578,10 +582,23 @@ def run_reproduce_pipeline(
                 )
             ).model_dump(mode="json")
         ) if state.get("research_understanding") else "{}"
+        blueprint = build_implementation_blueprint(
+            PaperUnderstanding.model_validate(
+                state.get("research_understanding") or {}
+            ),
+            RepositoryUnderstanding.model_validate(
+                state.get("repository_understanding") or {}
+            ),
+            ReproductionPlan.model_validate(state.get("reproduction_plan") or {}),
+            hardware=hardware,
+            goal=goal,
+        )
+        result["implementation_blueprint"] = blueprint.model_dump(mode="json")
         implementation_input = {
             "research_understanding": state.get("research_understanding") or {},
             "repository_understanding": state.get("repository_understanding") or {},
             "reproduction_plan": state.get("reproduction_plan") or {},
+            "implementation_blueprint": result["implementation_blueprint"],
             "paper_text": state.get("paper_text", ""),
             "hardware": hardware,
             "gpu_info": gpu_info,
@@ -628,7 +645,14 @@ def run_reproduce_pipeline(
                     f"Main model retry `{client.model}` succeeded and replaced the fallback code.",
                 )
         result["implementation_bundle"] = implementation.model_dump(mode="json")
-        result["code_quality"] = assess_implementation_quality(implementation)
+        result["code_quality"] = assess_implementation_quality(
+            implementation,
+            blueprint=blueprint,
+        )
+        result["blueprint_quality"] = result["code_quality"]["metrics"].get(
+            "blueprint",
+            {},
+        )
         try:
             materialized = materialize_implementation(implementation)
             result["generated_repo_path"] = str(materialized["repo_path"])
@@ -729,10 +753,14 @@ def run_reproduce_pipeline(
         revision_suggestions: list[str],
     ) -> ImplementationBundle:
         progress("Reproduction Implementation Agent revising code with review feedback")
+        blueprint = ImplementationBlueprint.model_validate(
+            result.get("implementation_blueprint") or {}
+        )
         implementation_input = {
             "research_understanding": state.get("research_understanding") or {},
             "repository_understanding": state.get("repository_understanding") or {},
             "reproduction_plan": state.get("reproduction_plan") or {},
+            "implementation_blueprint": result.get("implementation_blueprint") or {},
             "paper_text": state.get("paper_text", ""),
             "hardware": hardware,
             "gpu_info": gpu_info,
@@ -764,7 +792,14 @@ def run_reproduce_pipeline(
             ).build_mock(implementation_input),
         )
         result["implementation_bundle"] = implementation.model_dump(mode="json")
-        result["code_quality"] = assess_implementation_quality(implementation)
+        result["code_quality"] = assess_implementation_quality(
+            implementation,
+            blueprint=blueprint,
+        )
+        result["blueprint_quality"] = result["code_quality"]["metrics"].get(
+            "blueprint",
+            {},
+        )
         try:
             materialized = materialize_implementation(implementation)
             result["generated_repo_path"] = str(materialized["repo_path"])

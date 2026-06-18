@@ -124,6 +124,41 @@ class CodeQualityTests(unittest.TestCase):
         self.assertTrue(quality["metrics"]["has_tests"])
         self.assertTrue(quality["passes_minimum_quality"])
 
+    def test_quality_merges_blueprint_coverage_failures(self) -> None:
+        from schemas.reproduction_schema import BlueprintFile, ImplementationBlueprint
+
+        blueprint = ImplementationBlueprint(
+            files=[
+                BlueprintFile(
+                    path="model.py",
+                    responsibility="method",
+                    required_symbols=["run_model"],
+                ),
+                BlueprintFile(
+                    path="tests/test_dataflow.py",
+                    responsibility="test",
+                    required_symbols=["test_synthetic_dataflow"],
+                ),
+            ],
+            required_entrypoints=["python main.py --smoke-test"],
+        )
+        bundle = ImplementationBundle(
+            smoke_test_command="python main.py --smoke-test",
+            files=[
+                GeneratedCodeFile(
+                    path="main.py",
+                    purpose="entry",
+                    content="def main() -> None:\n    print('ok')\n",
+                )
+            ],
+        )
+
+        quality = assess_implementation_quality(bundle, blueprint=blueprint)
+
+        self.assertFalse(quality["passes_minimum_quality"])
+        self.assertIn("missing_blueprint_files", quality["issue_codes"])
+        self.assertIn("blueprint", quality["metrics"])
+
     def test_quality_gate_forces_revision_when_review_accepts_thin_code(self) -> None:
         review = CodeReview(
             overall_score=4.8,

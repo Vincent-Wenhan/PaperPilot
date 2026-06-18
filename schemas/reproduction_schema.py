@@ -157,6 +157,24 @@ class GeneratedCodeFile(BaseModel):
     content: str = ""
 
 
+class BlueprintFile(BaseModel):
+    path: str = ""
+    responsibility: str = ""
+    required_symbols: list[str] = Field(default_factory=list)
+    test_relevance: str = ""
+
+
+class ImplementationBlueprint(BaseModel):
+    project_name: str = "paperpilot_reproduction"
+    objective: str = ""
+    architecture_summary: str = ""
+    files: list[BlueprintFile] = Field(default_factory=list)
+    core_dataflow: list[str] = Field(default_factory=list)
+    required_entrypoints: list[str] = Field(default_factory=list)
+    quality_requirements: list[str] = Field(default_factory=list)
+    forbidden_patterns: list[str] = Field(default_factory=list)
+
+
 class ImplementationBundle(BaseModel):
     project_name: str = "paperpilot_reproduction"
     summary: str = ""

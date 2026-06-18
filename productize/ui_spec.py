@@ -19,9 +19,23 @@ def _slug(value: str, fallback: str) -> str:
     return cleaned[:48] or fallback
 
 
-def _control_for_label(label: str, index: int) -> UIControl:
+def _nonblank(values: list[str]) -> list[str]:
+    return [value.strip() for value in values if value.strip()]
+
+
+def _unique_id(base_id: str, used_ids: set[str]) -> str:
+    candidate = base_id
+    suffix = 2
+    while candidate in used_ids:
+        candidate = f"{base_id}_{suffix}"
+        suffix += 1
+    used_ids.add(candidate)
+    return candidate
+
+
+def _control_for_label(label: str, index: int, used_ids: set[str]) -> UIControl:
     lowered = label.lower()
-    control_id = _slug(label, f"control_{index}")
+    control_id = _unique_id(_slug(label, f"control_{index}"), used_ids)
     if any(word in lowered for word in ("threshold", "confidence", "sensitivity", "score")):
         return UIControl(
             control_id=control_id,
@@ -62,22 +76,27 @@ def build_product_ui_spec(
 ) -> ProductUISpec:
     """Normalize ProductPlan and PrototypePlan into renderable UI structure."""
     product_name = product_plan.prd.product_name or product_plan.selected_product or "Generated Product"
-    page_sections = prototype_plan.page_structure or [
+    page_sections = _nonblank(prototype_plan.page_structure) or [
         "Set up task",
         "Provide input",
         "Run mock analysis",
         "Review evidence and limitations",
         "Export result",
     ]
-    input_labels = prototype_plan.user_inputs or [
+    input_labels = _nonblank(prototype_plan.user_inputs) or [
         f"{prototype_plan.template_type} input",
         "Decision context",
     ]
-    controls = [_control_for_label(label, index) for index, label in enumerate(input_labels[:6], 1)]
+    used_control_ids: set[str] = set()
+    controls = [
+        _control_for_label(label, index, used_control_ids)
+        for index, label in enumerate(input_labels[:6], 1)
+    ]
     mock_schema = {
         str(key): str(type(value).__name__)
         for key, value in (prototype_plan.mock_result or {"summary": "mock result"}).items()
     }
+    used_component_ids = {"mode"}
     result_components = [
         ResultComponent(
             component_id="mode",
@@ -87,10 +106,11 @@ def build_product_ui_spec(
             description="Mock adapter output type.",
         )
     ]
-    for index, output in enumerate(prototype_plan.system_outputs or ["Structured mock result", "Downloadable JSON"], 1):
+    system_outputs = _nonblank(prototype_plan.system_outputs) or ["Structured mock result", "Downloadable JSON"]
+    for index, output in enumerate(system_outputs, 1):
         result_components.append(
             ResultComponent(
-                component_id=_slug(output, f"result_{index}"),
+                component_id=_unique_id(_slug(output, f"result_{index}"), used_component_ids),
                 label=output,
                 component_type="summary",
                 source_key="result",

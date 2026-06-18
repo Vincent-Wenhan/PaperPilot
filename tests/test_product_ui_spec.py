@@ -51,6 +51,59 @@ class ProductUISpecTests(unittest.TestCase):
         self.assertTrue(spec.result_components)
         self.assertTrue(spec.visual_rules)
 
+    def test_duplicate_sluggable_labels_get_unique_control_ids(self) -> None:
+        plan = ProductPlan(
+            jtbd="Compare scoring settings.",
+            selected_product="Score Demo",
+            selection_reason="Tests control collisions.",
+            prd=PRD(product_name="Score Demo", problem_statement="Need unique controls."),
+        )
+        prototype = PrototypePlan(user_inputs=["Score", "Score!", "Score"])
+
+        spec = build_product_ui_spec(plan, prototype)
+        control_ids = [control.control_id for control in spec.input_controls]
+
+        self.assertEqual(len(control_ids), len(set(control_ids)))
+        self.assertEqual(control_ids, ["score", "score_2", "score_3"])
+
+    def test_output_mode_collision_gets_unique_result_component_id(self) -> None:
+        plan = ProductPlan(
+            jtbd="Review mode outputs.",
+            selected_product="Mode Demo",
+            selection_reason="Tests result collisions.",
+            prd=PRD(product_name="Mode Demo", problem_statement="Need unique results."),
+        )
+        prototype = PrototypePlan(system_outputs=["Mode", "Mode!"])
+
+        spec = build_product_ui_spec(plan, prototype)
+        component_ids = [component.component_id for component in spec.result_components]
+
+        self.assertEqual(len(component_ids), len(set(component_ids)))
+        self.assertEqual(component_ids[:3], ["mode", "mode_2", "mode_3"])
+
+    def test_blank_list_entries_are_treated_as_absent(self) -> None:
+        plan = ProductPlan(
+            jtbd="Explore sparse content.",
+            selected_product="Blank Demo",
+            selection_reason="Tests blank fallback behavior.",
+            prd=PRD(product_name="Blank Demo", problem_statement="Need fallbacks."),
+        )
+        prototype = PrototypePlan(
+            page_structure=[" ", "\t"],
+            user_inputs=["", "  "],
+            system_outputs=["\n"],
+        )
+
+        spec = build_product_ui_spec(plan, prototype)
+
+        self.assertGreaterEqual(len(spec.page_sections), 4)
+        self.assertNotIn("", spec.page_sections)
+        self.assertEqual([control.label for control in spec.input_controls], ["file input", "Decision context"])
+        self.assertEqual(
+            [component.label for component in spec.result_components[1:]],
+            ["Structured mock result", "Downloadable JSON"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

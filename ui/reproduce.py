@@ -10,6 +10,7 @@ import streamlit as st
 from config import MAIN_GOAL_DEBUG
 from main import run_paperpilot
 from ui.llm_config import get_llm_client
+from ui.progress import ThreadSafeProgress
 from ui.runner import show_runner_section
 from ui.debug import show_debug_section
 from ui.shared import (
@@ -125,25 +126,16 @@ def render_reproduce_mode() -> None:
                     st.session_state["uploaded_pdf_path"] = str(saved_pdf)
                     st.session_state.pop("debug_goal_selected", None)
 
-                    # --- Real-time progress log ---
-                    progress_container = st.container()
-                    progress_log = progress_container.empty()
-                    progress_lines: list[str] = []
-
-                    def _on_progress(agent_name: str) -> None:
-                        """Update progress. Safe to call from any thread."""
-                        progress_lines.append(f"- {agent_name}...")
-                        try:
-                            progress_log.markdown(
-                                "**Agent Progress**\n" + "\n".join(progress_lines)
-                            )
-                        except Exception:
-                            pass  # Cross-thread call from LangGraph, no session context
+                    progress_log = st.container().empty()
+                    progress = ThreadSafeProgress(
+                        "Agent Progress",
+                        progress_log.markdown,
+                    )
 
                     paper_name = Path(uploaded_pdf.name).stem.replace(" ", "_")[:80]
 
                     with st.status("Agent Status", expanded=True) as status:
-                        _on_progress("Initializing pipeline")
+                        progress("Initializing pipeline")
                         try:
                             result = run_paperpilot(
                                 pdf_path=str(saved_pdf),
@@ -152,7 +144,7 @@ def render_reproduce_mode() -> None:
                                 gpu_info=gpu_info.strip(),
                                 goal=goal,
                                 llm_client=analysis_client,
-                                progress_callback=_on_progress,
+                                progress_callback=progress,
                                 user_idea=user_idea.strip(),
                                 paper_name=paper_name,
                                 generate_code=generate_code,
@@ -167,24 +159,26 @@ def render_reproduce_mode() -> None:
                             st.error(f"Pipeline execution failed: {exc}")
                             with st.expander("Error details"):
                                 st.code(tb)
+                            progress.render()
                             status.update(label="Analysis failed", state="error")
                         else:
+                            progress.render()
                             st.session_state["paperpilot_result"] = result
                             pipeline_status = result.get("pipeline_status", "complete")
                             if pipeline_status == "failed":
-                                _on_progress("Analysis failed; fallback outputs generated")
+                                progress("Analysis failed; fallback outputs generated")
                                 status.update(label="Pipeline failed", state="error")
                             elif pipeline_status == "degraded":
-                                _on_progress("Analysis completed with issues")
+                                progress("Analysis completed with issues")
                                 status.update(
                                     label="Pipeline completed with issues",
                                     state="error",
                                 )
                             elif pipeline_status == "mock":
-                                _on_progress("Mock pipeline complete")
+                                progress("Mock pipeline complete")
                                 status.update(label="Mock pipeline complete", state="complete")
                             else:
-                                _on_progress("Analysis complete")
+                                progress("Analysis complete")
                                 status.update(label="Pipeline complete", state="complete")
 
     result = st.session_state.get("paperpilot_result")

@@ -132,9 +132,17 @@ class LLMClient:
         status_code = getattr(exc, "status_code", None)
         detail_text = self._response_detail(exc)
         endpoint = self.endpoint_label
+        if "socksio" in detail_text.lower():
+            return LLMConfigurationError(
+                "The Python environment is using a SOCKS proxy for LLM requests, "
+                "but the optional `socksio` dependency is not installed. Run "
+                "`python -m pip install -r requirements.txt` in the active "
+                "PaperPilot environment, or remove the SOCKS proxy environment "
+                "variable if it is not needed."
+            )
         if error_name == "APIConnectionError" or isinstance(exc, ConnectionError):
             proxy_note = (
-                " A system HTTP(S) proxy is configured; verify that it is running "
+                " A system HTTP(S)/SOCKS proxy is configured; verify that it is running "
                 "and permits this endpoint."
                 if any(os.getenv(name) for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"))
                 else ""

@@ -68,14 +68,9 @@ def _module_blueprint_file(
     )
 
 
-def _assignment_target_names(target: ast.expr) -> set[str]:
+def _simple_assignment_target_names(target: ast.expr) -> set[str]:
     if isinstance(target, ast.Name):
         return {target.id}
-    if isinstance(target, (ast.Tuple, ast.List)):
-        names: set[str] = set()
-        for element in target.elts:
-            names.update(_assignment_target_names(element))
-        return names
     return set()
 
 
@@ -86,16 +81,14 @@ def _python_declared_symbols(content: str) -> set[str]:
         return set()
 
     symbols: set[str] = set()
-    for node in ast.walk(tree):
+    for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             symbols.add(node.name)
         elif isinstance(node, ast.Assign):
             for target in node.targets:
-                symbols.update(_assignment_target_names(target))
+                symbols.update(_simple_assignment_target_names(target))
         elif isinstance(node, ast.AnnAssign):
-            symbols.update(_assignment_target_names(node.target))
-        elif isinstance(node, ast.AugAssign):
-            symbols.update(_assignment_target_names(node.target))
+            symbols.update(_simple_assignment_target_names(node.target))
     return symbols
 
 

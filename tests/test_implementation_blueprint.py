@@ -193,6 +193,35 @@ class ImplementationBlueprintTests(unittest.TestCase):
         self.assertIn("missing_required_symbols", coverage["issue_codes"])
         self.assertGreater(coverage["metrics"]["missing_symbol_count"], 0)
 
+    def test_python_symbol_coverage_ignores_nested_local_declarations(self) -> None:
+        blueprint = build_implementation_blueprint(
+            PaperUnderstanding(title=""),
+            RepositoryUnderstanding(),
+            ReproductionPlan(),
+            hardware="CPU only",
+            goal="run official demo",
+        )
+        bundle = ImplementationBundle(
+            files=[
+                GeneratedCodeFile(
+                    path="config.py",
+                    purpose="config",
+                    content=(
+                        "def helper() -> None:\n"
+                        "    DEFAULT_SEED = 1\n"
+                        "    class HARDWARE_TARGET:\n"
+                        "        pass\n"
+                    ),
+                )
+            ]
+        )
+
+        coverage = assess_blueprint_coverage(bundle, blueprint)
+
+        self.assertFalse(coverage["passes_blueprint_coverage"])
+        self.assertIn("missing_required_symbols", coverage["issue_codes"])
+        self.assertGreaterEqual(coverage["metrics"]["missing_symbol_count"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

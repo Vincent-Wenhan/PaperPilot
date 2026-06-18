@@ -107,8 +107,11 @@ def generated_product_run_command(scaffold_result: dict[str, Any]) -> str:
 
 def summarize_generated_product(result: dict[str, Any]) -> dict[str, Any]:
     """Build a compact generated-product status summary for the UI."""
+    prd = result.get("prd") or {}
+    ui_spec = result.get("ui_spec") or {}
     scaffold = result.get("scaffold_result") or {}
     inspection = result.get("inspection") or {}
+    coverage = inspection.get("ui_spec_coverage") or {}
     scaffold_success = bool(scaffold.get("success"))
     syntax_ok = bool(inspection.get("syntax_ok"))
     can_run_mock = bool(inspection.get("can_run_mock"))
@@ -127,7 +130,65 @@ def summarize_generated_product(result: dict[str, Any]) -> dict[str, Any]:
         "can_run_mock": can_run_mock,
         "has_rich_layout": has_rich_layout,
         "run_command": generated_product_run_command(scaffold),
+        "product_name": prd.get("product_name", ""),
+        "target_users": prd.get("target_users", []),
+        "ui_spec_controls": len(ui_spec.get("input_controls") or []),
+        "ui_spec_coverage": coverage,
     }
+
+
+def _format_item_label(item: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    return "Unnamed"
+
+
+def _render_app_structure(ui_spec: dict[str, Any]) -> None:
+    if not ui_spec:
+        st.info("UI spec not generated.")
+        return
+    page_sections = ui_spec.get("page_sections") or []
+    input_controls = ui_spec.get("input_controls") or []
+    result_components = ui_spec.get("result_components") or []
+    states = ui_spec.get("states") or {}
+
+    st.markdown("**Page sections**")
+    for section in page_sections:
+        st.markdown(f"- {section}")
+    if not page_sections:
+        st.caption("No page sections recorded.")
+
+    st.markdown("**Input controls**")
+    for control in input_controls:
+        label = _format_item_label(control, "label", "control_id")
+        control_type = str(control.get("control_type") or "control").strip()
+        help_text = str(control.get("help_text") or "").strip()
+        detail = f"`{control_type}`"
+        if help_text:
+            detail = f"{detail} - {help_text}"
+        st.markdown(f"- {label}: {detail}")
+    if not input_controls:
+        st.caption("No input controls recorded.")
+
+    st.markdown("**Result components**")
+    for component in result_components:
+        label = _format_item_label(component, "label", "component_id")
+        component_type = str(component.get("component_type") or "summary").strip()
+        description = str(component.get("description") or "").strip()
+        detail = f"`{component_type}`"
+        if description:
+            detail = f"{detail} - {description}"
+        st.markdown(f"- {label}: {detail}")
+    if not result_components:
+        st.caption("No result components recorded.")
+
+    st.markdown("**States**")
+    for state_name in ("empty", "loading", "success", "error"):
+        copy = str(states.get(state_name) or "").strip()
+        if copy:
+            st.markdown(f"- `{state_name}`: {copy}")
 
 
 def show_evaluation_scores(evaluation: dict[str, Any]) -> None:
@@ -199,6 +260,7 @@ def show_productize_result(result: dict[str, Any]) -> None:
             "Product Opportunities",
             "PRD & MVP",
             "Prototype Plan",
+            "App Structure",
             "Generated Files",
             "Evaluation",
         ]
@@ -216,6 +278,8 @@ def show_productize_result(result: dict[str, Any]) -> None:
         st.json(result.get("prototype_plan") or {})
         st.markdown(result.get("adapter_plan") or "Not generated.")
     with tabs[5]:
+        _render_app_structure(result.get("ui_spec") or {})
+    with tabs[6]:
         scaffold = result.get("scaffold_result", {})
         output_dir = Path(scaffold.get("output_dir") or "")
         st.write(f"Output directory: `{output_dir}`")
@@ -230,7 +294,7 @@ def show_productize_result(result: dict[str, Any]) -> None:
                         path.read_text(encoding="utf-8"),
                         language="python" if path.suffix == ".py" else "markdown",
                     )
-    with tabs[6]:
+    with tabs[7]:
         inspection = result.get("inspection", {})
         st.json(inspection)
         evaluation = result.get("evaluation") or {}

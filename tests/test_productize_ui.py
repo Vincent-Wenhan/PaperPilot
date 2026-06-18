@@ -154,6 +154,36 @@ class ProductizeUiTests(unittest.TestCase):
         self.assertEqual(summary["file_count"], 2)
         self.assertEqual(summary["output_dir"], "/tmp/generated")
 
+    def test_summarize_generated_product_includes_ui_spec_coverage(self) -> None:
+        result = {
+            "prd": {"product_name": "Evidence Console", "target_users": ["Teachers"]},
+            "template_type": "text",
+            "ui_spec": {"input_controls": [{"label": "Review mode"}]},
+            "scaffold_result": {
+                "success": True,
+                "output_dir": "/tmp/generated_product",
+                "files": ["app.py", "adapter.py"],
+            },
+            "inspection": {
+                "syntax_ok": True,
+                "can_run_mock": True,
+                "has_rich_layout": True,
+                "ui_spec_coverage": {
+                    "structured_controls": True,
+                    "result_components": True,
+                    "state_copy": True,
+                    "mock_schema": True,
+                },
+            },
+        }
+
+        summary = productize_helpers.summarize_generated_product(result)
+
+        self.assertEqual(summary["status"], "ready")
+        self.assertEqual(summary["product_name"], "Evidence Console")
+        self.assertEqual(summary["ui_spec_controls"], 1)
+        self.assertTrue(summary["ui_spec_coverage"]["structured_controls"])
+
     def test_run_analysis_for_productize_uses_existing_pipeline(self) -> None:
         client = LLMClient(mock_mode=True)
         expected = {

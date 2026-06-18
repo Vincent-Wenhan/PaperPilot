@@ -84,6 +84,58 @@ def build_generated_code_zip(repo_path: str, files: list[str]) -> bytes:
     return buffer.getvalue()
 
 
+def summarize_generated_project(result: dict[str, Any]) -> dict[str, Any]:
+    """Build a compact generated-project workbench summary for the UI."""
+    blueprint = result.get("implementation_blueprint") or {}
+    quality = result.get("code_quality") or {}
+    bundle = result.get("implementation_bundle") or {}
+    generated_files = result.get("generated_files") or []
+    passes = bool(quality.get("passes_minimum_quality"))
+    return {
+        "status": "ready" if passes and generated_files else "needs_review",
+        "generated_repo_path": str(result.get("generated_repo_path") or ""),
+        "implementation_model": str(result.get("implementation_model") or ""),
+        "blueprint_file_count": len(blueprint.get("files") or []),
+        "generated_file_count": len(generated_files),
+        "quality_score": quality.get("overall_score", "n/a"),
+        "blueprint_quality": result.get("blueprint_quality") or {},
+        "smoke_test_command": bundle.get("smoke_test_command", ""),
+    }
+
+
+def _render_generated_project_summary(result: dict[str, Any]) -> None:
+    """Render generated-project protocol details before raw code expanders."""
+    summary = summarize_generated_project(result)
+    st.subheader("Generated Project")
+    columns = st.columns(4)
+    columns[0].metric("Status", summary["status"])
+    columns[1].metric("Generated files", summary["generated_file_count"])
+    columns[2].metric("Blueprint files", summary["blueprint_file_count"])
+    columns[3].metric("Quality", summary["quality_score"])
+    if summary["generated_repo_path"]:
+        st.caption(f"Generated reproduction repository: {summary['generated_repo_path']}")
+    if summary["implementation_model"]:
+        st.caption(f"Implementation model: {summary['implementation_model']}")
+    if summary["smoke_test_command"]:
+        st.code(summary["smoke_test_command"], language="bash")
+    blueprint_quality = summary["blueprint_quality"]
+    if blueprint_quality:
+        st.caption(f"Blueprint quality: `{blueprint_quality}`")
+    blueprint = result.get("implementation_blueprint") or {}
+    planned_files = blueprint.get("files") or []
+    if planned_files:
+        with st.expander("Blueprint"):
+            for item in planned_files:
+                path = str(item.get("path") or "planned file")
+                responsibility = str(item.get("responsibility") or "").strip()
+                symbols = item.get("required_symbols") or []
+                symbol_text = ", ".join(str(symbol) for symbol in symbols if symbol)
+                detail = responsibility
+                if symbol_text:
+                    detail = f"{detail} Required symbols: {symbol_text}.".strip()
+                st.markdown(f"- `{path}`" + (f": {detail}" if detail else ""))
+
+
 def show_outputs(result: dict[str, Any]) -> None:
     st.header("Output")
     show_pdf_quality_warnings(result)
@@ -130,7 +182,7 @@ def show_outputs(result: dict[str, Any]) -> None:
             st.markdown(code_info)
         generated_files = result.get("generated_files") or []
         if generated_repo_path and generated_files:
-            st.subheader("Generated Code")
+            _render_generated_project_summary(result)
             code_quality = result.get("code_quality") or {}
             if code_quality:
                 score = code_quality.get("overall_score", "n/a")
@@ -221,4 +273,3 @@ def show_downloads(result: dict[str, Any] | None = None) -> None:
                 )
             else:
                 st.info(f"{filename} not yet generated.")
-

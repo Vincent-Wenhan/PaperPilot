@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,7 +21,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
+          pip install -r requirements-dev.txt
 
       - name: Check Python syntax
         run: |
@@ -35,7 +35,27 @@ jobs:
           python -m py_compile runtime/*.py
           python -m py_compile graphs/*.py
           python -m py_compile graphs/subgraphs/*.py
+          python -m py_compile backend/*.py
+          python -m py_compile backend/**/*.py
 
       - name: Run tests
         run: |
           pytest tests/ -v --tb=long 2>&1 | tee /tmp/pytest-results.log
+
+  frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install and build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build

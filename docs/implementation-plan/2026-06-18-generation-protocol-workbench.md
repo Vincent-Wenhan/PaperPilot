@@ -32,3 +32,19 @@ Implementation must use test-first development and finish with:
 ```bash
 conda run -n paperpilot python -m pytest -q
 ```
+
+## Implemented Files
+
+- `schemas/reproduction_schema.py`: `BlueprintFile` and `ImplementationBlueprint`.
+- `tools/implementation_blueprint.py`: deterministic reproduction blueprint builder and coverage assessor.
+- `tools/code_quality.py`: blueprint coverage merged into generated-code quality metrics.
+- `pipeline/reproduce_pipeline.py`: blueprint construction, storage, agent input, and revision quality checks.
+- `prompts/reproduction_implementation_prompt.txt`: implementation blueprint contract for generated code.
+- `schemas/product_schema.py`: `UIControl`, `ResultComponent`, `UIStateCopy`, and `ProductUISpec`.
+- `productize/ui_spec.py`: deterministic UI spec builder for product prototypes.
+- `productize/product_templates.py`: Streamlit app rendering from `ProductUISpec` with stable controls and result components.
+- `productize/product_scaffold.py`: optional `ui_spec` scaffold input.
+- `productize/product_tester.py`: UI spec coverage inspection.
+- `pipeline/productize_pipeline.py`: UI spec construction, result storage, and scaffold pass-through.
+- `ui/shared.py`: generated reproduction workbench summary and blueprint rendering.
+- `ui/productize_helpers.py`: generated product summary and App Structure rendering.

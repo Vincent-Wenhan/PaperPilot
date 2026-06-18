@@ -23,7 +23,8 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 - Scan README, dependency files, configurations, and candidate entry points
 - Generate paper summaries and engineering-oriented method breakdowns
 - Reconstruct module dataflow, objectives, experiment findings, and an implementation blueprint
-- Generate a separate runnable reproduction project with synthetic smoke tests
+- Generate a separate runnable reproduction project from a deterministic implementation blueprint with synthetic smoke tests
+- Score generated code against blueprint coverage as part of code quality
 - Generate a reviewed, dry-run-first Python downloader when exact dataset or checkpoint HTTPS links are found in paper or repository evidence
 - Plan environments based on CPU, single-GPU, or multi-GPU
 - Generate hierarchical experiment roadmaps, checklists, and safe `run.sh`
@@ -37,9 +38,11 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 - Generate Paper Capability Cards, a Capability Map, and Method Composition Plan
 - Apply JTBD, Value Proposition Canvas, PRD, MVP, and MoSCoW scope rules
 - Produce a structured prototype plan and rubric-based product evaluation
+- Build a structured UI spec before scaffold so generated apps use project-specific controls, state copy, and result components
 - Select image, text, video, or generic file-analysis templates
 - Generate an isolated Streamlit prototype under `generated_product/`
-- Inspect generated files, Python syntax, mock mode, and run instructions
+- Inspect generated files, Python syntax, mock mode, UI spec coverage, and run instructions
+- Review generated app structure in the Productize result UI before raw files and debug JSON
 
 ### Mock Mode
 
@@ -57,6 +60,7 @@ Reproduce Mode
 ├── [parallel] Research Understanding + repository preparation
 ├── Repository Understanding Agent (joined evidence)
 ├── Reproduction Planner Agent + command risk routing
+├── ImplementationBlueprint Builder + blueprint coverage checks
 ├── Reproduction Implementation Agent
 ├── Execution & Diagnosis Agent
 └── Deterministic Report Builder
@@ -73,6 +77,7 @@ Productize Mode
 ├── [Phase 2] LangGraph execute_proposal()
 │   ├── Prototype Builder Agent
 │   ├── Product Evaluator Agent + bounded revision routing
+│   ├── ProductUISpec Builder
 │   └── Final deterministic scaffold and static inspection
 ↓
 generated_product/<product_name>/
@@ -214,7 +219,7 @@ Alternatively, you may still use environment variables (`LLM_API_KEY`, `LLM_BASE
 3. Select `CPU only`, `Single GPU`, or `Multi GPU`; optionally enter a GPU model.
 4. Select a goal: understand the paper, run the official demo, minimal training experiment, reproduce main experiments, or debug errors.
 5. Click `Analyze` to view agent status and stage results.
-6. Review and download the generated reproduction code ZIP, `reproduction_plan.md`, `run.sh`, and `report.md`.
+6. Review the generated project workbench summary, blueprint coverage, generated code ZIP, `reproduction_plan.md`, `run.sh`, and `report.md`.
 7. In the Runner section, click safe commands manually; automatic debugging appears on failure.
 8. In the Debug section, paste logs for independent diagnosis.
 
@@ -222,6 +227,14 @@ The Reproduce graph parses the paper once, prepares research and repository
 evidence in parallel, then joins both branches for planning. Planned commands
 are risk-classified and recorded as `executed=False`; the graph never runs them
 automatically. Execution remains an explicit action in the Runner UI.
+
+When code generation is enabled, PaperPilot builds an
+`ImplementationBlueprint` before calling the implementation agent. The
+blueprint lists planned files, responsibilities, required symbols, dataflow,
+entrypoints, quality requirements, and forbidden placeholder patterns.
+Generated-code quality includes blueprint coverage so missing planned files or
+symbols are surfaced in the Code / Repository workbench instead of being hidden
+inside raw source listings.
 
 ## Productize Mode
 
@@ -240,7 +253,7 @@ product generation.
 7. Review proposals in tabs — each shows the full product plan (PRD, MVP/MoSCoW, risks, opportunities).
 8. Select a proposal and optionally edit the core features and must-have scope.
 9. Click **Execute Proposal** to generate the Streamlit prototype.
-10. Review capability cards, composition plan, opportunities, PRD/MVP, prototype plan, generated files, and rubric evaluation.
+10. Review capability cards, composition plan, opportunities, PRD/MVP, prototype plan, App Structure, generated files, and rubric evaluation.
 
 The Productize pipeline is split into two backward-compatible LangGraph phases:
 
@@ -250,6 +263,13 @@ The Productize pipeline is split into two backward-compatible LangGraph phases:
 Existing single-paper callers of `run_productize_pipeline()` remain supported.
 Existing Reproduce and Productize result keys also remain stable; graph-specific
 trace, issue, revision, and command-review metadata are additive.
+
+Before scaffolding, Productize builds a `ProductUISpec` from the selected
+product plan and prototype plan. The spec normalizes page sections, input
+controls, result components, mock-result schema, and empty/loading/success/error
+copy. Generated Streamlit apps render from that structure when available, and
+the host UI shows an App Structure view plus UI-spec coverage from static
+inspection.
 
 The generated bundle contains:
 

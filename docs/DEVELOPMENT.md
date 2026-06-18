@@ -97,8 +97,10 @@ git config user.email "your@email.com"
 ```
 User Input（单篇或多篇论文）→ LangGraph 编排 + 确定性 Tool
   → Reproduce Graph（Parse → Research/Repo 并行 → Join → Plan → Command Risk → Implementation → Diagnosis）
+  → ImplementationBlueprint（确定性复现代码协议 + 覆盖率检查）
   → Outputs（三份复现文件）
   → Productize Graph（按论文 Send fan-out → Synthesis → Product Plan → 有界 Revision → Scaffold）
+  → ProductUISpec（确定性 UI 协议 + scaffold 覆盖率检查）
   → generated_product/（mock-first Streamlit 原型）
 ```
 
@@ -115,6 +117,8 @@ User Input（单篇或多篇论文）→ LangGraph 编排 + 确定性 Tool
 - **Legacy 隔离**：旧碎片 Agent 仅位于 `agents/legacy/`，活动代码禁止导入
 - **Guidelines 注入**：产品理论、组合、UI 和安全规则从 `guidelines/` 加载
 - **结构化产物**：关键中间结果使用 Pydantic schema，不只依赖 Markdown
+- **生成协议先行**：复现代码先生成 `ImplementationBlueprint`，产品原型先生成 `ProductUISpec`
+- **确定性协议 Builder**：`tools/implementation_blueprint.py` 与 `productize/ui_spec.py` 将 LLM 计划转换为可测试、可覆盖率检查的生成契约
 
 ### 项目结构
 

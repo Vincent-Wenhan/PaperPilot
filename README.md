@@ -184,6 +184,34 @@ conda run -n paperpilot streamlit run app.py
 
 Open the local address output by Streamlit in your browser. The application entry is `app.py`; the core orchestration function is `run_paperpilot()` in `main.py`.
 
+## Agent Workbench Preview
+
+PaperPilot now also includes a parallel Next.js + FastAPI workbench shell under
+`frontend/` and `backend/`. The Streamlit app remains the stable legacy demo;
+the workbench is the new Research Agent IDE surface for workflow graph,
+co-planning, action approval, artifacts, code, diff, runner review, and tool
+trace panels.
+
+Start the API facade:
+
+```bash
+cd <path/to/PaperPilot>
+conda run -n paperpilot uvicorn backend.main:app --reload --port 8000
+```
+
+Start the workbench UI:
+
+```bash
+cd <path/to/PaperPilot>/frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. The workbench uses mock run data when no API is
+available, and uses the FastAPI facade for artifacts, files, patch proposals,
+syntax checks, reviewed commands, and action approvals when the API is running.
+Existing Streamlit pipelines are unchanged.
+
 ## Mock Mode
 
 Real LLM analysis is the default. Mock mode must be explicitly enabled with the

@@ -167,6 +167,34 @@ conda run -n paperpilot streamlit run app.py
 
 浏览器打开 Streamlit 输出的本地地址。程序入口为 `app.py`，核心编排函数为 `main.py` 中的 `run_paperpilot(...)`。
 
+## Agent Workbench 预览
+
+PaperPilot 现在也包含一个并行的 Next.js + FastAPI 工作台外壳，位于
+`frontend/` 和 `backend/`。Streamlit 应用仍然是稳定的 legacy demo；
+Workbench 是新的 Research Agent IDE 界面，用于展示 workflow graph、
+co-planning、action approval、artifacts、code、diff、runner review 和
+tool trace 面板。
+
+启动 API 门面：
+
+```bash
+cd <path/to/PaperPilot>
+conda run -n paperpilot uvicorn backend.main:app --reload --port 8000
+```
+
+启动 Workbench UI：
+
+```bash
+cd <path/to/PaperPilot>/frontend
+npm install
+npm run dev
+```
+
+打开 `http://localhost:3000`。API 未启动时，Workbench 会回退到 mock run
+数据；API 启动后，会使用 FastAPI 门面读取 artifacts/files，并提供 patch
+proposal、syntax check、reviewed command 和 action approval 接口。现有
+Streamlit pipeline 不受影响。
+
 ## Mock Mode 演示
 
 项目默认进行真实 LLM 分析。需要演示本地流程时，可通过 Streamlit 侧边栏的 **Mock Mode** 开关显式开启 Mock Mode。

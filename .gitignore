@@ -62,6 +62,14 @@ dmypy.json
 *.log
 logs/
 
+# --- Frontend ---
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/dist/
+!frontend/lib/
+!frontend/lib/**
+
 # --- IDE & editors ---
 .vscode/
 .idea/

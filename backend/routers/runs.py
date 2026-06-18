@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from backend.schemas import RunCreateRequest, RunRecord, WorkbenchEvent, WorkbenchSnapshot
+from backend.services.graph_service import graph_service
 from backend.services.run_service import run_service
 from backend.services.workbench_mock import build_workbench_snapshot
 
@@ -49,3 +50,12 @@ def get_run_result(run_id: str) -> dict[str, Any]:
     if result is None:
         raise HTTPException(status_code=404, detail="Run result not available")
     return result
+
+
+@router.get("/runs/{run_id}/graph")
+def get_run_graph(run_id: str) -> list[dict[str, Any]]:
+    run = run_service.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    events = run_service.list_events(run_id)
+    return graph_service.build_graph(run.mode, events)

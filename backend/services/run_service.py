@@ -16,6 +16,7 @@ from backend.schemas import (
     RunRecord,
     WorkbenchEvent,
 )
+from backend.services.event_service import event_service
 from backend.services.workbench_mock import (
     build_mock_actions,
     build_mock_events,
@@ -424,6 +425,7 @@ class InMemoryRunService:
         )
         with self._lock:
             self._events.setdefault(run_id, []).append(event)
+        event_service.emit(event)
 
     def _update_run_status(
         self,

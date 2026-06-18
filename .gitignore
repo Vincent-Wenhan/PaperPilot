@@ -86,6 +86,7 @@ desktop.ini
 .claude/
 .cursor/
 CLAUDE.md
+.worktrees/
 
 # --- PaperPilot runtime outputs ---
 outputs/

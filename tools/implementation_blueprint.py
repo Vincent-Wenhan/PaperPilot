@@ -71,6 +71,11 @@ def _module_blueprint_file(
 def _simple_assignment_target_names(target: ast.expr) -> set[str]:
     if isinstance(target, ast.Name):
         return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        names: set[str] = set()
+        for element in target.elts:
+            names.update(_simple_assignment_target_names(element))
+        return names
     return set()
 
 

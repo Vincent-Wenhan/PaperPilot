@@ -222,6 +222,55 @@ class ImplementationBlueprintTests(unittest.TestCase):
         self.assertIn("missing_required_symbols", coverage["issue_codes"])
         self.assertGreaterEqual(coverage["metrics"]["missing_symbol_count"], 2)
 
+    def test_python_symbol_coverage_accepts_top_level_tuple_assignment(self) -> None:
+        blueprint = build_implementation_blueprint(
+            PaperUnderstanding(title=""),
+            RepositoryUnderstanding(),
+            ReproductionPlan(),
+            hardware="CPU only",
+            goal="run official demo",
+        )
+        bundle = ImplementationBundle(
+            files=[
+                GeneratedCodeFile(
+                    path="README.md",
+                    purpose="docs",
+                    content="Smoke reproduction\n",
+                ),
+                GeneratedCodeFile(
+                    path="requirements.txt",
+                    purpose="dependencies",
+                    content="",
+                ),
+                GeneratedCodeFile(
+                    path="config.py",
+                    purpose="config",
+                    content='DEFAULT_SEED, HARDWARE_TARGET = 123, "CPU"\n',
+                ),
+                GeneratedCodeFile(
+                    path="model.py",
+                    purpose="fallback",
+                    content="def run_model() -> dict:\n    return {}\n",
+                ),
+                GeneratedCodeFile(
+                    path="main.py",
+                    purpose="entry",
+                    content="def main() -> None:\n    pass\n",
+                ),
+                GeneratedCodeFile(
+                    path="tests/test_dataflow.py",
+                    purpose="tests",
+                    content="def test_smoke_dataflow() -> None:\n    pass\n",
+                ),
+            ],
+            smoke_test_command="python main.py --smoke-test",
+        )
+
+        coverage = assess_blueprint_coverage(bundle, blueprint)
+
+        self.assertTrue(coverage["passes_blueprint_coverage"])
+        self.assertNotIn("missing_required_symbols", coverage["issue_codes"])
+
 
 if __name__ == "__main__":
     unittest.main()

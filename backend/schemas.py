@@ -37,14 +37,12 @@ class RunCreateRequest(BaseModel):
     target_user: str = ""
     product_goal: str = ""
     preferred_type: str = "auto"
-    generate_code: bool = True
     run_pipeline: bool = True
     api_key: str = ""
     base_url: str = ""
     model: str = "gpt-4o-mini"
     implementation_model: str = ""
-    mock_mode: bool | None = None
-    mock: bool = True
+    mock_mode: bool = False
 
 
 class RunRecord(BaseModel):

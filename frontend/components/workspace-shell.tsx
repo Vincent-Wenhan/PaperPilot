@@ -10,12 +10,14 @@ import {
   MessageSquareText,
   Play,
   Plus,
+  Save,
   Search,
   Settings,
   ShieldCheck,
+  Upload,
 } from "lucide-react";
-import type { FormEvent, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { InspectorPanel } from "@/components/inspector-panel";
 import { StatusPill } from "@/components/status-pill";
@@ -25,11 +27,15 @@ import {
   createRun,
   editAction,
   eventFromApi,
+  fetchLlmConfig,
   fetchRun,
   fetchRunEvents,
   rejectAction,
+  saveLlmConfig,
   testLlmConnection,
+  uploadPdf,
   type ApiRun,
+  type ApiLlmConfig,
 } from "@/lib/api";
 import {
   planSteps,
@@ -52,7 +58,6 @@ type RunFormState = {
   target_user: string;
   product_goal: string;
   preferred_type: string;
-  generate_code: boolean;
   api_key: string;
   base_url: string;
   model: string;
@@ -72,12 +77,11 @@ const defaultRunForm: RunFormState = {
   target_user: "",
   product_goal: "",
   preferred_type: "auto",
-  generate_code: true,
   api_key: "",
   base_url: "https://api.openai.com/v1",
   model: "gpt-4o-mini",
   implementation_model: "",
-  mock_mode: true,
+  mock_mode: false,
 };
 
 export function WorkspaceShell() {
@@ -86,6 +90,7 @@ export function WorkspaceShell() {
   const [runForm, setRunForm] = useState<RunFormState>(defaultRunForm);
   const [creatingRun, setCreatingRun] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedNavId, setSelectedNavId] = useState("run");
   const [planState, setPlanState] = useState(planSteps);
@@ -97,8 +102,11 @@ export function WorkspaceShell() {
     "pending" | "approved" | "edited" | "rejected"
   >("pending");
   const [notice, setNotice] = useState(
-    "Enter a local PDF path and agent settings, then create a backend run.",
+    "Upload a PDF and configure agent settings, then create a backend run.",
   );
+  const [uploadedFileName, setUploadedFileName] = useState("");
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentProject = apiRun?.project_id ?? runForm.project_id;
   const currentMode = apiRun?.mode ?? runForm.mode;
@@ -122,6 +130,23 @@ export function WorkspaceShell() {
     return haystack.includes(query.toLowerCase());
   });
   const displayedChatMessages = buildChatMessages(timelineEvents, chatMessages);
+
+  // Load persisted LLM config on mount
+  useEffect(() => {
+    fetchLlmConfig()
+      .then((config) => {
+        setRunForm((current) => ({
+          ...current,
+          api_key: config.api_key || current.api_key,
+          base_url: config.base_url || current.base_url,
+          model: config.model || current.model,
+          implementation_model: config.implementation_model || current.implementation_model,
+        }));
+      })
+      .catch(() => {
+        // Backend not available yet — keep defaults
+      });
+  }, []);
 
   useEffect(() => {
     if (!apiRun || apiRun.status !== "running") {
@@ -185,19 +210,62 @@ export function WorkspaceShell() {
 
   function resetWorkspace() {
     setApiRun(null);
-    setRunForm(defaultRunForm);
+    setRunForm((current) => ({ ...current, pdf_path: "" }));
     setPlanState(planSteps);
     setTimelineEvents([]);
     setSelectedNavId("paper");
     setApprovalStatus("pending");
-    setNotice("New workspace ready. Enter inputs and create a backend run.");
+    setUploadedFileName("");
+    setNotice("New workspace ready. Upload a PDF and create a backend run.");
+  }
+
+  async function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      setNotice("Only PDF files are supported.");
+      return;
+    }
+    setUploadingPdf(true);
+    setNotice(`Uploading ${file.name}...`);
+    try {
+      const result = await uploadPdf(file);
+      updateRunForm("pdf_path", result.pdf_path);
+      setUploadedFileName(file.name);
+      setNotice(`Uploaded: ${file.name}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Upload failed";
+      setNotice(`PDF upload failed: ${message}`);
+    } finally {
+      setUploadingPdf(false);
+    }
+  }
+
+  async function handleSaveConfig() {
+    setSavingConfig(true);
+    setNotice("Saving LLM configuration...");
+    try {
+      await saveLlmConfig({
+        api_key: runForm.api_key,
+        base_url: runForm.base_url,
+        model: runForm.model,
+        implementation_model: runForm.implementation_model,
+      });
+      setNotice("LLM configuration saved.");
+      addTimelineEvent("LLM configuration saved.", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Save failed";
+      setNotice(`Could not save LLM config: ${message}`);
+    } finally {
+      setSavingConfig(false);
+    }
   }
 
   async function submitRun(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!runForm.pdf_path.trim()) {
-      setNotice("Add a local PDF path. The backend agent pipeline needs a readable PDF file.");
+      setNotice("Upload a PDF file first. The backend agent pipeline needs a readable PDF.");
       return;
     }
     setCreatingRun(true);
@@ -406,14 +474,31 @@ export function WorkspaceShell() {
                 />
               </label>
             </div>
+
+            {/* PDF Upload */}
             <label>
-              <span>Paper / PDF Path</span>
-              <input
-                value={runForm.pdf_path}
-                onChange={(event) => updateRunForm("pdf_path", event.target.value)}
-                placeholder="C:/Users/.../paper.pdf"
-              />
+              <span>Paper PDF</span>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileUpload}
+                  style={{ display: "none" }}
+                />
+                <button
+                  className="command-button"
+                  type="button"
+                  disabled={uploadingPdf}
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{ flex: 1, justifyContent: "flex-start" }}
+                >
+                  <Upload size={14} />
+                  {uploadingPdf ? "Uploading..." : uploadedFileName || "Choose PDF..."}
+                </button>
+              </div>
             </label>
+
             <label>
               <span>Repository</span>
               <input
@@ -522,18 +607,6 @@ export function WorkspaceShell() {
               />
               <span>Mock Mode (runs pipeline without LLM calls)</span>
             </label>
-            {runForm.mode === "reproduce" && (
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={runForm.generate_code}
-                  onChange={(event) =>
-                    updateRunForm("generate_code", event.target.checked)
-                  }
-                />
-                <span>Generate reproduction code</span>
-              </label>
-            )}
             <label>
               <span>API Key</span>
               <input
@@ -578,6 +651,15 @@ export function WorkspaceShell() {
               onClick={testConnection}
             >
               {testingConnection ? "Testing..." : "Test LLM"}
+            </button>
+            <button
+              className="command-button"
+              disabled={savingConfig}
+              type="button"
+              onClick={handleSaveConfig}
+            >
+              <Save size={14} />
+              {savingConfig ? "Saving..." : "Save Config"}
             </button>
             <button className="command-button primary" disabled={creatingRun} type="submit">
               <Play size={15} />
@@ -797,7 +879,7 @@ function buildNavItems({
     {
       id: "paper",
       label: hasPaper ? compactLabel(paperInput) : "No paper selected",
-      meta: hasPaper ? "paper input ready" : "add PDF path, title, or paper URL",
+      meta: hasPaper ? "paper input ready" : "upload a PDF",
       status: hasPaper ? "success" : "pending",
     },
     {

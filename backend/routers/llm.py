@@ -2,12 +2,53 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from backend.schemas import LLMConnectionRequest, LLMConnectionResult
+from config import PROJECT_ROOT
 from tools.llm_client import LLMClient, LLMClientError
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
+
+LLM_CONFIG_FILE = PROJECT_ROOT / "llm_config.json"
+
+
+class LlmConfigData(BaseModel):
+    api_key: str = ""
+    base_url: str = ""
+    model: str = ""
+    implementation_model: str = ""
+
+
+@router.get("/config", response_model=LlmConfigData)
+def get_llm_config() -> LlmConfigData:
+    if LLM_CONFIG_FILE.is_file():
+        try:
+            import json
+            data = json.loads(LLM_CONFIG_FILE.read_text(encoding="utf-8"))
+            return LlmConfigData(
+                api_key=data.get("api_key", ""),
+                base_url=data.get("base_url", ""),
+                model=data.get("model", ""),
+                implementation_model=data.get("implementation_model", ""),
+            )
+        except Exception:
+            pass
+    return LlmConfigData()
+
+
+@router.post("/config", response_model=LlmConfigData)
+def save_llm_config(config: LlmConfigData) -> LlmConfigData:
+    import json
+    LLM_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LLM_CONFIG_FILE.write_text(
+        json.dumps(config.model_dump(), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return config
 
 
 @router.post("/test", response_model=LLMConnectionResult)

@@ -7,7 +7,7 @@ import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import actions, artifacts, checks, commands, files, llm, patches, runs
+from backend.routers import actions, artifacts, checks, commands, files, llm, patches, runs, uploads
 from backend.services.run_service import run_service
 
 app = FastAPI(
@@ -35,6 +35,7 @@ app.include_router(commands.router)
 app.include_router(files.router)
 app.include_router(patches.router)
 app.include_router(llm.router)
+app.include_router(uploads.router)
 
 
 @app.get("/api/health")

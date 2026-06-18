@@ -67,6 +67,7 @@ frontend/node_modules/
 frontend/.next/
 frontend/out/
 frontend/dist/
+frontend/tsconfig.tsbuildinfo
 !frontend/lib/
 !frontend/lib/**
 
@@ -102,3 +103,6 @@ uploads/
 workspace/
 generated_product/
 generated_product_backup_*/
+
+# --- PaperPilot persisted LLM config ---
+llm_config.json

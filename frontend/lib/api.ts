@@ -29,13 +29,19 @@ export type ApiRunCreateRequest = {
   target_user?: string;
   product_goal?: string;
   preferred_type?: string;
-  generate_code?: boolean;
   run_pipeline?: boolean;
   api_key?: string;
   base_url?: string;
   model?: string;
   implementation_model?: string;
   mock_mode?: boolean;
+};
+
+export type ApiLlmConfig = {
+  api_key: string;
+  base_url: string;
+  model: string;
+  implementation_model: string;
 };
 
 export type ApiLlmConnectionRequest = {
@@ -106,6 +112,41 @@ export type ApiWorkbenchSnapshot = {
   artifacts: ApiArtifact[];
   files: ApiFileNode[];
 };
+
+export async function uploadPdf(file: File): Promise<{ pdf_path: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_BASE}/api/upload/pdf`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    throw new Error(`PDF upload failed with ${response.status}`);
+  }
+  return response.json() as Promise<{ pdf_path: string }>;
+}
+
+export async function fetchLlmConfig(): Promise<ApiLlmConfig> {
+  const response = await fetch(`${API_BASE}/api/llm/config`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`LLM config API returned ${response.status}`);
+  }
+  return response.json() as Promise<ApiLlmConfig>;
+}
+
+export async function saveLlmConfig(config: ApiLlmConfig): Promise<ApiLlmConfig> {
+  const response = await fetch(`${API_BASE}/api/llm/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) {
+    throw new Error(`LLM config save failed with ${response.status}`);
+  }
+  return response.json() as Promise<ApiLlmConfig>;
+}
 
 export async function fetchWorkbenchSnapshot() {
   const response = await fetch(`${API_BASE}/api/workbench/mock`, {

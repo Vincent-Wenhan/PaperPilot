@@ -121,7 +121,7 @@ class InMemoryRunService:
 
     @staticmethod
     def _effective_mock_mode(request: RunCreateRequest) -> bool:
-        return request.mock if request.mock_mode is None else request.mock_mode
+        return request.mock_mode
 
     def _inputs_from_request(self, request: RunCreateRequest) -> dict[str, str]:
         return {
@@ -133,7 +133,6 @@ class InMemoryRunService:
             "target_user": request.target_user,
             "product_goal": request.product_goal,
             "preferred_type": request.preferred_type,
-            "generate_code": str(request.generate_code),
             "llm_base_url": request.base_url,
             "llm_model": request.model,
             "implementation_model": request.implementation_model,
@@ -336,6 +335,8 @@ class InMemoryRunService:
     ) -> dict[str, Any]:
         from main import run_paperpilot
 
+        generate_code = request.goal != "understand paper"
+
         return run_paperpilot(
             pdf_path=str(pdf_path),
             github_url=request.github_url.strip(),
@@ -346,7 +347,7 @@ class InMemoryRunService:
             progress_callback=progress,
             user_idea=request.task.strip(),
             paper_name=pdf_path.stem.replace(" ", "_")[:80],
-            generate_code=request.generate_code,
+            generate_code=generate_code,
             implementation_model=request.implementation_model.strip(),
         )
 

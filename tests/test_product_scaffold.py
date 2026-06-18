@@ -23,6 +23,7 @@ class ProductScaffoldTests(unittest.TestCase):
         required = {
             "app.py",
             "adapter.py",
+            "run_product.py",
             "README.md",
             "product_spec.md",
             "requirements.txt",
@@ -87,13 +88,22 @@ class ProductScaffoldTests(unittest.TestCase):
                     model = adapter.ModelAdapter()
                     self.assertTrue(model.setup()["ready"])
                     self.assertIsNone(model.load_model())
-                    self.assertEqual(model.predict("demo")["type"], template_type)
+                    demo_result = model.predict("demo")
+                    changed_result = model.predict("different input")
+                    self.assertEqual(demo_result["type"], template_type)
+                    self.assertIn("input_summary", demo_result)
+                    self.assertIn("input_signature", demo_result)
+                    self.assertNotEqual(
+                        demo_result["input_signature"],
+                        changed_result["input_signature"],
+                    )
 
                     inspection = inspect_generated_product(output_dir)
                     self.assertEqual(inspection["missing_files"], [])
                     self.assertTrue(inspection["syntax_ok"])
                     self.assertTrue(inspection["can_run_mock"])
                     self.assertTrue(inspection["readme_has_run_command"])
+                    self.assertTrue(inspection["run_launcher_ok"])
                     self.assertTrue(inspection["has_rich_layout"])
 
                     app_source = (output_dir / "app.py").read_text(encoding="utf-8")
@@ -207,6 +217,7 @@ class ProductScaffoldTests(unittest.TestCase):
             self.assertIn("st.slider('Strictness threshold', 0.0, 1.0, 1.0", app_source)
             inspection = inspect_generated_product(output_dir)
             self.assertTrue(inspection["has_rich_layout"])
+            self.assertTrue(inspection["run_launcher_ok"])
             self.assertTrue(inspection["ui_spec_coverage"]["structured_controls"])
             self.assertTrue(inspection["ui_spec_coverage"]["result_components"])
             self.assertTrue(inspection["ui_spec_coverage"]["state_copy"])
@@ -235,8 +246,14 @@ class ProductScaffoldTests(unittest.TestCase):
                 "            return None\n",
                 encoding="utf-8",
             )
+            (output_dir / "run_product.py").write_text(
+                "print('launch')\n",
+                encoding="utf-8",
+            )
             (output_dir / "README.md").write_text(
-                "Run with `streamlit run app.py`.\n",
+                "Run with `python -m pip install -r requirements.txt` "
+                "then `python run_product.py`. The launcher runs "
+                "`python -m streamlit run app.py`.\n",
                 encoding="utf-8",
             )
             (output_dir / "product_spec.md").write_text("# Spec\n", encoding="utf-8")

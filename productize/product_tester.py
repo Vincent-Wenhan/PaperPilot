@@ -10,6 +10,7 @@ from config import PROJECT_ROOT
 REQUIRED_FILES = (
     "app.py",
     "adapter.py",
+    "run_product.py",
     "README.md",
     "product_spec.md",
     "requirements.txt",
@@ -32,7 +33,7 @@ def inspect_generated_product(
         missing_files.append("outputs/")
 
     compile_errors: list[str] = []
-    for filename in ("app.py", "adapter.py"):
+    for filename in ("app.py", "adapter.py", "run_product.py"):
         path = root / filename
         if not path.is_file():
             continue
@@ -61,7 +62,18 @@ def inspect_generated_product(
         "mock_mode: bool = True" in adapter_text
         and "if self.mock_mode" in adapter_text
     )
-    readme_has_run_command = "streamlit run app.py" in readme_text
+    readme_has_run_command = (
+        "python run_product.py" in readme_text
+        and "python -m pip install -r requirements.txt" in readme_text
+    )
+    run_launcher_ok = (
+        "python -m streamlit" in readme_text
+        and "streamlit" in (
+            (root / "run_product.py").read_text(encoding="utf-8")
+            if (root / "run_product.py").is_file()
+            else ""
+        )
+    )
     ui_spec_coverage = {
         "structured_controls": (
             "UI_SPEC_MARKERS" in app_text and "structured_controls" in app_text
@@ -101,7 +113,9 @@ def inspect_generated_product(
     if not can_run_mock:
         notes.append("Mock-mode markers were not found in adapter.py.")
     if not readme_has_run_command:
-        notes.append("README.md does not include the Streamlit run command.")
+        notes.append("README.md does not include the generated product launcher command.")
+    if not run_launcher_ok:
+        notes.append("run_product.py launcher is missing or not documented.")
     if not has_rich_layout:
         notes.append("Generated app.py does not include the rich layout markers.")
     if not notes:
@@ -113,6 +127,7 @@ def inspect_generated_product(
         "files": files,
         "can_run_mock": can_run_mock,
         "readme_has_run_command": readme_has_run_command,
+        "run_launcher_ok": run_launcher_ok,
         "has_rich_layout": has_rich_layout,
         "ui_spec_coverage": ui_spec_coverage,
         "syntax_ok": not compile_errors,

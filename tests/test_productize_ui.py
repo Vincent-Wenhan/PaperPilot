@@ -131,7 +131,9 @@ class ProductizeUiTests(unittest.TestCase):
 
         self.assertEqual(
             command,
-            "cd '/tmp/PaperPilot/generated_product/Evidence Explorer'\nstreamlit run app.py",
+            "cd '/tmp/PaperPilot/generated_product/Evidence Explorer'\n"
+            "python -m pip install -r requirements.txt\n"
+            "python run_product.py",
         )
 
     def test_generated_product_summary_prefers_inspection_status(self) -> None:
@@ -146,6 +148,7 @@ class ProductizeUiTests(unittest.TestCase):
                     "syntax_ok": True,
                     "can_run_mock": True,
                     "has_rich_layout": True,
+                    "run_launcher_ok": True,
                 },
             }
         )
@@ -153,6 +156,7 @@ class ProductizeUiTests(unittest.TestCase):
         self.assertEqual(summary["status"], "ready")
         self.assertEqual(summary["file_count"], 2)
         self.assertEqual(summary["output_dir"], "/tmp/generated")
+        self.assertTrue(summary["run_launcher_ok"])
 
     def test_summarize_generated_product_includes_ui_spec_coverage(self) -> None:
         result = {
@@ -168,6 +172,7 @@ class ProductizeUiTests(unittest.TestCase):
                 "syntax_ok": True,
                 "can_run_mock": True,
                 "has_rich_layout": True,
+                "run_launcher_ok": True,
                 "ui_spec_coverage": {
                     "structured_controls": True,
                     "result_components": True,

@@ -57,10 +57,24 @@ It demonstrates the product interaction with a deterministic mock adapter.
 
 - `app.py`: Streamlit interface
 - `adapter.py`: unified mock-first `ModelAdapter`
+- `run_product.py`: launcher using the active Python interpreter
 - `product_spec.md`: generated MVP requirements
 - `outputs/`: downloaded or manually saved results
 
 ## How to Run
+
+```bash
+python -m pip install -r requirements.txt
+python run_product.py
+```
+
+The launcher runs:
+
+```bash
+python -m streamlit run app.py
+```
+
+If you prefer to call Streamlit directly:
 
 ```bash
 pip install -r requirements.txt
@@ -92,6 +106,27 @@ This generated product is a prototype. It does not guarantee full reproduction
 of the original paper results, and it never downloads weights, trains models,
 or executes repository scripts automatically.
 """
+
+
+def _build_runner_source() -> str:
+    return '''"""Launch the generated Streamlit product with the active Python."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import subprocess
+import sys
+
+
+def main() -> int:
+    app_path = Path(__file__).with_name("app.py")
+    command = [sys.executable, "-m", "streamlit", "run", str(app_path)]
+    return subprocess.call(command)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
 
 
 def scaffold_product(
@@ -126,6 +161,7 @@ def scaffold_product(
             repo_path,
             prototype_plan=prototype_plan,
         ),
+        "run_product.py": _build_runner_source(),
         "README.md": _build_readme(
             template_type,
             adapter_plan,

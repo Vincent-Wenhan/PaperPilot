@@ -102,7 +102,13 @@ def run_analysis_for_productize(
 def generated_product_run_command(scaffold_result: dict[str, Any]) -> str:
     """Return the shell command for the actual generated product directory."""
     output_dir = str(scaffold_result.get("output_dir") or "generated_product")
-    return f"cd {shlex.quote(output_dir)}\nstreamlit run app.py"
+    return "\n".join(
+        [
+            f"cd {shlex.quote(output_dir)}",
+            "python -m pip install -r requirements.txt",
+            "python run_product.py",
+        ]
+    )
 
 
 def summarize_generated_product(result: dict[str, Any]) -> dict[str, Any]:
@@ -129,6 +135,7 @@ def summarize_generated_product(result: dict[str, Any]) -> dict[str, Any]:
         "syntax_ok": syntax_ok,
         "can_run_mock": can_run_mock,
         "has_rich_layout": has_rich_layout,
+        "run_launcher_ok": bool(inspection.get("run_launcher_ok")),
         "run_command": generated_product_run_command(scaffold),
         "product_name": prd.get("product_name", ""),
         "target_users": prd.get("target_users", []),
@@ -251,7 +258,6 @@ def show_productize_result(result: dict[str, Any]) -> None:
     metric_columns[3].metric("Layout", "rich" if summary["has_rich_layout"] else "basic")
     if summary["output_dir"]:
         st.caption(f"Output directory: `{summary['output_dir']}`")
-    st.code(summary["run_command"], language="bash")
 
     tabs = st.tabs(
         [
@@ -304,4 +310,8 @@ def show_productize_result(result: dict[str, Any]) -> None:
         st.markdown(result.get("test_report") or "Not generated.")
 
     st.subheader("How to Run Generated Product")
+    if summary["run_launcher_ok"]:
+        st.caption("Run these commands from an activated Python environment.")
+    else:
+        st.warning("Generated launcher metadata is incomplete; review generated files first.")
     st.code(summary["run_command"], language="bash")

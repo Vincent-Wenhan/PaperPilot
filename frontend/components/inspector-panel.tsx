@@ -42,7 +42,15 @@ const tabs: Array<{ id: InspectorTab; label: string; icon: LucideIcon }> = [
   { id: "preview", label: "Preview", icon: RotateCcw },
 ];
 
-export function InspectorPanel({ runId }: { runId: string }) {
+export function InspectorPanel({
+  refreshToken = "",
+  runId,
+  runStatus = "pending",
+}: {
+  refreshToken?: string;
+  runId: string;
+  runStatus?: "pending" | "running" | "success" | "waiting_review" | "failed" | "revised";
+}) {
   const [activeTab, setActiveTab] = useState<InspectorTab>("artifacts");
   const [activeFileId, setActiveFileId] = useState(codeFiles[0]?.id ?? "");
   const [artifactRows, setArtifactRows] = useState(artifacts);
@@ -86,7 +94,7 @@ export function InspectorPanel({ runId }: { runId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [runId]);
+  }, [refreshToken, runId]);
 
   useEffect(() => {
     if (!activeApiFile) {
@@ -126,7 +134,7 @@ export function InspectorPanel({ runId }: { runId: string }) {
           <p className="eyebrow">Inspector</p>
           <h2>Run workspace</h2>
         </div>
-        <StatusPill status="waiting_review" />
+        <StatusPill status={runStatus} />
       </div>
 
       <div className="tab-list" role="tablist" aria-label="Inspector tabs">

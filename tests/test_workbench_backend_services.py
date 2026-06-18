@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.schemas import (
     ActionEditRequest,
@@ -50,6 +51,7 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             run.inputs["github_url"],
             "https://github.com/example/custom-paper",
         )
+        self.assertNotIn("api_key", run.inputs)
         events = service.list_events(run.run_id)
         self.assertGreater(len(events), 0)
         self.assertIn("papers/custom.pdf", " ".join(event.message for event in events))
@@ -70,6 +72,49 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
         self.assertIsNotNone(edited)
         self.assertEqual(edited.status, "edited")
         self.assertEqual(edited.edited_command, "python main.py --help")
+
+    def test_run_service_can_execute_reproduce_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "paper.pdf"
+            pdf.write_bytes(b"%PDF-1.4 mock paper")
+            service = InMemoryRunService()
+            request = RunCreateRequest(
+                mode="reproduce",
+                project_id="project_agents",
+                task="Run the existing reproduce agents",
+                pdf_path=str(pdf),
+                api_key="secret-key",
+                mock_mode=True,
+                run_pipeline=False,
+            )
+            run = service.create_run(request)
+
+            with patch.object(
+                InMemoryRunService,
+                "_execute_reproduce",
+                return_value={
+                    "pipeline_status": "complete",
+                    "paper_info": "paper",
+                    "method_info": "method",
+                    "report": "report",
+                    "run_sh": "run",
+                    "generated_files": [{"path": "main.py"}],
+                    "errors": [],
+                    "llm_attempts": 0,
+                    "llm_failures": 0,
+                },
+            ) as mocked_pipeline:
+                completed = service.run_pipeline_now(run.run_id, request)
+
+            self.assertIsNotNone(completed)
+            self.assertEqual(completed.status, "success")
+            mocked_pipeline.assert_called_once()
+            self.assertEqual(str(mocked_pipeline.call_args.args[0]), str(pdf))
+            self.assertNotIn("secret-key", str(service.list_events(run.run_id)))
+            self.assertEqual(
+                service.get_result(run.run_id)["pipeline_status"],
+                "complete",
+            )
 
     def test_artifact_and_file_services_are_read_only_and_root_limited(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

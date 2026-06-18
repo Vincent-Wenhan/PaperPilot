@@ -15,7 +15,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { InspectorPanel } from "@/components/inspector-panel";
 import { StatusPill } from "@/components/status-pill";
@@ -25,8 +25,10 @@ import {
   createRun,
   editAction,
   eventFromApi,
+  fetchRun,
   fetchRunEvents,
   rejectAction,
+  testLlmConnection,
   type ApiRun,
 } from "@/lib/api";
 import {
@@ -44,8 +46,18 @@ type RunFormState = {
   task: string;
   pdf_path: string;
   github_url: string;
+  hardware: string;
+  gpu_info: string;
+  goal: string;
   target_user: string;
   product_goal: string;
+  preferred_type: string;
+  generate_code: boolean;
+  api_key: string;
+  base_url: string;
+  model: string;
+  implementation_model: string;
+  mock_mode: boolean;
 };
 
 const defaultRunForm: RunFormState = {
@@ -54,17 +66,26 @@ const defaultRunForm: RunFormState = {
   task: "",
   pdf_path: "",
   github_url: "",
+  hardware: "CPU only",
+  gpu_info: "",
+  goal: "minimal training experiment",
   target_user: "",
   product_goal: "",
+  preferred_type: "auto",
+  generate_code: true,
+  api_key: "",
+  base_url: "https://api.openai.com/v1",
+  model: "gpt-4o-mini",
+  implementation_model: "",
+  mock_mode: true,
 };
-
-const modelName = "gpt-4o-mini";
 
 export function WorkspaceShell() {
   const [apiRun, setApiRun] = useState<ApiRun | null>(null);
   const [timelineEvents, setTimelineEvents] = useState(agentEvents);
   const [runForm, setRunForm] = useState<RunFormState>(defaultRunForm);
   const [creatingRun, setCreatingRun] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedNavId, setSelectedNavId] = useState("run");
   const [planState, setPlanState] = useState(planSteps);
@@ -87,7 +108,7 @@ export function WorkspaceShell() {
     "pending" | "approved" | "edited" | "rejected"
   >("pending");
   const [notice, setNotice] = useState(
-    "Enter a paper, repository, and task, then create a backend run.",
+    "Enter a local PDF path and agent settings, then create a backend run.",
   );
 
   const currentProject = apiRun?.project_id ?? runForm.project_id;
@@ -98,6 +119,7 @@ export function WorkspaceShell() {
   const repoInput = apiRun?.inputs?.github_url ?? runForm.github_url;
   const productGoal = apiRun?.inputs?.product_goal ?? runForm.product_goal;
   const targetUser = apiRun?.inputs?.target_user ?? runForm.target_user;
+  const currentModel = apiRun?.inputs?.llm_model ?? runForm.model;
   const projectNavItems = buildNavItems({
     run: apiRun,
     form: runForm,
@@ -110,6 +132,46 @@ export function WorkspaceShell() {
     const haystack = `${item.label} ${item.meta}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
+
+  useEffect(() => {
+    if (!apiRun || apiRun.status !== "running") {
+      return;
+    }
+    let cancelled = false;
+    async function refreshRun() {
+      try {
+        const [nextRun, nextEvents] = await Promise.all([
+          fetchRun(apiRun!.run_id),
+          fetchRunEvents(apiRun!.run_id),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setApiRun(nextRun);
+        setTimelineEvents(nextEvents.map(eventFromApi));
+        if (nextRun.status !== "running") {
+          setPlanState((steps) =>
+            steps.map((step) => ({
+              ...step,
+              status: nextRun.status === "failed" ? "failed" : "success",
+            })),
+          );
+          setNotice(nextRun.summary);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "poll failed";
+          setNotice(`Could not refresh run status: ${message}`);
+        }
+      }
+    }
+    const timer = window.setInterval(refreshRun, 1800);
+    void refreshRun();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [apiRun?.run_id, apiRun?.status]);
 
   function addTimelineEvent(message: string, status: WorkflowStatus = "running") {
     setTimelineEvents((events) => [
@@ -148,19 +210,13 @@ export function WorkspaceShell() {
 
   async function submitRun(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const hasInput =
-      runForm.task.trim() ||
-      runForm.pdf_path.trim() ||
-      runForm.github_url.trim() ||
-      runForm.product_goal.trim();
 
-    if (!hasInput) {
-      setNotice("Add at least a task, paper path/title, repository URL, or product goal.");
+    if (!runForm.pdf_path.trim()) {
+      setNotice("Add a local PDF path. The backend agent pipeline needs a readable PDF file.");
       return;
     }
-
     setCreatingRun(true);
-    setNotice("Creating run through FastAPI...");
+    setNotice("Starting PaperPilot agents through FastAPI...");
     try {
       const run = await createRun({
         ...runForm,
@@ -170,7 +226,7 @@ export function WorkspaceShell() {
           (runForm.mode === "reproduce"
             ? "Reproduce the submitted paper and repository."
             : "Productize the submitted research into a mock-first MVP."),
-        mock: false,
+        run_pipeline: true,
       });
       const runEvents = await fetchRunEvents(run.run_id).catch(() => []);
       setApiRun(run);
@@ -180,13 +236,36 @@ export function WorkspaceShell() {
       );
       setSelectedNavId("run");
       setApprovalStatus("pending");
-      setNotice(`Created backend run ${run.run_id}. Review the editable plan before continuing.`);
+      setNotice(`Started backend run ${run.run_id}. Agent progress will update here.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown API error";
       setNotice(`Could not create backend run: ${message}`);
       addTimelineEvent(`Run creation failed: ${message}`, "failed");
     } finally {
       setCreatingRun(false);
+    }
+  }
+
+  async function testConnection() {
+    setTestingConnection(true);
+    setNotice("Testing LLM connection through FastAPI...");
+    try {
+      const result = await testLlmConnection({
+        api_key: runForm.api_key,
+        base_url: runForm.base_url,
+        model: runForm.model,
+        mock_mode: runForm.mock_mode,
+      });
+      setNotice(
+        result.ok
+          ? `LLM connection ok: ${result.message}`
+          : `LLM connection failed: ${result.message}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown API error";
+      setNotice(`Could not test LLM connection: ${message}`);
+    } finally {
+      setTestingConnection(false);
     }
   }
 
@@ -269,7 +348,7 @@ export function WorkspaceShell() {
         <div className="topbar-context">
           <span>Project: {currentProject}</span>
           <span>Mode: {currentMode}</span>
-          <span>Model: {modelName}</span>
+          <span>Model: {currentModel}</span>
         </div>
 
         <div className="run-state">
@@ -329,11 +408,11 @@ export function WorkspaceShell() {
               </label>
             </div>
             <label>
-              <span>Paper / PDF</span>
+              <span>Paper / PDF Path</span>
               <input
                 value={runForm.pdf_path}
                 onChange={(event) => updateRunForm("pdf_path", event.target.value)}
-                placeholder="PDF path, title, or paper URL"
+                placeholder="C:/Users/.../paper.pdf"
               />
             </label>
             <label>
@@ -344,6 +423,46 @@ export function WorkspaceShell() {
                 placeholder="GitHub URL or local repo path"
               />
             </label>
+            <div className="form-row">
+              <label>
+                <span>Hardware</span>
+                <select
+                  value={runForm.hardware}
+                  onChange={(event) => updateRunForm("hardware", event.target.value)}
+                >
+                  <option value="CPU only">CPU only</option>
+                  <option value="Single GPU">Single GPU</option>
+                  <option value="Multi GPU">Multi GPU</option>
+                </select>
+              </label>
+              <label>
+                <span>GPU</span>
+                <input
+                  value={runForm.gpu_info}
+                  onChange={(event) => updateRunForm("gpu_info", event.target.value)}
+                  placeholder="e.g. RTX 4090"
+                />
+              </label>
+            </div>
+            {runForm.mode === "reproduce" && (
+              <label>
+                <span>Goal</span>
+                <select
+                  value={runForm.goal}
+                  onChange={(event) => updateRunForm("goal", event.target.value)}
+                >
+                  <option value="understand paper">understand paper</option>
+                  <option value="run official demo">run official demo</option>
+                  <option value="minimal training experiment">
+                    minimal training experiment
+                  </option>
+                  <option value="reproduce main experiments">
+                    reproduce main experiments
+                  </option>
+                  <option value="debug errors">debug errors</option>
+                </select>
+              </label>
+            )}
             <label>
               <span>Task</span>
               <textarea
@@ -355,6 +474,21 @@ export function WorkspaceShell() {
             </label>
             {runForm.mode === "productize" && (
               <>
+                <label>
+                  <span>Preferred Type</span>
+                  <select
+                    value={runForm.preferred_type}
+                    onChange={(event) =>
+                      updateRunForm("preferred_type", event.target.value)
+                    }
+                  >
+                    <option value="auto">Auto</option>
+                    <option value="image">Image</option>
+                    <option value="text">Text</option>
+                    <option value="video">Video</option>
+                    <option value="file">File</option>
+                  </select>
+                </label>
                 <label>
                   <span>Target User</span>
                   <input
@@ -378,9 +512,77 @@ export function WorkspaceShell() {
                 </label>
               </>
             )}
+            <div className="form-divider">
+              <span>Agent Runtime</span>
+            </div>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={runForm.mock_mode}
+                onChange={(event) => updateRunForm("mock_mode", event.target.checked)}
+              />
+              <span>Mock Mode (runs pipeline without LLM calls)</span>
+            </label>
+            {runForm.mode === "reproduce" && (
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={runForm.generate_code}
+                  onChange={(event) =>
+                    updateRunForm("generate_code", event.target.checked)
+                  }
+                />
+                <span>Generate reproduction code</span>
+              </label>
+            )}
+            <label>
+              <span>API Key</span>
+              <input
+                type="password"
+                value={runForm.api_key}
+                onChange={(event) => updateRunForm("api_key", event.target.value)}
+                placeholder={runForm.mock_mode ? "not needed in Mock Mode" : "sk-..."}
+              />
+            </label>
+            <label>
+              <span>Base URL</span>
+              <input
+                value={runForm.base_url}
+                onChange={(event) => updateRunForm("base_url", event.target.value)}
+                placeholder="https://api.openai.com/v1"
+              />
+            </label>
+            <div className="form-row">
+              <label>
+                <span>Model</span>
+                <input
+                  value={runForm.model}
+                  onChange={(event) => updateRunForm("model", event.target.value)}
+                  placeholder="gpt-4o-mini"
+                />
+              </label>
+              <label>
+                <span>Code Model</span>
+                <input
+                  value={runForm.implementation_model}
+                  onChange={(event) =>
+                    updateRunForm("implementation_model", event.target.value)
+                  }
+                  placeholder="optional"
+                />
+              </label>
+            </div>
+            <button
+              className="command-button"
+              disabled={testingConnection}
+              type="button"
+              onClick={testConnection}
+            >
+              {testingConnection ? "Testing..." : "Test LLM"}
+            </button>
             <button className="command-button primary" disabled={creatingRun} type="submit">
               <Play size={15} />
-              {creatingRun ? "Creating..." : "Create Run"}
+              {creatingRun ? "Starting..." : "Run Agents"}
             </button>
           </form>
 
@@ -563,7 +765,11 @@ export function WorkspaceShell() {
           </section>
         </section>
 
-        <InspectorPanel runId={apiRun?.run_id ?? "run_mock_reproduce"} />
+        <InspectorPanel
+          refreshToken={apiRun?.updated_at ?? ""}
+          runId={apiRun?.run_id ?? "run_mock_reproduce"}
+          runStatus={apiRun?.status ?? "pending"}
+        />
       </section>
     </main>
   );

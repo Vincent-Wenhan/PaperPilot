@@ -9,8 +9,11 @@ export type ApiRun = {
   mode: "reproduce" | "productize";
   status: WorkflowStatus;
   task: string;
+  created_at: string;
+  updated_at: string;
   summary: string;
   inputs: Record<string, string>;
+  result_summary: Record<string, unknown>;
   plan: string[];
 };
 
@@ -20,9 +23,34 @@ export type ApiRunCreateRequest = {
   task: string;
   pdf_path?: string;
   github_url?: string;
+  hardware?: string;
+  gpu_info?: string;
+  goal?: string;
   target_user?: string;
   product_goal?: string;
-  mock?: boolean;
+  preferred_type?: string;
+  generate_code?: boolean;
+  run_pipeline?: boolean;
+  api_key?: string;
+  base_url?: string;
+  model?: string;
+  implementation_model?: string;
+  mock_mode?: boolean;
+};
+
+export type ApiLlmConnectionRequest = {
+  api_key: string;
+  base_url: string;
+  model: string;
+  mock_mode: boolean;
+};
+
+export type ApiLlmConnectionResult = {
+  ok: boolean;
+  message: string;
+  endpoint: string;
+  model: string;
+  mock_mode: boolean;
 };
 
 export type ApiEvent = {
@@ -101,6 +129,16 @@ export async function createRun(request: ApiRunCreateRequest) {
   return response.json() as Promise<ApiRun>;
 }
 
+export async function fetchRun(runId: string) {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Run API returned ${response.status}`);
+  }
+  return response.json() as Promise<ApiRun>;
+}
+
 export async function fetchRunEvents(runId: string) {
   const response = await fetch(`${API_BASE}/api/runs/${runId}/events`, {
     cache: "no-store",
@@ -109,6 +147,18 @@ export async function fetchRunEvents(runId: string) {
     throw new Error(`Run events API returned ${response.status}`);
   }
   return response.json() as Promise<ApiEvent[]>;
+}
+
+export async function testLlmConnection(request: ApiLlmConnectionRequest) {
+  const response = await fetch(`${API_BASE}/api/llm/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw new Error(`LLM test API returned ${response.status}`);
+  }
+  return response.json() as Promise<ApiLlmConnectionResult>;
 }
 
 export async function fetchArtifacts(runId: string) {

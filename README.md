@@ -208,11 +208,25 @@ npm run dev
 ```
 
 Open `http://localhost:3000`. Use the left **Run Intake** form to enter a
-project id, paper/PDF path or title, optional repository URL, and task, then
-click **Create Run**. That creates a backend run through `POST /api/runs`,
-stores the submitted inputs, and refreshes the editable plan and event stream
-from the FastAPI facade. The right inspector keeps sample artifacts/code as an
-offline fallback until live pipeline artifacts are attached. Existing Streamlit
+project id, a local PDF path, optional repository URL, hardware/goal settings,
+task notes, and LLM settings. Click **Run Agents** to create a backend run
+through `POST /api/runs` and start the existing PaperPilot agent pipeline from
+FastAPI:
+
+- Reproduce mode calls `main.run_paperpilot(...)`.
+- Productize mode first calls `run_paperpilot(...)` for analysis, then calls
+  `run_productize_pipeline(...)`.
+- The event stream polls `/api/runs/{run_id}/events` and shows backend agent
+  progress as it runs.
+- API keys can be entered in the Workbench form or provided through
+  `LLM_API_KEY`; keys are not stored in `RunRecord.inputs`.
+- Mock Mode runs the pipeline without LLM calls. Turn it off and provide a real
+  key/base URL/model for real LLM-backed agents.
+
+The PDF path must be readable by the FastAPI process on your machine, for
+example `C:/Users/<you>/Downloads/paper.pdf`. The right inspector refreshes
+artifacts/files after the run status changes; sample artifacts/code remain as
+an offline fallback before generated outputs exist. Existing Streamlit
 pipelines are unchanged.
 
 If port `8000` is already in use on Windows, the API may already be running.

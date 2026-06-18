@@ -177,6 +177,8 @@ conda run -n paperpilot python -c "import fitz, langgraph, openai, streamlit, ya
 
 ## Running
 
+### Legacy Streamlit App
+
 ```bash
 cd <path/to/PaperPilot>
 conda run -n paperpilot streamlit run app.py
@@ -184,82 +186,30 @@ conda run -n paperpilot streamlit run app.py
 
 Open the local address output by Streamlit in your browser. The application entry is `app.py`; the core orchestration function is `run_paperpilot()` in `main.py`.
 
-## Agent Workbench Preview
+### Agent Workbench (Next.js + FastAPI)
 
-PaperPilot now also includes a parallel Next.js + FastAPI workbench shell under
-`frontend/` and `backend/`. The Streamlit app remains the stable legacy demo;
-the workbench is the new Research Agent IDE surface for workflow graph,
+The workbench is the new Research Agent IDE surface with workflow graph,
 co-planning, action approval, artifacts, code, diff, runner review, and tool
 trace panels.
 
-Start the API facade:
+**Start the FastAPI backend:**
 
 ```bash
 cd <path/to/PaperPilot>
 conda run -n paperpilot uvicorn backend.main:app --reload --port 8000
 ```
 
-Start the workbench UI:
+**Start the Next.js frontend (in a separate terminal):**
 
 ```bash
-cd <path/to/PaperPilot>/frontend
+cd <path/to/PaperPilot/frontend>
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. Use the left **Run Intake** form to enter a
-project id, a local PDF path, optional repository URL, hardware/goal settings,
-task notes, and LLM settings. Click **Run Agents** to create a backend run
-through `POST /api/runs` and start the existing PaperPilot agent pipeline from
-FastAPI:
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-- Reproduce mode calls `main.run_paperpilot(...)`.
-- Productize mode first calls `run_paperpilot(...)` for analysis, then calls
-  `run_productize_pipeline(...)`.
-- The event stream polls `/api/runs/{run_id}/events` and shows backend agent
-  progress as it runs.
-- API keys can be entered in the Workbench form or provided through
-  `LLM_API_KEY`; keys are not stored in `RunRecord.inputs`.
-- Mock Mode runs the pipeline without LLM calls. Turn it off and provide a real
-  key/base URL/model for real LLM-backed agents.
-
-The PDF path must be readable by the FastAPI process on your machine, for
-example `C:/Users/<you>/Downloads/paper.pdf`. The right inspector refreshes
-artifacts/files after the run status changes; sample artifacts/code remain as
-an offline fallback before generated outputs exist. Existing Streamlit
-pipelines are unchanged.
-
-If port `8000` is already in use on Windows, the API may already be running.
-Check it before starting a second server:
-
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/health"
-```
-
-If you need to stop existing workbench processes:
-
-```powershell
-Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue |
-  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue |
-  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-```
-
-Then restart the API and UI:
-
-```powershell
-cd <path-to-PaperPilot>
-python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
-```
-
-```powershell
-cd <path-to-PaperPilot>\frontend
-npm run dev -- --hostname 127.0.0.1 --port 3000
-```
-
-If your prompt already shows `(base)`, you do not need to run
-`conda activate base`. The `CondaError: Run 'conda init' before 'conda activate'`
-message is unrelated to PaperPilot startup.
+**Node dependencies:** Node.js 20+ required. Install with `npm install` inside `frontend/`.
 
 ## Mock Mode
 

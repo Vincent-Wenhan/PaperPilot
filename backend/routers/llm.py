@@ -30,7 +30,7 @@ def get_llm_config() -> LlmConfigData:
             import json
             data = json.loads(LLM_CONFIG_FILE.read_text(encoding="utf-8"))
             return LlmConfigData(
-                api_key=data.get("api_key", ""),
+                api_key="",
                 base_url=data.get("base_url", ""),
                 model=data.get("model", ""),
                 implementation_model=data.get("implementation_model", ""),
@@ -45,7 +45,11 @@ def save_llm_config(config: LlmConfigData) -> LlmConfigData:
     import json
     LLM_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     LLM_CONFIG_FILE.write_text(
-        json.dumps(config.model_dump(), indent=2, ensure_ascii=False),
+        json.dumps({
+            "base_url": config.base_url,
+            "model": config.model,
+            "implementation_model": config.implementation_model,
+        }, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
     return config

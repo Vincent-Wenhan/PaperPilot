@@ -266,6 +266,26 @@ export async function fetchFileContent(runId: string, path: string) {
   return response.json() as Promise<ApiFileContent>;
 }
 
+export async function fetchRunActions(runId: string) {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}/actions`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Run actions API returned ${response.status}`);
+  }
+  return response.json() as Promise<ApiAction[]>;
+}
+
+export async function fetchPatches(runId: string) {
+  const response = await fetch(`${API_BASE}/api/patches/${runId}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Patches API returned ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function approveAction(actionId: string) {
   const response = await fetch(`${API_BASE}/api/actions/${actionId}/approve`, {
     method: "POST",
@@ -325,3 +345,13 @@ export function artifactFromApi(artifact: ApiArtifact): ArtifactItem {
     status: artifact.status,
   };
 }
+
+export type ApiPatch = {
+  patch_id: string;
+  run_id: string;
+  path: string;
+  old_content: string;
+  new_content: string;
+  unified_diff: string;
+  reason: string;
+};

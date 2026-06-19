@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
-from backend.schemas import RunCreateRequest, RunRecord, WorkbenchEvent, WorkbenchSnapshot
+from backend.schemas import RunCreateRequest, RunRecord, WorkbenchEvent, WorkbenchSnapshot, ActionRequest
+from backend.services.event_service import event_service
 from backend.services.graph_service import graph_service
 from backend.services.run_service import run_service
 from backend.services.workbench_mock import build_workbench_snapshot
@@ -36,10 +37,19 @@ def get_run(run_id: str) -> RunRecord:
 
 
 @router.get("/runs/{run_id}/events", response_model=list[WorkbenchEvent])
-def get_run_events(run_id: str) -> list[WorkbenchEvent]:
+def get_run_events(run_id: str, after: str = Query(default="")) -> list[WorkbenchEvent]:
     if run_service.get_run(run_id) is None:
         raise HTTPException(status_code=404, detail="Run not found")
+    if after:
+        return event_service.list_events(run_id, after_id=after)
     return run_service.list_events(run_id)
+
+
+@router.get("/runs/{run_id}/actions", response_model=list[ActionRequest])
+def get_run_actions(run_id: str) -> list[ActionRequest]:
+    if run_service.get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run_service.list_actions(run_id)
 
 
 @router.get("/runs/{run_id}/result")

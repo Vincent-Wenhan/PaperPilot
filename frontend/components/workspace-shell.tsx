@@ -32,12 +32,14 @@ import {
   eventFromApi,
   fetchLlmConfig,
   fetchRun,
+  fetchRunActions,
   fetchRunEvents,
   fetchRunGraph,
   rejectAction,
   saveLlmConfig,
   testLlmConnection,
   uploadPdf,
+  type ApiAction,
   type ApiEvent,
   type ApiGraphNode,
   type ApiRun,
@@ -91,6 +93,7 @@ export function WorkspaceShell() {
   const [approvalStatus, setApprovalStatus] = useState<
     "pending" | "approved" | "edited" | "rejected"
   >("pending");
+  const [apiActions, setApiActions] = useState<ApiAction[]>([]);
   const [notice, setNotice] = useState(
     "Upload a PDF and configure agent settings, then create a backend run.",
   );
@@ -159,6 +162,9 @@ export function WorkspaceShell() {
         setGraphNodes(enrichGraphFromEvents(restoredGraph, restoredEvents, restoredRun.mode));
         setPlanState(planForRunStatus(restoredRun));
         setNotice(restoredRun.summary);
+        fetchRunActions(storedRunId!)
+          .then((actions) => { if (!cancelled) setApiActions(actions); })
+          .catch(() => {});
       } catch {
         window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
       }
@@ -191,6 +197,9 @@ export function WorkspaceShell() {
         if (nextRun.status !== "running") {
           setNotice(nextRun.summary);
         }
+        fetchRunActions(apiRun!.run_id)
+          .then((actions) => { if (!cancelled) setApiActions(actions); })
+          .catch(() => {});
       } catch (error) {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : "poll failed";
@@ -306,9 +315,10 @@ export function WorkspaceShell() {
             : "Productize the submitted research into a mock-first MVP."),
         run_pipeline: true,
       });
-      const [runEvents, runGraph] = await Promise.all([
+      const [runEvents, runGraph, runActions] = await Promise.all([
         fetchRunEvents(run.run_id).catch(() => []),
         fetchRunGraph(run.run_id).catch(() => []),
+        fetchRunActions(run.run_id).catch(() => []),
       ]);
       setApiRun(run);
       window.localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, run.run_id);
@@ -317,6 +327,7 @@ export function WorkspaceShell() {
       setTimelineEvents(
         runEvents.length ? runEvents.map(eventFromApi) : eventsFromRun(run),
       );
+      setApiActions(runActions ?? []);
       setSelectedNavId("run");
       setApprovalStatus("pending");
       setNotice(`Started backend run ${run.run_id}. Agent progress will update here.`);
@@ -396,20 +407,43 @@ export function WorkspaceShell() {
   }
 
   async function updateApproval(nextStatus: "approved" | "edited" | "rejected") {
+    const pendingActions = apiActions.filter((a) => a.status === "pending");
+    const target = pendingActions[0];
+    if (!target) {
+      setNotice("No pending actions to approve, edit, or reject.");
+      return;
+    }
     try {
       if (nextStatus === "approved") {
-        await approveAction("act_smoke_test");
+        await approveAction(target.action_id);
+        setApiActions((prev) =>
+          prev.map((a) =>
+            a.action_id === target.action_id ? { ...a, status: "approved" } : a,
+          ),
+        );
       } else if (nextStatus === "edited") {
-        await editAction("act_smoke_test", "python main.py --help");
+        await editAction(target.action_id, target.command);
+        setApiActions((prev) =>
+          prev.map((a) =>
+            a.action_id === target.action_id ? { ...a, status: "edited" } : a,
+          ),
+        );
       } else {
-        await rejectAction("act_smoke_test");
+        await rejectAction(target.action_id);
+        setApiActions((prev) =>
+          prev.map((a) =>
+            a.action_id === target.action_id ? { ...a, status: "rejected" } : a,
+          ),
+        );
       }
-    } catch {
-      // Keep local preview responsive even when the API server is offline.
+      setApprovalStatus(nextStatus);
+      setNotice(`Action ${nextStatus}: ${target.command}`);
+      addTimelineEvent(`Action ${nextStatus}: ${target.command}`, "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "action failed";
+      setNotice(`Action ${nextStatus} failed: ${message}`);
+      addTimelineEvent(`Action ${nextStatus} failed: ${message}`, "failed");
     }
-    setApprovalStatus(nextStatus);
-    setNotice(`Action ${nextStatus} recorded for this workbench session.`);
-    addTimelineEvent(`Action ${nextStatus}: python main.py --smoke-test`, "success");
   }
 
   async function refreshCurrentRun(runId: string) {
@@ -426,6 +460,9 @@ export function WorkspaceShell() {
       setGraphNodes(enrichGraphFromEvents(nextGraph, nextEvents, nextRun.mode));
       setPlanState(planForRunStatus(nextRun));
       setNotice(nextRun.summary);
+      fetchRunActions(runId)
+        .then(setApiActions)
+        .catch(() => {});
     } catch (error) {
       const message = error instanceof Error ? error.message : "refresh failed";
       setNotice(`Could not refresh backend run state: ${message}`);

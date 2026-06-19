@@ -179,22 +179,29 @@ class GraphService:
 
     @staticmethod
     def _node_from_event(run_mode: str, event: Any) -> str:
-        """Map coarse runtime events to graph nodes.
+        """Map runtime events to graph nodes.
 
-        The pipeline currently emits human-readable `agent_progress` events from
-        legacy agents. Until every agent emits structured node ids, the graph
-        derives the node from stable stage names in those messages.
+        Priority: structured event.node > event_type mapping > message keyword fallback.
+        Legacy message matching is preserved for backward compatibility.
         """
         raw_node = str(getattr(event, "node", "") or "")
+        event_type = str(getattr(event, "event_type", "") or "")
+
+        # Structured node mapping: if event.node matches a known node id, use it directly
+        known_nodes = {nid for nid, _label, _agent in NODE_MAP.get(run_mode, NODE_MAP["reproduce"])["nodes"]}
+        if raw_node in known_nodes:
+            return raw_node
+
+        # Pipeline lifecycle events mapped to terminal nodes
         if raw_node in {"run_intake", "input_review"}:
             return "parse"
         if raw_node == "planner":
             return "planning" if run_mode == "reproduce" else "prd"
-        message = str(getattr(event, "message", "") or "").lower()
-        event_type = str(getattr(event, "event_type", "") or "")
-
         if event_type in {"pipeline_finished", "pipeline_failed"}:
             return "outputs" if run_mode == "reproduce" else "scaffold"
+
+        # Legacy keyword-based fallback for messages that don't carry structured node ids
+        message = str(getattr(event, "message", "") or "").lower()
 
         if run_mode == "productize":
             if "capability card" in message:

@@ -15,11 +15,12 @@ import { useEffect, useState } from "react";
 import {
   type AgentEvent,
   approvalRequest,
-  artifacts,
+  artifacts as mockArtifacts,
   codeFiles,
   patchPreview,
   runnerReview,
-  toolCalls,
+  toolCalls as mockToolCalls,
+  type ToolCall,
 } from "@/lib/mock-data";
 import { StatusPill } from "@/components/status-pill";
 import {
@@ -27,7 +28,11 @@ import {
   fetchArtifacts,
   fetchFileContent,
   fetchFiles,
+  fetchPatches,
+  fetchRunActions,
+  type ApiAction,
   type ApiFileNode,
+  type ApiPatch,
 } from "@/lib/api";
 import { ArtifactsPanel } from "@/components/inspector/artifacts-panel";
 import { CodePanel } from "@/components/inspector/code-panel";
@@ -62,9 +67,12 @@ export function InspectorPanel({
 }) {
   const [activeTab, setActiveTab] = useState<InspectorTab>("artifacts");
   const [activeFileId, setActiveFileId] = useState(codeFiles[0]?.id ?? "");
-  const [artifactRows, setArtifactRows] = useState(artifacts);
+  const [artifactRows, setArtifactRows] = useState(mockArtifacts);
   const [apiFiles, setApiFiles] = useState<ApiFileNode[]>([]);
   const [apiFileContent, setApiFileContent] = useState("");
+  const [apiPatches, setApiPatches] = useState<ApiPatch[]>([]);
+  const [apiActions, setApiActions] = useState<ApiAction[]>([]);
+  const [derivedToolCalls, setDerivedToolCalls] = useState<ToolCall[]>([]);
   const [patchStatus, setPatchStatus] = useState<
     "waiting_review" | "success" | "failed" | "revised"
   >("waiting_review");
@@ -85,6 +93,35 @@ export function InspectorPanel({
       }
     : activeMockFile;
 
+  // Determine which patch to show in DiffPanel
+  const activePatch = apiPatches[0] ?? null;
+
+  // Derive tool calls from events
+  useEffect(() => {
+    const calls: ToolCall[] = events
+      .filter((e) => e.eventType === "tool_call" || e.eventType === "tool_result")
+      .map((e) => ({
+        id: e.id,
+        action: e.eventType === "tool_call" ? e.message : "",
+        observation: e.eventType === "tool_result" ? e.message : "",
+        status: e.status,
+      }));
+    // Merge paired tool_call/tool_result events
+    const merged: ToolCall[] = [];
+    const byPrefix = new Map<string, ToolCall>();
+    for (const call of calls) {
+      const base = call.id.replace(/_(call|result)$/, "");
+      if (byPrefix.has(base)) {
+        const existing = byPrefix.get(base)!;
+        if (call.action) existing.action = call.action;
+        if (call.observation) existing.observation = call.observation;
+      } else {
+        byPrefix.set(base, { ...call });
+      }
+    }
+    setDerivedToolCalls([...byPrefix.values()]);
+  }, [events]);
+
   useEffect(() => {
     let cancelled = false;
     Promise.all([fetchArtifacts(runId), fetchFiles(runId)])
@@ -94,6 +131,12 @@ export function InspectorPanel({
         setApiFiles(files);
         if (files[0]?.path) setActiveFileId(files[0].path);
       })
+      .catch(() => {});
+    fetchPatches(runId)
+      .then((patches) => { if (!cancelled) setApiPatches(patches as ApiPatch[]); })
+      .catch(() => {});
+    fetchRunActions(runId)
+      .then((actions) => { if (!cancelled) setApiActions(actions); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [refreshToken, runId]);
@@ -117,6 +160,8 @@ export function InspectorPanel({
         id: file.id,
         label: file.path.split("/").pop() ?? file.path,
       }));
+
+  const pendingRunnerAction = apiActions.find((a) => a.status === "pending");
 
   return (
     <aside className="inspector">
@@ -160,39 +205,81 @@ export function InspectorPanel({
         )}
 
         {activeTab === "diff" && (
-          <DiffPanel
-            patchFile={patchPreview.file}
-            oldCode={patchPreview.oldCode}
-            newCode={patchPreview.newCode}
-            patchStatus={patchStatus}
-            onApprove={() => setPatchStatus("success")}
-            onReject={() => setPatchStatus("failed")}
-            onRevise={() => setPatchStatus("revised")}
-          />
+          activePatch ? (
+            <DiffPanel
+              patchFile={activePatch.path}
+              oldCode={activePatch.old_content}
+              newCode={activePatch.new_content}
+              patchStatus={patchStatus}
+              onApprove={() => setPatchStatus("success")}
+              onReject={() => setPatchStatus("failed")}
+              onRevise={() => setPatchStatus("revised")}
+            />
+          ) : (
+            <DiffPanel
+              patchFile={patchPreview.file}
+              oldCode={patchPreview.oldCode}
+              newCode={patchPreview.newCode}
+              patchStatus={patchStatus}
+              onApprove={() => setPatchStatus("success")}
+              onReject={() => setPatchStatus("failed")}
+              onRevise={() => setPatchStatus("revised")}
+            />
+          )
         )}
 
         {activeTab === "runner" && (
-          <RunnerPanel
-            approvalRequest={approvalRequest}
-            runnerReview={runnerReview}
-            runnerStatus={runnerStatus}
-            runnerMessage={runnerMessage}
-            onApprove={() => {
-              setRunnerStatus("success");
-              setRunnerMessage("Approved. Preview runner recorded a successful bounded smoke test.");
-            }}
-            onEdit={() => {
-              setRunnerStatus("revised");
-              setRunnerMessage("Edited command to python main.py --help for a safer first check.");
-            }}
-            onReject={() => {
-              setRunnerStatus("failed");
-              setRunnerMessage("Rejected. No command will run until the plan is revised.");
-            }}
-          />
+          pendingRunnerAction ? (
+            <RunnerPanel
+              approvalRequest={{
+                id: pendingRunnerAction.action_id,
+                agent: pendingRunnerAction.agent,
+                tool: pendingRunnerAction.tool,
+                command: pendingRunnerAction.command,
+                risk: pendingRunnerAction.risk,
+                reason: pendingRunnerAction.reason,
+              }}
+              runnerReview={runnerReview}
+              runnerStatus={runnerStatus}
+              runnerMessage={runnerMessage}
+              onApprove={() => {
+                setRunnerStatus("success");
+                setRunnerMessage("Approved. Runner recorded a successful bounded smoke test.");
+              }}
+              onEdit={() => {
+                setRunnerStatus("revised");
+                setRunnerMessage("Edited command for a safer first check.");
+              }}
+              onReject={() => {
+                setRunnerStatus("failed");
+                setRunnerMessage("Rejected. No command will run until the plan is revised.");
+              }}
+            />
+          ) : (
+            <RunnerPanel
+              approvalRequest={approvalRequest}
+              runnerReview={runnerReview}
+              runnerStatus={runnerStatus}
+              runnerMessage={runnerMessage}
+              onApprove={() => {
+                setRunnerStatus("success");
+                setRunnerMessage("Approved. Preview runner recorded a successful bounded smoke test.");
+              }}
+              onEdit={() => {
+                setRunnerStatus("revised");
+                setRunnerMessage("Edited command to python main.py --help for a safer first check.");
+              }}
+              onReject={() => {
+                setRunnerStatus("failed");
+                setRunnerMessage("Rejected. No command will run until the plan is revised.");
+              }}
+            />
+          )
         )}
 
-        {activeTab === "tools" && <ToolCallPanel toolCalls={toolCalls} />}
+        {activeTab === "tools" && (
+          <ToolCallPanel toolCalls={derivedToolCalls.length ? derivedToolCalls : mockToolCalls} />
+        )}
 
         {activeTab === "logs" && <LogsPanel events={events} />}
 

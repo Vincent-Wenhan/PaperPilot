@@ -12,14 +12,12 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 
 @router.get("/{run_id}", response_model=list[FileNode])
 def list_files(run_id: str) -> list[FileNode]:
-    del run_id
-    return file_service.list_files()
+    return file_service.list_files(run_id=run_id)
 
 
 @router.get("/{run_id}/content", response_model=FileContent)
 def read_file_content(run_id: str, path: str = Query(..., min_length=1)) -> FileContent:
-    del run_id
     try:
-        return file_service.read_content(path)
+        return file_service.read_content(path, run_id=run_id)
     except (FileNotFoundError, PermissionError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

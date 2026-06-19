@@ -6,8 +6,14 @@ from fastapi import APIRouter, HTTPException
 
 from backend.schemas import PatchApplyResult, PatchProposal, PatchProposeRequest
 from backend.services.patch_service import patch_service
+from backend.services.run_service import run_service
 
 router = APIRouter(prefix="/api/patches", tags=["patches"])
+
+
+@router.get("/{run_id}", response_model=list[PatchProposal])
+def list_patches(run_id: str) -> list[PatchProposal]:
+    return patch_service.list_patches(run_id=run_id)
 
 
 @router.post("/{run_id}/propose", response_model=PatchProposal)

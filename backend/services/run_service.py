@@ -110,7 +110,7 @@ class InMemoryRunService:
             self._actions[run_id] = [
                 action.model_copy(
                     update={
-                        "action_id": f"act_{run_id}_smoke_test",
+                        "action_id": f"act_{uuid4().hex[:12]}",
                         "run_id": run_id,
                     }
                 )

@@ -19,6 +19,7 @@ type CenterWorkspaceProps = {
   timelineEvents: AgentEvent[];
   chatMessages: Array<{ role: "agent" | "user"; text: string }>;
   approvalStatus: "pending" | "approved" | "edited" | "rejected";
+  runStatus: WorkflowStatus;
   graphNodes?: GraphNodeData[];
   onTogglePlanStep: (stepId: string) => void;
   onApprovePlan: () => void;
@@ -36,6 +37,7 @@ export function CenterWorkspace({
   timelineEvents,
   chatMessages,
   approvalStatus,
+  runStatus,
   graphNodes,
   onTogglePlanStep,
   onApprovePlan,
@@ -45,6 +47,7 @@ export function CenterWorkspace({
   onContinueRun,
   onUpdateApproval,
 }: CenterWorkspaceProps) {
+  const approvalCopy = getApprovalCopy(runStatus, approvalStatus);
   return (
     <section className="center-workspace">
       <div className="workspace-toolbar">
@@ -173,21 +176,35 @@ export function CenterWorkspace({
             <ShieldCheck size={18} />
           </div>
           <div className="approval-summary">
-            <code>python main.py --smoke-test</code>
-            <p>
-              Medium-risk generated-code check. Current decision:
-              {" "}
-              <strong>{approvalStatus}</strong>.
-            </p>
+            <code>{approvalCopy.command}</code>
+            <p>{approvalCopy.message}</p>
           </div>
           <div className="action-row">
-            <button className="command-button primary" type="button" onClick={() => onUpdateApproval("approved")}>
+            <button
+              className="command-button primary"
+              type="button"
+              onClick={() => onUpdateApproval("approved")}
+              disabled
+              title="No backend command approval is pending."
+            >
               Approve
             </button>
-            <button className="command-button" type="button" onClick={() => onUpdateApproval("edited")}>
+            <button
+              className="command-button"
+              type="button"
+              onClick={() => onUpdateApproval("edited")}
+              disabled
+              title="No backend command approval is pending."
+            >
               Edit
             </button>
-            <button className="command-button" type="button" onClick={() => onUpdateApproval("rejected")}>
+            <button
+              className="command-button"
+              type="button"
+              onClick={() => onUpdateApproval("rejected")}
+              disabled
+              title="No backend command approval is pending."
+            >
               Reject
             </button>
           </div>
@@ -199,4 +216,40 @@ export function CenterWorkspace({
 
 function ChatBubble({ role, text }: { role: "agent" | "user"; text: string }) {
   return <div className={`chat-bubble ${role}`}>{text}</div>;
+}
+
+function getApprovalCopy(
+  runStatus: WorkflowStatus,
+  approvalStatus: "pending" | "approved" | "edited" | "rejected",
+) {
+  if (runStatus === "running") {
+    return {
+      command: "waiting for backend agent stage",
+      message:
+        "No command approval is pending. The backend agent is still running; artifacts appear after the pipeline finishes.",
+    };
+  }
+  if (runStatus === "waiting_review") {
+    return {
+      command: "review generated report and code",
+      message:
+        "The run finished with review items. Open Artifacts, Logs, or Code to inspect the generated output.",
+    };
+  }
+  if (runStatus === "success") {
+    return {
+      command: "pipeline complete",
+      message: "The run completed successfully. Generated artifacts are available in the inspector.",
+    };
+  }
+  if (runStatus === "failed") {
+    return {
+      command: "pipeline failed",
+      message: "The run failed. Open Logs to inspect the backend error before retrying.",
+    };
+  }
+  return {
+    command: "no active backend approval",
+    message: `Current local decision: ${approvalStatus}. Create a backend run to receive live approval requests.`,
+  };
 }

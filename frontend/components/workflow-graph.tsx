@@ -123,6 +123,7 @@ export function WorkflowGraph({ nodes: graphNodes, edges: graphEdges }: Workflow
     : computeEdges((graphNodes ?? []).map((n) => n.id))
   ).map((edge) => ({
     ...edge,
+    type: "smoothstep",
     animated: edge.target === "review" || edge.target === "revision",
     className: "workflow-edge",
   }));
@@ -136,8 +137,11 @@ export function WorkflowGraph({ nodes: graphNodes, edges: graphEdges }: Workflow
           nodeTypes={nodeTypes}
           onNodeClick={onNodeClick}
           fitView
+          fitViewOptions={{ padding: 0.18, minZoom: 0.55, maxZoom: 0.9 }}
           minZoom={0.55}
           maxZoom={1.35}
+          nodesDraggable={false}
+          nodesConnectable={false}
         >
           <Background gap={18} size={1} />
           <MiniMap pannable zoomable />

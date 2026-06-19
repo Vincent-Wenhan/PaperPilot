@@ -94,10 +94,15 @@ class GraphService:
         events: list[Any],
     ) -> list[dict[str, Any]]:
         node_defs = NODE_MAP.get(run_mode, NODE_MAP["reproduce"])["nodes"]
+        node_order = [node_id for node_id, _label, _agent in node_defs]
+        node_index = {node_id: index for index, node_id in enumerate(node_order)}
         event_by_node: dict[str, list[Any]] = {}
         for evt in events:
             node = getattr(evt, "node", "unknown")
             event_by_node.setdefault(node, []).append(evt)
+            mapped_node = self._node_from_event(run_mode, evt)
+            if mapped_node and mapped_node != node:
+                event_by_node.setdefault(mapped_node, []).append(evt)
 
         nodes: list[dict[str, Any]] = []
         for node_id, label, agent in node_defs:
@@ -152,6 +157,7 @@ class GraphService:
                     issues=issues,
                 ).to_dict()
             )
+        self._advance_progression(nodes, node_index, event_by_node)
         return nodes
 
     @staticmethod
@@ -170,6 +176,102 @@ class GraphService:
         if latest_status in ("success", "failed", "waiting_review", "revised"):
             return latest_status
         return "pending"
+
+    @staticmethod
+    def _node_from_event(run_mode: str, event: Any) -> str:
+        """Map coarse runtime events to graph nodes.
+
+        The pipeline currently emits human-readable `agent_progress` events from
+        legacy agents. Until every agent emits structured node ids, the graph
+        derives the node from stable stage names in those messages.
+        """
+        raw_node = str(getattr(event, "node", "") or "")
+        if raw_node in {"run_intake", "input_review"}:
+            return "parse"
+        if raw_node == "planner":
+            return "planning" if run_mode == "reproduce" else "prd"
+        message = str(getattr(event, "message", "") or "").lower()
+        event_type = str(getattr(event, "event_type", "") or "")
+
+        if event_type in {"pipeline_finished", "pipeline_failed"}:
+            return "outputs" if run_mode == "reproduce" else "scaffold"
+
+        if run_mode == "productize":
+            if "capability card" in message:
+                return "capability_cards"
+            if "capability map" in message:
+                return "capability_map"
+            if "composition" in message:
+                return "method_composition"
+            if "jtbd" in message or "job-to-be-done" in message:
+                return "jtbd"
+            if "prd" in message:
+                return "prd"
+            if "mvp" in message or "moscow" in message:
+                return "mvp"
+            if "prototype" in message or "scaffold" in message:
+                return "prototype"
+            if "evaluation" in message or "evaluator" in message:
+                return "evaluation"
+            if "revision" in message:
+                return "revision"
+
+        if "research understanding" in message:
+            return "research_evidence"
+        if "repository cloner" in message or "repository understanding" in message:
+            return "repo_evidence"
+        if "reproduction planner" in message:
+            return "planning"
+        if "command" in message and ("routing" in message or "review" in message):
+            return "command_routing"
+        if "implementation agent" in message or "generating code" in message or "revising code" in message:
+            return "implementation"
+        if "sandbox" in message:
+            return "command_routing"
+        if "code review" in message or "second review" in message or "review verdict" in message:
+            return "review"
+        if "execution" in message or "diagnosis" in message:
+            return "diagnosis"
+        if "report" in message or "output" in message:
+            return "outputs"
+        return raw_node
+
+    @staticmethod
+    def _advance_progression(
+        nodes: list[dict[str, Any]],
+        node_index: dict[str, int],
+        event_by_node: dict[str, list[Any]],
+    ) -> None:
+        active_indices = [
+            node_index[node_id]
+            for node_id in event_by_node
+            if node_id in node_index and event_by_node[node_id]
+        ]
+        if not active_indices:
+            return
+
+        finished_events = [
+            evt
+            for node_events in event_by_node.values()
+            for evt in node_events
+            if str(getattr(evt, "event_type", "") or "") in {"pipeline_finished", "pipeline_failed"}
+        ]
+        if finished_events:
+            final_status = str(getattr(finished_events[-1], "status", "success") or "success")
+            final_index = max(active_indices)
+            for index, node in enumerate(nodes):
+                if index < final_index and node["status"] in {"pending", "running", "waiting_review"}:
+                    node["status"] = "success"
+                elif index == final_index:
+                    node["status"] = final_status
+            return
+
+        latest_index = max(active_indices)
+        for index, node in enumerate(nodes):
+            if index < latest_index and node["status"] in {"pending", "running", "waiting_review"}:
+                node["status"] = "success"
+            elif index == latest_index and node["status"] == "pending":
+                node["status"] = "running"
 
 
 graph_service = GraphService()

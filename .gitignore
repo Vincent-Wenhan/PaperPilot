@@ -101,6 +101,7 @@ CLAUDE.md
 outputs/
 uploads/
 workspace/
+backend/storage/
 generated_product/
 generated_product_backup_*/
 

@@ -657,6 +657,54 @@ h3 {
   background: #f4f6f8;
 }
 
+.workflow-node-card {
+  width: 184px;
+  min-height: 54px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 9px 11px;
+  border-radius: var(--radius);
+  background: inherit;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.workflow-node-card strong,
+.workflow-node-card small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-node-card small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.node-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.node-badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.node-badge.issue {
+  border-color: rgba(190, 70, 60, 0.36);
+  color: var(--red);
+}
+
 .workflow-edge {
   stroke: var(--border-strong);
 }

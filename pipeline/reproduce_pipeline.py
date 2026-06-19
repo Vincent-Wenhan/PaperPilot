@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel
@@ -252,6 +254,25 @@ def _save_outputs(
         ),
     ):
         save_output(result, step, writer, content, path)
+    _save_generated_code(result, output_dir)
+
+
+def _save_generated_code(result: PipelineResult, output_dir: Path) -> None:
+    repo_path = str(result.get("generated_repo_path") or "").strip()
+    if not repo_path:
+        return
+    source = Path(repo_path).expanduser().resolve()
+    if not source.is_dir():
+        return
+    destination = output_dir / "code"
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(
+        source,
+        destination,
+        ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", ".git"),
+    )
+    result["generated_code_output_dir"] = str(destination)
 
 
 def _merge_graph_state_into_result(

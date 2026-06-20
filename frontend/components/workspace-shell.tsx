@@ -94,6 +94,9 @@ export function WorkspaceShell() {
   const [runResult, setRunResult] = useState<ApiRunResult | null>(null);
   const [evaluationIssues, setEvaluationIssues] = useState<EvaluationIssue[]>([]);
 
+  const activeRunId = apiRun?.run_id;
+  const activeRunStatus = apiRun?.status;
+  const activeRunMode = apiRun?.mode;
   const currentProject = apiRun?.project_id ?? runForm.project_id;
   const currentMode = apiRun?.mode ?? runForm.mode;
   const currentTask =
@@ -181,16 +184,17 @@ export function WorkspaceShell() {
 
   // Poll running runs
   useEffect(() => {
-    if (!apiRun || apiRun.status !== "running") {
+    if (!activeRunId || activeRunStatus !== "running") {
       return;
     }
+    const runId = activeRunId;
     let cancelled = false;
     async function refreshRun() {
       try {
         const [nextRun, nextEvents, nextGraph] = await Promise.all([
-          fetchRun(apiRun!.run_id),
-          fetchRunEvents(apiRun!.run_id),
-          fetchRunGraph(apiRun!.run_id).catch(() => []),
+          fetchRun(runId),
+          fetchRunEvents(runId),
+          fetchRunGraph(runId).catch(() => []),
         ]);
         if (cancelled) {
           return;
@@ -202,7 +206,7 @@ export function WorkspaceShell() {
         if (nextRun.status !== "running") {
           setNotice(nextRun.summary);
         }
-        fetchRunActions(apiRun!.run_id)
+        fetchRunActions(runId)
           .then((actions) => { if (!cancelled) setApiActions(actions); })
           .catch(() => {});
       } catch (error) {
@@ -218,19 +222,19 @@ export function WorkspaceShell() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [apiRun?.run_id, apiRun?.status]);
+  }, [activeRunId, activeRunStatus]);
 
   // Fetch run result when productize run completes
   useEffect(() => {
-    if (!apiRun || apiRun.mode !== "productize") return;
-    if (apiRun.status !== "success" && apiRun.status !== "waiting_review" && apiRun.status !== "failed") return;
-    fetchRunResult(apiRun.run_id)
+    if (!activeRunId || activeRunMode !== "productize") return;
+    if (activeRunStatus !== "success" && activeRunStatus !== "waiting_review" && activeRunStatus !== "failed") return;
+    fetchRunResult(activeRunId)
       .then((result) => {
         setRunResult(result);
         setEvaluationIssues(issuesFromRunResult(result));
       })
       .catch(() => {});
-  }, [apiRun?.run_id, apiRun?.status, apiRun?.mode]);
+  }, [activeRunId, activeRunMode, activeRunStatus]);
 
   function addTimelineEvent(message: string, status: WorkflowStatus = "running") {
     setTimelineEvents((events) => [

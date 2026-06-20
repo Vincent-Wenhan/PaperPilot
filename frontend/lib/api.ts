@@ -262,7 +262,7 @@ export async function fetchRun(runId: string) {
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`Run API returned ${response.status}`);
+    throw await apiError(response, `Run API returned ${response.status}`);
   }
   return response.json() as Promise<ApiRun>;
 }
@@ -272,7 +272,7 @@ export async function fetchRunEvents(runId: string) {
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`Run events API returned ${response.status}`);
+    throw await apiError(response, `Run events API returned ${response.status}`);
   }
   return response.json() as Promise<ApiEvent[]>;
 }
@@ -282,7 +282,7 @@ export async function fetchRunGraph(runId: string) {
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`Run graph API returned ${response.status}`);
+    throw await apiError(response, `Run graph API returned ${response.status}`);
   }
   return response.json() as Promise<ApiGraphNode[]>;
 }
@@ -335,7 +335,7 @@ export async function fetchRunActions(runId: string) {
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`Run actions API returned ${response.status}`);
+    throw await apiError(response, `Run actions API returned ${response.status}`);
   }
   return response.json() as Promise<ApiAction[]>;
 }
@@ -461,7 +461,7 @@ export async function fetchRunResult(runId: string) {
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`Run result API returned ${response.status}`);
+    throw await apiError(response, `Run result API returned ${response.status}`);
   }
   return response.json() as Promise<ApiRunResult>;
 }

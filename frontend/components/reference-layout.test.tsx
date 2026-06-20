@@ -24,7 +24,8 @@ describe("reference workbench layout", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
   });
 
-  it("exposes the reference global navigation", () => {
+  it("exposes clickable local workbench navigation", async () => {
+    const onNavSelect = vi.fn();
     render(
       <ProjectSidebar
         currentTask="LLM Compiler Design"
@@ -32,7 +33,7 @@ describe("reference workbench layout", () => {
         selectedNavId="paper"
         visibleNavItems={projectNavItems}
         onQueryChange={vi.fn()}
-        onNavSelect={vi.fn()}
+        onNavSelect={onNavSelect}
         onNewRun={vi.fn()}
       />,
     );
@@ -42,7 +43,14 @@ describe("reference workbench layout", () => {
       expect(screen.getByRole("button", { name: label })).toBeVisible();
     }
     expect(screen.getByText("PaperPilot")).toBeVisible();
-    expect(screen.getByText("Pro Plan")).toBeVisible();
+    expect(screen.getByText("Local Workbench")).toBeVisible();
+    expect(screen.queryByText("Pro Plan")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Repos" }));
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(onNavSelect).toHaveBeenCalledWith("repo");
+    expect(onNavSelect).toHaveBeenCalledWith("settings");
   });
 
   it("shows project context, run state, and the primary command", () => {
@@ -64,6 +72,7 @@ describe("reference workbench layout", () => {
     expect(screen.queryByRole("button", { name: "Messages" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New Run" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "New run options" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Local workspace session" })).toBeVisible();
   });
 
   it("opens the inspector on Code and keeps the reference tab set", async () => {

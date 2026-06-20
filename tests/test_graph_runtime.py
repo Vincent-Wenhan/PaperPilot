@@ -8,7 +8,12 @@ from pydantic import ValidationError
 from runtime.checkpointing import build_checkpointer, build_graph_config
 from runtime.collaboration import ReviewIssue
 from runtime.graph_state import ProductizeState, ReproduceState
-from runtime.routing import route_after_evaluation, route_command_plans
+from runtime.routing import (
+    route_after_code_review,
+    route_after_evaluation,
+    route_after_second_review,
+    route_command_plans,
+)
 
 
 class GraphRuntimeTests(unittest.TestCase):
@@ -86,6 +91,31 @@ class GraphRuntimeTests(unittest.TestCase):
                 [{"risk_level": "low"}, {"risk_level": "blocked"}]
             ),
             "blocked",
+        )
+
+    def test_reproduce_code_review_routing_allows_bounded_revisions(self) -> None:
+        revise_state = {
+            "code_review": {"verdict": "revise"},
+            "code_revision_count": 0,
+            "code_max_revisions": 3,
+        }
+        self.assertEqual(route_after_code_review(revise_state), "revise")
+
+        second_revise_state = {
+            "code_second_review": {"verdict": "revise"},
+            "code_revision_count": 1,
+            "code_max_revisions": 3,
+        }
+        self.assertEqual(route_after_second_review(second_revise_state), "revise")
+
+        exhausted_state = {
+            "code_second_review": {"verdict": "revise"},
+            "code_revision_count": 3,
+            "code_max_revisions": 3,
+        }
+        self.assertEqual(
+            route_after_second_review(exhausted_state),
+            "finish_with_warnings",
         )
 
     def test_checkpoint_helpers(self) -> None:

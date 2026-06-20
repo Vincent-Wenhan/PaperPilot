@@ -73,6 +73,10 @@ const defaultRunForm: RunFormState = {
 
 const ACTIVE_RUN_STORAGE_KEY = "paperpilot.activeRunId";
 
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.status === 404;
+}
+
 export function WorkspaceShell() {
   const [apiRun, setApiRun] = useState<ApiRun | null>(null);
   const [timelineEvents, setTimelineEvents] = useState<AgentEvent[]>([]);
@@ -189,6 +193,7 @@ export function WorkspaceShell() {
     if (!storedRunId) {
       return;
     }
+    const restoreRunId = storedRunId;
     let cancelled = false;
     async function restoreRun() {
       try {
@@ -200,12 +205,12 @@ export function WorkspaceShell() {
           restoredCommands,
           restoredResult,
         ] = await Promise.all([
-          fetchRun(storedRunId!),
-          fetchRunEvents(storedRunId!),
-          fetchRunGraph(storedRunId!).catch(() => []),
-          fetchRunActions(storedRunId!).catch(() => []),
-          fetchCommandResults(storedRunId!).catch(() => []),
-          fetchRunResult(storedRunId!).catch(() => null),
+          fetchRun(restoreRunId),
+          fetchRunEvents(restoreRunId),
+          fetchRunGraph(restoreRunId).catch(() => []),
+          fetchRunActions(restoreRunId).catch(() => []),
+          fetchCommandResults(restoreRunId).catch(() => []),
+          fetchRunResult(restoreRunId).catch(() => null),
         ]);
         if (cancelled) {
           return;
@@ -219,8 +224,19 @@ export function WorkspaceShell() {
         setCommandResults(restoredCommands);
         setRunResult(restoredResult);
         setEvaluationIssues(restoredResult ? issuesFromRunResult(restoredResult) : []);
-      } catch {
-        window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        if (isNotFoundError(error)) {
+          clearStaleRun(
+            restoreRunId,
+            `Run ${restoreRunId} is no longer available in the backend process. The backend may have restarted; start a new run or inspect saved outputs on disk.`,
+          );
+          return;
+        }
+        const message = error instanceof Error ? error.message : "restore failed";
+        setNotice(`Could not restore previous run: ${message}`);
       }
     }
     void restoreRun();
@@ -269,6 +285,13 @@ export function WorkspaceShell() {
         }
       } catch (error) {
         if (!cancelled) {
+          if (isNotFoundError(error)) {
+            clearStaleRun(
+              runId,
+              `Run ${runId} is stale because the backend no longer has its state. The running indicator has been cleared.`,
+            );
+            return;
+          }
           const message = error instanceof Error ? error.message : "poll failed";
           setNotice(`Could not refresh run status: ${message}`);
         }
@@ -318,6 +341,50 @@ export function WorkspaceShell() {
     ]);
   }
 
+  function clearStaleRun(runId: string, message: string) {
+    window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
+    setApiRun(null);
+    setApiActions([]);
+    setCommandResults([]);
+    setRunResult(null);
+    setEvaluationIssues([]);
+    setPlanState(planSteps);
+    setNotice(message);
+    setTimelineEvents((events) => [
+      {
+        id: `stale-${Date.now()}`,
+        time: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        agent: "Workbench",
+        eventType: "run_stale",
+        message,
+        status: "failed",
+      },
+      ...events,
+    ]);
+    setGraphNodes((nodes) =>
+      nodes.map((node) =>
+        node.status === "running"
+          ? {
+              ...node,
+              status: "failed",
+              issues: [
+                ...node.issues,
+                {
+                  eventId: `stale-${runId}`,
+                  message,
+                  payload: { runId },
+                },
+              ],
+            }
+          : node,
+      ),
+    );
+  }
+
   function updateRunForm<K extends keyof RunFormState>(
     key: K,
     value: RunFormState[K],
@@ -343,6 +410,47 @@ export function WorkspaceShell() {
     setEvaluationIssues([]);
     setCommandResults([]);
     setApprovalBusyId("");
+  }
+
+  function openNewRun() {
+    resetWorkspace();
+    setNewRunDrawerOpen(true);
+  }
+
+  function handleSidebarNavSelect(id: string) {
+    setSelectedNavId(id);
+    if (id === "project" || id === "run") {
+      setActiveWorkbenchTab("workflow");
+      setNotice(
+        apiRun
+          ? `Showing workflow for ${apiRun.run_id}.`
+          : "No backend run yet. Use New Run to submit a paper and repository.",
+      );
+      return;
+    }
+    if (id === "agents") {
+      setActiveWorkbenchTab("product");
+      setNotice(
+        currentMode === "productize"
+          ? "Showing product-design agent outputs for the active run."
+          : "Agent outputs appear in the workflow and inspector after a run starts.",
+      );
+      return;
+    }
+    if (id === "paper") {
+      setNewRunDrawerOpen(true);
+      setNotice("Paper input is configured in the New Run drawer.");
+      return;
+    }
+    if (id === "repo") {
+      setNewRunDrawerOpen(true);
+      setNotice("Repository input is configured in the New Run drawer.");
+      return;
+    }
+    if (id === "settings") {
+      setNewRunDrawerOpen(true);
+      setNotice("Agent runtime and LLM settings are configured in the New Run drawer.");
+    }
   }
 
   async function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -583,7 +691,7 @@ export function WorkspaceShell() {
     <main className="workbench-shell">
       <TopBar
         run={topBarRun}
-        onNewRun={() => setNewRunDrawerOpen(true)}
+        onNewRun={openNewRun}
         onModeChange={handleModeChange}
       />
 
@@ -594,8 +702,8 @@ export function WorkspaceShell() {
           selectedNavId={selectedNavId}
           visibleNavItems={visibleNavItems}
           onQueryChange={setQuery}
-          onNavSelect={setSelectedNavId}
-          onNewRun={() => setNewRunDrawerOpen(true)}
+          onNavSelect={handleSidebarNavSelect}
+          onNewRun={openNewRun}
         />
 
         <CenterWorkspace
@@ -926,6 +1034,9 @@ function graphNodeFromEvent(event: ApiEvent, mode: RunMode): string {
   }
   if (event.node === "planner") {
     return mode === "reproduce" ? "planning" : "prd";
+  }
+  if (event.node === "runner_execution" || event.node === "runner_review") {
+    return mode === "reproduce" ? "command_routing" : "scaffold";
   }
   if (event.event_type === "pipeline_finished" || event.event_type === "pipeline_failed") {
     return mode === "reproduce" ? "outputs" : "scaffold";

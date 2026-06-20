@@ -32,7 +32,7 @@ class EventService:
         self._subscribers: dict[str, list[Callable[[WorkbenchEvent], None]]] = {}
 
     def _events_path(self, run_id: str) -> Path:
-        _ensure_storage()
+        self._dir.mkdir(parents=True, exist_ok=True)
         return self._dir / f"events_{run_id}.jsonl"
 
     def emit(self, event: WorkbenchEvent) -> WorkbenchEvent:
@@ -67,6 +67,15 @@ class EventService:
                     continue
                 events.append(event)
         return events
+
+    def list_run_ids(self) -> list[str]:
+        self._dir.mkdir(parents=True, exist_ok=True)
+        run_ids: list[str] = []
+        for path in sorted(self._dir.glob("events_*.jsonl")):
+            run_id = path.stem.removeprefix("events_")
+            if run_id:
+                run_ids.append(run_id)
+        return run_ids
 
     def subscribe(self, run_id: str, callback: Callable[[WorkbenchEvent], None]) -> None:
         self._subscribers.setdefault(run_id, []).append(callback)

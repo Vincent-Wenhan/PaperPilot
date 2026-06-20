@@ -299,6 +299,7 @@ def build_reproduce_graph(
         route_after_second_review,
         {
             "accept": "execution_diagnosis",
+            "revise": "code_revise",
             "finish_with_warnings": "execution_diagnosis",
         },
     )

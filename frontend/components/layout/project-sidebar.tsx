@@ -43,14 +43,31 @@ type ProjectSidebarProps = {
 };
 
 const NAV_ITEMS = [
-  { label: "Projects", id: "run", icon: FolderKanban },
+  { label: "Projects", id: "project", icon: FolderKanban },
   { label: "Papers", id: "paper", icon: FileText },
   { label: "Repos", id: "repo", icon: GitFork },
   { label: "Runs", id: "run", icon: CirclePlay },
-  { label: "Agents", id: "product", icon: Bot },
+  { label: "Agents", id: "agents", icon: Bot },
 ] as const;
 
-export function ProjectSidebar({ currentTask, selectedNavId, onNavSelect }: ProjectSidebarProps) {
+export function ProjectSidebar({
+  currentTask,
+  selectedNavId,
+  visibleNavItems,
+  onNavSelect,
+}: ProjectSidebarProps) {
+  const runItem = visibleNavItems.find((item) => item.id === "run");
+  const paperItem = visibleNavItems.find((item) => item.id === "paper");
+  const repoItem = visibleNavItems.find((item) => item.id === "repo");
+  const runLabel =
+    runItem?.label.toLowerCase().includes("no backend run")
+      ? "No active run"
+      : (runItem?.label ?? "No active run");
+  const sourceSummary = [
+    paperItem?.status === "success" ? "PDF ready" : "No PDF",
+    repoItem?.status === "success" ? "Repo ready" : "No repo",
+  ].join(" / ");
+
   return (
     <aside className="navigator" title={currentTask}>
       <div className="sidebar-brand">
@@ -62,10 +79,11 @@ export function ProjectSidebar({ currentTask, selectedNavId, onNavSelect }: Proj
 
       <nav className="nav-section" aria-label="Project navigation">
         <div className="primary-nav">
-          {NAV_ITEMS.map(({ label, id, icon: Icon }, index) => (
+          {NAV_ITEMS.map(({ label, id, icon: Icon }) => (
             <button
               aria-label={label}
-              className={index === 0 ? "global-nav-item active" : "global-nav-item"}
+              aria-current={selectedNavId === id ? "page" : undefined}
+              className={selectedNavId === id ? "global-nav-item active" : "global-nav-item"}
               key={label}
               type="button"
               onClick={() => onNavSelect(id)}
@@ -75,23 +93,34 @@ export function ProjectSidebar({ currentTask, selectedNavId, onNavSelect }: Proj
             </button>
           ))}
         </div>
-        <button className="global-nav-item settings-nav" aria-label="Settings" type="button">
+        <button
+          className={selectedNavId === "settings" ? "global-nav-item settings-nav active" : "global-nav-item settings-nav"}
+          aria-current={selectedNavId === "settings" ? "page" : undefined}
+          aria-label="Settings"
+          type="button"
+          onClick={() => onNavSelect("settings")}
+        >
           <Settings size={18} />
           <span>Settings</span>
         </button>
       </nav>
 
       <div className="sidebar-footer">
-        <section className="plan-usage" aria-label="Plan usage">
-          <strong>Pro Plan</strong>
-          <span><b>12k</b> / 50k credits used</span>
-          <div className="usage-track"><span /></div>
+        <section className="plan-usage" aria-label="Workspace status">
+          <strong>Local Workbench</strong>
+          <span>{runLabel}</span>
+          <small>{sourceSummary}</small>
         </section>
-        <button className="user-profile" type="button" aria-label="Jane Miller profile">
-          <span className="avatar avatar-small">JM</span>
+        <button
+          className="user-profile"
+          type="button"
+          aria-label="Local workspace settings"
+          onClick={() => onNavSelect("settings")}
+        >
+          <span className="avatar avatar-small">PP</span>
           <span className="user-copy">
-            <strong>Jane Miller</strong>
-            <small>jane@acme.ai</small>
+            <strong>Local Session</strong>
+            <small>No cloud billing</small>
           </span>
           <ChevronDown size={15} />
         </button>

@@ -123,6 +123,62 @@ class ReproduceBranchTests(unittest.TestCase):
             "paper-only",
         )
 
+    def test_second_review_can_loop_back_to_code_revision_until_accepted(self) -> None:
+        revision_calls: list[list[str]] = []
+
+        def revise_code(
+            state: dict[str, object],
+            suggestions: list[str],
+        ) -> ImplementationBundle:
+            revision_calls.append(suggestions)
+            return ImplementationBundle(project_name=f"revision_{len(revision_calls)}")
+
+        def second_review(state: dict[str, object]) -> CodeReview:
+            revision_count = int(state.get("code_revision_count") or 0)
+            if revision_count >= 2:
+                return CodeReview(overall_score=4.2, verdict="accept")
+            return CodeReview(
+                overall_score=2.5,
+                verdict="revise",
+                revision_suggestions=["Split the generated method module."],
+            )
+
+        graph = build_reproduce_graph(
+            ReproduceGraphDependencies(
+                parse_paper=lambda path: "paper text",
+                understand_research=lambda text, idea: PaperUnderstanding(title="Paper"),
+                prepare_repository=lambda url: {},
+                understand_repository=lambda research, repo, url: RepositoryUnderstanding(),
+                plan_reproduction=lambda research, repository, inputs: ReproductionPlan(),
+                generate_implementation=lambda state: ImplementationBundle(),
+                review_code=lambda state: CodeReview(
+                    overall_score=2.0,
+                    verdict="revise",
+                    revision_suggestions=["Add paper-specific modules."],
+                ),
+                revise_code=revise_code,
+                diagnose_execution=lambda plan, results: ExecutionDiagnosis(),
+                sandbox_verify=_sandbox_pass,
+                second_review_code=second_review,
+                build_outputs=lambda state: {},
+            )
+        )
+
+        state = graph.invoke(
+            {
+                "pdf_path": "paper.pdf",
+                "github_url": "",
+                "graph_trace": [],
+                "errors": [],
+                "command_results": [],
+                "code_max_revisions": 2,
+            }
+        )
+
+        self.assertEqual(len(revision_calls), 2)
+        self.assertEqual(state["code_revision_count"], 2)
+        self.assertEqual(state["code_second_review"]["verdict"], "accept")
+
 
 class ReproduceRiskRoutingTests(unittest.TestCase):
     def _run(self, commands: list[CommandPlan]) -> dict[str, object]:

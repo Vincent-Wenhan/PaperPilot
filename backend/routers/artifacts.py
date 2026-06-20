@@ -19,9 +19,13 @@ def list_artifacts(run_id: str) -> list[ArtifactSummary]:
     run = run_service.get_run(run_id)
     if run is not None and run_id != "run_mock_reproduce":
         prefixes = []
-        pdf_path = run.inputs.get("pdf_path", "")
-        if pdf_path:
-            prefixes.append(f"outputs/{Path(pdf_path).stem.replace(' ', '_')[:80]}")
+        reproduce_output_dir = str(run.result_summary.get("reproduce_output_dir") or "")
+        if reproduce_output_dir:
+            prefixes.append(reproduce_output_dir)
+        else:
+            pdf_path = run.inputs.get("pdf_path", "")
+            if pdf_path:
+                prefixes.append(f"outputs/{Path(pdf_path).stem.replace(' ', '_')[:80]}")
         product_output_dir = str(run.result_summary.get("product_output_dir") or "")
         if product_output_dir:
             prefixes.append(product_output_dir)

@@ -58,8 +58,8 @@ export function TopBar({ run, onNewRun, onModeChange }: TopBarProps) {
         </button>
       </div>
 
-      <button className="profile-menu" aria-label="User menu" type="button">
-        <span className="avatar">JM</span>
+      <button className="profile-menu" aria-label="Local workspace session" type="button">
+        <span className="avatar">PP</span>
         <ChevronDown size={15} />
       </button>
     </header>

@@ -23,10 +23,36 @@ STATIC_BLUEPRINT_PATHS = {
     "tests/test_dataflow.py",
     "requirements.txt",
 }
+UNACTIONABLE_MODULE_NAMES = {
+    "fallback",
+    "mock",
+    "n_a",
+    "none",
+    "not_analyzed",
+    "placeholder",
+    "unavailable",
+    "unknown",
+}
+UNACTIONABLE_MODULE_PHRASES = (
+    "llm not called",
+    "mock mode",
+    "no valid llm",
+    "not analyzed",
+    "paper text was unavailable",
+    "placeholder",
+    "unavailable",
+)
 
 
 def _safe_project_name(title: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
+    if (
+        cleaned in UNACTIONABLE_MODULE_NAMES
+        or "fallback_analysis" in cleaned
+        or "mock_analysis" in cleaned
+        or "valid_llm_result_unavailable" in cleaned
+    ):
+        return "paperpilot_reproduction"
     return cleaned or "paperpilot_reproduction"
 
 
@@ -66,6 +92,25 @@ def _module_blueprint_file(
         required_symbols=[symbol],
         test_relevance=f"Dataflow test imports {symbol} and verifies smoke behavior.",
     )
+
+
+def _is_actionable_method_module(module: MethodModule) -> bool:
+    name = module.name.strip()
+    if not name:
+        return False
+    normalized = _safe_module_stem(name, 0)
+    if normalized in UNACTIONABLE_MODULE_NAMES:
+        return False
+    searchable = " ".join(
+        [
+            module.name,
+            module.purpose,
+            *module.mechanism,
+            *module.implementation_notes,
+            *module.evidence,
+        ]
+    ).lower()
+    return not any(phrase in searchable for phrase in UNACTIONABLE_MODULE_PHRASES)
 
 
 def _simple_assignment_target_names(target: ast.expr) -> set[str]:
@@ -145,9 +190,12 @@ def build_implementation_blueprint(
     ]
 
     used_paths = set(STATIC_BLUEPRINT_PATHS)
+    actionable_modules = [
+        module for module in paper.method_modules if _is_actionable_method_module(module)
+    ]
     module_files = [
         _module_blueprint_file(module, index, used_paths)
-        for index, module in enumerate(paper.method_modules[:3], start=1)
+        for index, module in enumerate(actionable_modules[:3], start=1)
     ]
     if not module_files:
         module_files = [

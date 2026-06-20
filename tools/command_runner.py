@@ -164,7 +164,12 @@ def run_command_review(
                 blocked_reason=reason,
             )
 
-    raw = run_command(command, cwd, timeout)
+    raw = run_command(
+        command,
+        cwd,
+        timeout,
+        require_allowlist=mode == "safe",
+    )
     return CommandResult(
         command=raw.get("command", command),
         mode=mode,
@@ -288,9 +293,18 @@ def run_command(
     command: str,
     cwd: str | Path,
     timeout: int = 120,
+    *,
+    require_allowlist: bool = True,
 ) -> dict[str, Any]:
-    """Run one allowlisted command with a timeout and captured output."""
-    safe, reason = is_safe_command(command)
+    """Run one command with a timeout and captured output.
+
+    By default this enforces the exact safe allowlist. Reviewed commands pass
+    ``require_allowlist=False`` after risk routing and explicit user approval.
+    """
+    if require_allowlist:
+        safe, reason = is_safe_command(command)
+    else:
+        safe, reason = _passes_shell_safety(command)
     resolved_cwd = Path(cwd).expanduser().resolve()
     base_result: dict[str, Any] = {
         "command": command,
@@ -342,6 +356,21 @@ def run_command(
         "stderr": result.stderr[-MAX_OUTPUT_CHARS:],
         "success": result.returncode == 0,
     }
+
+
+def _passes_shell_safety(command: str) -> tuple[bool, str]:
+    if not command or not command.strip():
+        return False, "Command cannot be empty."
+    normalized = " ".join(command.lower().split())
+    if any(pattern in normalized for pattern in FORBIDDEN_PATTERNS):
+        return False, "Command contains explicitly prohibited dangerous operations."
+    if any(token in command for token in FORBIDDEN_TOKENS):
+        return False, "Command contains prohibited shell control characters."
+    try:
+        shlex.split(command, posix=True)
+    except ValueError as exc:
+        return False, f"Command parsing failed: {exc}"
+    return True, "Command passed reviewed-command shell safety check."
 
 
 def run_sandbox_verification(

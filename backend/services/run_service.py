@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from pathlib import Path
@@ -22,7 +23,7 @@ from backend.schemas import (
     WorkbenchEvent,
 )
 from backend.services.command_service import command_service
-from backend.services.event_service import event_service
+from backend.services.event_service import STORAGE_DIR, event_service
 from backend.services.patch_service import patch_service
 from backend.services.workbench_mock import (
     build_mock_actions,
@@ -33,6 +34,10 @@ from backend.services.workbench_mock import (
 from config import PROJECT_ROOT
 from tools.command_runner import plan_command
 from tools.llm_client import LLMClient
+
+
+RUN_STATE_PATH = STORAGE_DIR / "run_state.json"
+MOCK_RUN_ID = "run_mock_reproduce"
 
 
 REPRODUCE_PLAN = [
@@ -68,7 +73,217 @@ class InMemoryRunService:
         self._events: dict[str, list[WorkbenchEvent]] = {}
         self._actions: dict[str, list[ActionRequest]] = {}
         self._results: dict[str, dict[str, Any]] = {}
+        self._state_path = RUN_STATE_PATH
+        self._load_state()
+        self._recover_runs_from_events()
         self.seed_mock_run()
+
+    def _load_state(self) -> None:
+        if not self._state_path.is_file():
+            return
+        try:
+            payload = json.loads(self._state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+
+        runs = payload.get("runs") if isinstance(payload, dict) else {}
+        if isinstance(runs, dict):
+            for run_id, raw_run in runs.items():
+                try:
+                    run = RunRecord.model_validate(raw_run)
+                except Exception:
+                    continue
+                self._runs[str(run_id)] = run
+                self._events[str(run_id)] = event_service.list_events(str(run_id))
+
+        actions = payload.get("actions") if isinstance(payload, dict) else {}
+        if isinstance(actions, dict):
+            for run_id, raw_actions in actions.items():
+                if not isinstance(raw_actions, list):
+                    continue
+                parsed_actions: list[ActionRequest] = []
+                for raw_action in raw_actions:
+                    try:
+                        parsed_actions.append(ActionRequest.model_validate(raw_action))
+                    except Exception:
+                        continue
+                self._actions[str(run_id)] = parsed_actions
+
+        results = payload.get("results") if isinstance(payload, dict) else {}
+        if isinstance(results, dict):
+            for run_id, result in results.items():
+                if isinstance(result, dict):
+                    self._results[str(run_id)] = result
+
+    def _recover_runs_from_events(self) -> None:
+        for run_id in event_service.list_run_ids():
+            if run_id == MOCK_RUN_ID:
+                continue
+            events = event_service.list_events(run_id)
+            if not events:
+                continue
+            if run_id in self._runs:
+                self._events[run_id] = events
+                self._actions.setdefault(run_id, [])
+                continue
+            run = self._run_record_from_events(run_id, events)
+            self._runs[run_id] = run
+            self._events[run_id] = events
+            self._actions[run_id] = self._actions_from_events(run_id, events)
+            if run.result_summary and run_id not in self._results:
+                self._results[run_id] = deepcopy(run.result_summary)
+        with self._lock:
+            self._persist_state_locked()
+
+    def _run_record_from_events(
+        self,
+        run_id: str,
+        events: list[WorkbenchEvent],
+    ) -> RunRecord:
+        first = events[0]
+        last = events[-1]
+        mode = self._mode_from_events(events)
+        result_summary = (
+            deepcopy(last.payload)
+            if last.event_type in {"pipeline_finished", "pipeline_failed"}
+            else {}
+        )
+        inputs = self._inputs_from_events(events)
+        return RunRecord(
+            run_id=run_id,
+            project_id="paperpilot_workspace",
+            mode=mode,
+            status=last.status,
+            task=self._task_from_events(events, mode),
+            created_at=first.created_at,
+            updated_at=last.created_at,
+            summary=last.message,
+            inputs=inputs,
+            result_summary=result_summary,
+            plan=REPRODUCE_PLAN if mode == "reproduce" else PRODUCTIZE_PLAN,
+        )
+
+    @staticmethod
+    def _mode_from_events(events: list[WorkbenchEvent]) -> str:
+        haystack = " ".join(
+            f"{event.node} {event.message}".lower()
+            for event in events
+        )
+        return "productize" if "productize" in haystack else "reproduce"
+
+    @staticmethod
+    def _task_from_events(events: list[WorkbenchEvent], mode: str) -> str:
+        for event in events:
+            if "task:" in event.message:
+                return event.message.split("task:", 1)[1].strip()
+        return (
+            "Restored Productize run from durable event history."
+            if mode == "productize"
+            else "Restored Reproduce run from durable event history."
+        )
+
+    @staticmethod
+    def _inputs_from_events(events: list[WorkbenchEvent]) -> dict[str, str]:
+        for event in events:
+            raw_inputs = event.payload.get("inputs")
+            if isinstance(raw_inputs, dict):
+                return {str(key): str(value) for key, value in raw_inputs.items()}
+        for event in events:
+            paper = event.payload.get("paper")
+            repository = event.payload.get("repository")
+            if paper or repository:
+                return {
+                    "pdf_path": str(paper or ""),
+                    "github_url": str(repository or ""),
+                }
+        return {}
+
+    @staticmethod
+    def _actions_from_events(
+        run_id: str,
+        events: list[WorkbenchEvent],
+    ) -> list[ActionRequest]:
+        actions: dict[str, ActionRequest] = {}
+        for event in events:
+            if event.event_type == "human_review_required":
+                try:
+                    action = ActionRequest.model_validate(event.payload)
+                except Exception:
+                    continue
+                actions[action.action_id] = action
+            elif event.event_type == "action_approved":
+                action_id = str(event.payload.get("action_id") or "")
+                if action_id in actions:
+                    actions[action_id] = actions[action_id].model_copy(
+                        update={"status": "approved"}
+                    )
+            elif event.event_type == "action_rejected":
+                action_id = str(event.payload.get("action_id") or "")
+                if action_id in actions:
+                    actions[action_id] = actions[action_id].model_copy(
+                        update={"status": "rejected"}
+                    )
+            elif event.event_type in {
+                "action_execution_succeeded",
+                "action_execution_failed",
+                "action_policy_blocked",
+            }:
+                action_id = str(event.payload.get("action_id") or "")
+                if action_id not in actions:
+                    continue
+                execution_status = str(
+                    event.payload.get("execution_status") or "failed"
+                )
+                if execution_status not in {
+                    "not_started",
+                    "running",
+                    "succeeded",
+                    "failed",
+                    "blocked",
+                }:
+                    execution_status = "failed"
+                actions[action_id] = actions[action_id].model_copy(
+                    update={
+                        "execution_status": execution_status,
+                        "execution_result": event.payload.get("result") or {},
+                    }
+                )
+        return [
+            action.model_copy(update={"run_id": run_id})
+            for action in actions.values()
+        ]
+
+    def _persist_state_locked(self) -> None:
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "runs": {
+                    run_id: run.model_dump(mode="json")
+                    for run_id, run in self._runs.items()
+                    if run_id != MOCK_RUN_ID
+                },
+                "actions": {
+                    run_id: [
+                        action.model_dump(mode="json")
+                        for action in actions
+                    ]
+                    for run_id, actions in self._actions.items()
+                    if run_id != MOCK_RUN_ID
+                },
+                "results": {
+                    run_id: result
+                    for run_id, result in self._results.items()
+                    if run_id != MOCK_RUN_ID
+                },
+            }
+            tmp_path = self._state_path.with_suffix(".json.tmp")
+            tmp_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+                encoding="utf-8",
+            )
+            tmp_path.replace(self._state_path)
+        except OSError:
+            return
 
     def seed_mock_run(self) -> RunRecord:
         """Register the mock workbench run so action endpoints can mutate it."""
@@ -113,10 +328,14 @@ class InMemoryRunService:
             inputs=self._inputs_from_request(request),
             plan=plan,
         )
+        events = self._build_run_events(run)
         with self._lock:
             self._runs[run_id] = run
-            self._events[run_id] = self._build_run_events(run)
+            self._events[run_id] = events
             self._actions[run_id] = []
+            self._persist_state_locked()
+        for event in events:
+            event_service.emit(event)
         if start_pipeline:
             self._executor.submit(self.run_pipeline_now, run_id, request)
         return deepcopy(run)
@@ -249,6 +468,7 @@ class InMemoryRunService:
                             }
                         )
                         actions[index] = updated
+                        self._persist_state_locked()
                         result = deepcopy(updated)
                         break
                 else:
@@ -293,6 +513,7 @@ class InMemoryRunService:
                 }
             )
             self._actions[updated.run_id][index] = updated
+            self._persist_state_locked()
 
         self._append_event(
             updated.run_id,
@@ -582,6 +803,7 @@ class InMemoryRunService:
                 }
             )
             self._actions[updated.run_id][index] = updated
+            self._persist_state_locked()
             response = ActionExecutionResult(
                 action=deepcopy(updated),
                 message=message,
@@ -673,6 +895,7 @@ class InMemoryRunService:
             if self._actions.get(run_id):
                 return []
             self._actions[run_id] = deepcopy(actions)
+            self._persist_state_locked()
 
         for action in actions:
             self._append_event(
@@ -888,11 +1111,13 @@ class InMemoryRunService:
                 }
             )
             self._runs[run_id] = updated
+            self._persist_state_locked()
             return deepcopy(updated)
 
     def _store_result(self, run_id: str, result: dict[str, Any]) -> None:
         with self._lock:
             self._results[run_id] = deepcopy(result)
+            self._persist_state_locked()
 
     @staticmethod
     def _status_from_pipeline(pipeline_status: str) -> str:
@@ -914,8 +1139,34 @@ class InMemoryRunService:
             "report_ready": bool(result.get("report")),
             "run_script_ready": bool(result.get("run_sh")),
             "generated_files": len(result.get("generated_files") or []),
+            "reproduce_output_dir": InMemoryRunService._relative_output_dir(result),
+            "generated_code_output_dir": InMemoryRunService._relative_path(
+                str(result.get("generated_code_output_dir") or "")
+            ),
             "product_output_dir": str(scaffold.get("output_dir") or ""),
         }
+
+    @staticmethod
+    def _relative_output_dir(result: dict[str, Any]) -> str:
+        output_files = result.get("output_files")
+        if not isinstance(output_files, dict):
+            return ""
+        for key in ("report", "reproduction_plan", "run_script"):
+            raw_path = str(output_files.get(key) or "").strip()
+            if raw_path:
+                return InMemoryRunService._relative_path(str(Path(raw_path).parent))
+        return ""
+
+    @staticmethod
+    def _relative_path(raw_path: str) -> str:
+        if not raw_path.strip():
+            return ""
+        path = Path(raw_path).expanduser()
+        resolved = path.resolve() if path.is_absolute() else (PROJECT_ROOT / path).resolve()
+        try:
+            return resolved.relative_to(PROJECT_ROOT).as_posix()
+        except ValueError:
+            return str(resolved)
 
     @staticmethod
     def _summary_from_result(
@@ -941,6 +1192,7 @@ class InMemoryRunService:
                     if action.action_id == action_id:
                         updated = action.model_copy(update={"status": status})
                         actions[index] = updated
+                        self._persist_state_locked()
                         return deepcopy(updated)
         return None
 

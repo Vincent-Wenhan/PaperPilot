@@ -159,6 +159,64 @@ class CodeQualityTests(unittest.TestCase):
         self.assertIn("missing_blueprint_files", quality["issue_codes"])
         self.assertIn("blueprint", quality["metrics"])
 
+    def test_fallback_artifact_names_fail_minimum_quality(self) -> None:
+        bundle = ImplementationBundle(
+            project_name="fallback_analysis_valid_llm_result_unavailable",
+            summary="Valid LLM result unavailable.",
+            smoke_test_command="python main.py --smoke-test",
+            files=[
+                GeneratedCodeFile(
+                    path="README.md",
+                    purpose="docs",
+                    content="# Reproduction\n",
+                ),
+                GeneratedCodeFile(
+                    path="config.py",
+                    purpose="configuration",
+                    content="DEFAULT_SEED = 7\nHARDWARE_TARGET = 'CPU'\n",
+                ),
+                GeneratedCodeFile(
+                    path="unavailable.py",
+                    purpose="fallback method",
+                    content=(
+                        "class MiniModel:\n"
+                        "    def run(self) -> float:\n"
+                        "        return 1.0\n\n"
+                        "def run_unavailable() -> dict:\n"
+                        "    return {'status': 'ok'}\n"
+                    ),
+                ),
+                GeneratedCodeFile(
+                    path="main.py",
+                    purpose="entry",
+                    content=(
+                        "from unavailable import run_unavailable\n\n"
+                        "def main() -> None:\n"
+                        "    print(run_unavailable()['status'])\n"
+                    ),
+                ),
+                GeneratedCodeFile(
+                    path="tests/test_dataflow.py",
+                    purpose="tests",
+                    content=(
+                        "from unavailable import run_unavailable\n\n"
+                        "def test_smoke_dataflow() -> None:\n"
+                        "    assert run_unavailable()['status'] == 'ok'\n"
+                    ),
+                ),
+                GeneratedCodeFile(
+                    path="requirements.txt",
+                    purpose="dependencies",
+                    content="# standard library only\n",
+                ),
+            ],
+        )
+
+        quality = assess_implementation_quality(bundle)
+
+        self.assertIn("unavailable_fallback_artifact", quality["issue_codes"])
+        self.assertFalse(quality["passes_minimum_quality"])
+
     def test_quality_gate_forces_revision_when_review_accepts_thin_code(self) -> None:
         review = CodeReview(
             overall_score=4.8,

@@ -89,6 +89,30 @@ class ImplementationBlueprintTests(unittest.TestCase):
         self.assertTrue(blueprint.quality_requirements)
         self.assertTrue(blueprint.forbidden_patterns)
 
+    def test_fallback_research_module_does_not_become_unavailable_file(self) -> None:
+        blueprint = build_implementation_blueprint(
+            PaperUnderstanding(
+                title="Fallback analysis - valid LLM result unavailable",
+                method_modules=[
+                    MethodModule(
+                        name="Unavailable",
+                        purpose="No valid LLM paper analysis is available.",
+                        evidence=["No valid LLM analysis was available."],
+                    )
+                ],
+                end_to_end_dataflow=["Not analyzed."],
+            ),
+            RepositoryUnderstanding(),
+            ReproductionPlan(),
+            hardware="CPU only",
+            goal="minimal training experiment",
+        )
+
+        paths = {item.path for item in blueprint.files}
+        self.assertEqual(blueprint.project_name, "paperpilot_reproduction")
+        self.assertNotIn("unavailable.py", paths)
+        self.assertIn("model.py", paths)
+
     def test_module_file_paths_are_unique_and_do_not_collide_with_static_files(
         self,
     ) -> None:

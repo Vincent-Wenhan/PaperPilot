@@ -16,11 +16,14 @@ PLACEHOLDER_PATTERNS = (
     re.compile(r"\.\.\."),
 )
 GENERIC_TEXT_PATTERNS = (
+    "fallback analysis",
     "generic placeholder",
     "mock reproduction",
     "real paper method remains unimplemented",
     "add paper-specific dependencies",
+    "valid llm result unavailable",
 )
+UNAVAILABLE_FALLBACK_PATHS = {"unavailable.py"}
 
 
 def _normalized_paths(bundle: ImplementationBundle) -> list[str]:
@@ -107,6 +110,18 @@ def assess_implementation_quality(
         issue_codes.append("generic_template_language")
         issues.append("Generated content still contains generic scaffold language.")
         suggestions.append("Use paper-specific module names, dataflow, and validation descriptions.")
+    if (
+        any(path in UNAVAILABLE_FALLBACK_PATHS for path in paths)
+        or "fallback_analysis" in bundle.project_name.lower()
+        or "valid_llm_result_unavailable" in bundle.project_name.lower()
+    ):
+        issue_codes.append("unavailable_fallback_artifact")
+        issues.append(
+            "Generated implementation still contains an unavailable/fallback artifact name."
+        )
+        suggestions.append(
+            "Regenerate paper-specific module names and replace unavailable.py with the planned method module."
+        )
 
     complexity = {"functions": 0, "classes": 0}
     for item in python_files:
@@ -138,6 +153,7 @@ def assess_implementation_quality(
     score -= 0.6 if "missing_entrypoint" in issue_codes else 0.0
     score -= 0.6 if "missing_python" in issue_codes else 0.0
     score -= 0.5 if "thin_single_file" in issue_codes else 0.0
+    score -= 0.8 if "unavailable_fallback_artifact" in issue_codes else 0.0
     if has_config:
         score += 0.2
     if has_requirements:
@@ -166,6 +182,7 @@ def assess_implementation_quality(
                 "placeholder_body",
                 "missing_python",
                 "missing_tests",
+                "unavailable_fallback_artifact",
             }.intersection(issue_codes)
             and bool(blueprint_quality["passes_blueprint_coverage"])
         ),

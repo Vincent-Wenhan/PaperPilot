@@ -82,6 +82,7 @@ from tools.resource_links import extract_resource_links
 
 PipelineResult = dict[str, Any]
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
+DEFAULT_CODE_MAX_REVISIONS = 2
 
 
 def _record_error(result: PipelineResult, step: str, error: object) -> None:
@@ -158,6 +159,10 @@ def _initial_result() -> PipelineResult:
         "execution_diagnosis": {},
         "implementation_blueprint": {},
         "implementation_bundle": {},
+        "code_review": {},
+        "code_second_review": {},
+        "code_revision_count": 0,
+        "code_max_revisions": DEFAULT_CODE_MAX_REVISIONS,
         "blueprint_quality": {},
         "code_quality": {},
         "implementation_model": "",
@@ -292,9 +297,50 @@ def _merge_graph_state_into_result(
     result["command_route"] = state.get("command_route") or "safe"
     result["pending_human_review"] = state.get("pending_human_review")
     result["command_results"] = list(state.get("command_results") or [])
+    result["code_review"] = state.get("code_review") or {}
+    result["code_second_review"] = state.get("code_second_review") or {}
+    result["code_revision_count"] = int(state.get("code_revision_count") or 0)
+    result["code_max_revisions"] = int(
+        state.get("code_max_revisions") or DEFAULT_CODE_MAX_REVISIONS
+    )
     result["graph_trace"] = list(state.get("graph_trace") or [])
     result["errors"].extend(state.get("errors") or [])
     _refresh_rendered_result_fields(result)
+
+
+def _record_final_code_quality_status(
+    result: PipelineResult,
+    state: dict[str, Any],
+    *,
+    generate_code: bool,
+    goal: str,
+) -> None:
+    """Make exhausted code-review failures visible in the run result."""
+    if not generate_code or goal == "understand paper":
+        return
+
+    review = state.get("code_second_review") or state.get("code_review") or {}
+    quality = result.get("code_quality") or {}
+    verdict = str(review.get("verdict") or "").lower()
+    revision_count = int(state.get("code_revision_count") or 0)
+    max_revisions = int(state.get("code_max_revisions") or DEFAULT_CODE_MAX_REVISIONS)
+    exhausted = revision_count >= max_revisions
+    quality_failed = quality and not bool(quality.get("passes_minimum_quality", True))
+    if not exhausted or (verdict in {"", "accept"} and not quality_failed):
+        return
+
+    score = review.get("overall_score") or quality.get("overall_score")
+    problems = list(review.get("detected_problems") or quality.get("issues") or [])
+    detail = (
+        f"Generated code did not pass review after "
+        f"{revision_count}/{max_revisions} revision attempts"
+    )
+    if score is not None:
+        detail += f" (score: {score})"
+    if problems:
+        detail += ": " + "; ".join(str(item) for item in problems[:3])
+    if detail not in result["errors"]:
+        _record_error(result, "Code Quality Gate", detail)
 
 
 def _refresh_rendered_result_fields(result: PipelineResult) -> None:
@@ -751,6 +797,7 @@ def run_reproduce_pipeline(
             review_input,
             fallback=lambda: CodeReviewAgent(client).build_mock(review_input),
         )
+        review = _merge_quality_into_review(review, result.get("code_quality") or {})
         progress(f"Second review verdict: {review.verdict} (score: {review.overall_score})")
         return review
 
@@ -773,7 +820,12 @@ def run_reproduce_pipeline(
         state: dict[str, Any],
         revision_suggestions: list[str],
     ) -> ImplementationBundle:
-        progress("Reproduction Implementation Agent revising code with review feedback")
+        revision_count = int(state.get("code_revision_count") or 0)
+        max_revisions = int(state.get("code_max_revisions") or DEFAULT_CODE_MAX_REVISIONS)
+        progress(
+            "Reproduction Implementation Agent revising code with review feedback "
+            f"(attempt {revision_count + 1}/{max_revisions})"
+        )
         blueprint = ImplementationBlueprint.model_validate(
             result.get("implementation_blueprint") or {}
         )
@@ -945,7 +997,7 @@ def run_reproduce_pipeline(
                 "generate_code": generate_code,
                 "implementation_model": implementation_model,
                 "code_revision_count": 0,
-                "code_max_revisions": 1,
+                "code_max_revisions": DEFAULT_CODE_MAX_REVISIONS,
                 "command_results": [],
                 "graph_trace": [],
                 "errors": [],
@@ -977,6 +1029,12 @@ def run_reproduce_pipeline(
         result["hitl_content"] = render_interrupt_content(result, interrupt_node)
         return result
 
+    _record_final_code_quality_status(
+        result,
+        state,
+        generate_code=generate_code,
+        goal=goal,
+    )
     _finalize_status(result, client)
     if missing_paper_text:
         result["pipeline_status"] = "failed"

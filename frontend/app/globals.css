@@ -1416,6 +1416,19 @@ body {
 .plan-usage strong,
 .plan-usage b { color: var(--accent); }
 
+.plan-usage span,
+.plan-usage small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-usage small {
+  font-size: 10px;
+  color: var(--muted);
+}
+
 .usage-track {
   height: 5px;
   overflow: hidden;

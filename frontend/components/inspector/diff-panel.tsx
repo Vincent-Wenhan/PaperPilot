@@ -10,9 +10,9 @@ type DiffPanelProps = {
   oldCode: string;
   newCode: string;
   patchStatus: WorkflowStatus;
-  onApprove: () => void;
-  onReject: () => void;
-  onRevise: () => void;
+  onApprove?: () => void;
+  onReject?: () => void;
+  onRevise?: () => void;
 };
 
 function statusToStep(s: WorkflowStatus): "proposed" | "applied" | "rejected" {
@@ -48,18 +48,24 @@ export function DiffPanel({
         onReject={onReject}
         onRevise={onRevise}
       />
-      {patchStatus !== "success" && patchStatus !== "failed" && (
+      {patchStatus !== "success" && patchStatus !== "failed" && (onApprove || onReject || onRevise) && (
         <div className="action-row">
-          <button className="command-button primary" type="button" onClick={onApprove}>
-            <Check size={15} />
-            Approve Patch
-          </button>
-          <button className="command-button" type="button" onClick={onReject}>
-            Reject
-          </button>
-          <button className="command-button" type="button" onClick={onRevise}>
-            Ask Revision
-          </button>
+          {onApprove && (
+            <button className="command-button primary" type="button" onClick={onApprove}>
+              <Check size={15} />
+              Approve Patch
+            </button>
+          )}
+          {onReject && (
+            <button className="command-button" type="button" onClick={onReject}>
+              Reject
+            </button>
+          )}
+          {onRevise && (
+            <button className="command-button" type="button" onClick={onRevise}>
+              Ask Revision
+            </button>
+          )}
         </div>
       )}
     </div>

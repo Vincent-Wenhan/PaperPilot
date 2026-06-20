@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, MessageSquare, Play } from "lucide-react";
+import { ChevronDown, ChevronRight, Play } from "lucide-react";
 import { StatusPill } from "@/components/status-pill";
 import type { WorkflowStatus } from "@/lib/mock-data";
 
@@ -51,17 +51,10 @@ export function TopBar({ run, onNewRun, onModeChange }: TopBarProps) {
         <span>{run.elapsed ?? "00:00:00"}</span>
       </div>
 
-      <button className="icon-button topbar-icon" aria-label="Messages" title="Messages" type="button">
-        <MessageSquare size={17} />
-      </button>
-
       <div className="new-run-group">
         <button className="command-button primary" type="button" onClick={onNewRun}>
           <Play size={16} fill="currentColor" />
           <span>New Run</span>
-        </button>
-        <button className="new-run-menu" aria-label="New run options" type="button">
-          <ChevronDown size={15} />
         </button>
       </div>
 

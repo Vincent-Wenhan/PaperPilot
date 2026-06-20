@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Circle, Filter } from "lucide-react";
+import { CheckCircle2, Circle } from "lucide-react";
 import { StatusPill } from "@/components/status-pill";
 import type { AgentEvent } from "@/lib/mock-data";
 
@@ -13,12 +13,6 @@ export function ActivityPanel({ events }: ActivityPanelProps) {
     <section className="activity-panel" aria-label="Activity">
       <div className="panel-heading">
         <h2>Activity</h2>
-        <div className="activity-actions">
-          <button className="filter-button" type="button">
-            <Filter size={13} /> All Events
-          </button>
-          <button className="clear-button" type="button">Clear</button>
-        </div>
       </div>
       <div className="timeline">
         {events.length === 0 && (

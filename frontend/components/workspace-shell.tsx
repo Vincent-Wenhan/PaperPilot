@@ -20,10 +20,12 @@ import {
   type EvaluationIssue,
 } from "@/components/productize/evaluation-issues";
 import {
-  approveAction,
+  ApiRequestError,
   createRun,
   editAction,
   eventFromApi,
+  executeAction,
+  fetchCommandResults,
   fetchLlmConfig,
   fetchRun,
   fetchRunActions,
@@ -35,13 +37,13 @@ import {
   testLlmConnection,
   uploadPdf,
   type ApiAction,
+  type ApiCommandRunResult,
   type ApiEvent,
   type ApiGraphNode,
   type ApiRun,
   type ApiRunResult,
 } from "@/lib/api";
 import {
-  agentEvents,
   planSteps,
   type AgentEvent,
   type PlanStep,
@@ -73,7 +75,7 @@ const ACTIVE_RUN_STORAGE_KEY = "paperpilot.activeRunId";
 
 export function WorkspaceShell() {
   const [apiRun, setApiRun] = useState<ApiRun | null>(null);
-  const [timelineEvents, setTimelineEvents] = useState<AgentEvent[]>(agentEvents);
+  const [timelineEvents, setTimelineEvents] = useState<AgentEvent[]>([]);
   const [graphNodes, setGraphNodes] = useState<ApiGraphNode[]>([]);
   const [runForm, setRunForm] = useState<RunFormState>(defaultRunForm);
   const [creatingRun, setCreatingRun] = useState(false);
@@ -82,10 +84,6 @@ export function WorkspaceShell() {
   const [query, setQuery] = useState("");
   const [selectedNavId, setSelectedNavId] = useState("run");
   const [planState, setPlanState] = useState(planSteps);
-  const [chatMessages, setChatMessages] = useState<
-    Array<{ role: "agent" | "user"; text: string }>
-  >([]);
-  const [chatInput, setChatInput] = useState("");
   const [apiActions, setApiActions] = useState<ApiAction[]>([]);
   const [notice, setNotice] = useState(
     "Upload a PDF and configure agent settings, then create a backend run.",
@@ -99,10 +97,11 @@ export function WorkspaceShell() {
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<WorkbenchTabId>("workflow");
   const [runResult, setRunResult] = useState<ApiRunResult | null>(null);
   const [evaluationIssues, setEvaluationIssues] = useState<EvaluationIssue[]>([]);
+  const [commandResults, setCommandResults] = useState<ApiCommandRunResult[]>([]);
+  const [approvalBusyId, setApprovalBusyId] = useState("");
 
   const activeRunId = apiRun?.run_id;
   const activeRunStatus = apiRun?.status;
-  const activeRunMode = apiRun?.mode;
   const currentProject = apiRun?.project_id ?? runForm.project_id;
   const currentMode = apiRun?.mode ?? runForm.mode;
   const currentTask =
@@ -135,32 +134,31 @@ export function WorkspaceShell() {
     return haystack.includes(query.toLowerCase());
   });
   const pendingApprovalActions: PendingAction[] = apiActions
-    .filter((action) => action.status === "pending")
+    .filter((action) => action.status === "pending" || action.status === "edited")
     .map((action) => ({
       id: action.action_id,
       runId: action.run_id,
       agent: action.agent,
       type: action.tool === "apply_patch" ? "apply_patch" : "run_command",
-      risk: action.risk === "low" ? "safe" : "review",
+      risk:
+        action.risk === "blocked"
+          ? "blocked"
+          : action.execution_mode === "sandbox"
+            ? "sandbox"
+            : action.risk === "low"
+              ? "safe"
+              : "review",
       reason: action.reason,
-      payload: { command: action.command },
+      payload: {
+        command: action.edited_command || action.command,
+        cwd: action.cwd,
+        path: action.path,
+        patchId: action.patch_id,
+      },
       status: action.status,
+      executionStatus: action.execution_status,
     }));
-  const displayedApprovalActions: PendingAction[] = pendingApprovalActions.length
-    ? pendingApprovalActions
-    : !apiRun
-      ? [{
-          id: "preview-approval",
-          runId: "preview-run",
-          agent: "Prototype Builder",
-          type: "apply_patch",
-          risk: "review",
-          reason: "Implement prototype scaffold and API endpoints.",
-          payload: { command: "git apply prototype.patch" },
-          status: "pending",
-        }]
-      : [];
-  const displayedChatMessages = buildChatMessages(timelineEvents, chatMessages);
+  const displayedApprovalActions: PendingAction[] = pendingApprovalActions;
 
   // Load persisted LLM config on mount
   useEffect(() => {
@@ -179,6 +177,12 @@ export function WorkspaceShell() {
       });
   }, []);
 
+  useEffect(() => {
+    if (pendingApprovalActions.length > 0) {
+      setApprovalOpen(true);
+    }
+  }, [pendingApprovalActions.length]);
+
   // Restore active run from localStorage
   useEffect(() => {
     const storedRunId = window.localStorage.getItem(ACTIVE_RUN_STORAGE_KEY);
@@ -188,10 +192,20 @@ export function WorkspaceShell() {
     let cancelled = false;
     async function restoreRun() {
       try {
-        const [restoredRun, restoredEvents, restoredGraph] = await Promise.all([
+        const [
+          restoredRun,
+          restoredEvents,
+          restoredGraph,
+          restoredActions,
+          restoredCommands,
+          restoredResult,
+        ] = await Promise.all([
           fetchRun(storedRunId!),
           fetchRunEvents(storedRunId!),
           fetchRunGraph(storedRunId!).catch(() => []),
+          fetchRunActions(storedRunId!).catch(() => []),
+          fetchCommandResults(storedRunId!).catch(() => []),
+          fetchRunResult(storedRunId!).catch(() => null),
         ]);
         if (cancelled) {
           return;
@@ -201,9 +215,10 @@ export function WorkspaceShell() {
         setGraphNodes(enrichGraphFromEvents(restoredGraph, restoredEvents, restoredRun.mode));
         setPlanState(planForRunStatus(restoredRun));
         setNotice(restoredRun.summary);
-        fetchRunActions(storedRunId!)
-          .then((actions) => { if (!cancelled) setApiActions(actions); })
-          .catch(() => {});
+        setApiActions(restoredActions);
+        setCommandResults(restoredCommands);
+        setRunResult(restoredResult);
+        setEvaluationIssues(restoredResult ? issuesFromRunResult(restoredResult) : []);
       } catch {
         window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
       }
@@ -223,10 +238,20 @@ export function WorkspaceShell() {
     let cancelled = false;
     async function refreshRun() {
       try {
-        const [nextRun, nextEvents, nextGraph] = await Promise.all([
+        const [
+          nextRun,
+          nextEvents,
+          nextGraph,
+          nextActions,
+          nextCommands,
+          nextResult,
+        ] = await Promise.all([
           fetchRun(runId),
           fetchRunEvents(runId),
           fetchRunGraph(runId).catch(() => []),
+          fetchRunActions(runId).catch(() => []),
+          fetchCommandResults(runId).catch(() => []),
+          fetchRunResult(runId).catch(() => null),
         ]);
         if (cancelled) {
           return;
@@ -235,12 +260,13 @@ export function WorkspaceShell() {
         setTimelineEvents(nextEvents.map(eventFromApi));
         setGraphNodes(enrichGraphFromEvents(nextGraph, nextEvents, nextRun.mode));
         setPlanState(planForRunStatus(nextRun));
+        setApiActions(nextActions);
+        setCommandResults(nextCommands);
+        setRunResult(nextResult);
+        setEvaluationIssues(nextResult ? issuesFromRunResult(nextResult) : []);
         if (nextRun.status !== "running") {
           setNotice(nextRun.summary);
         }
-        fetchRunActions(runId)
-          .then((actions) => { if (!cancelled) setApiActions(actions); })
-          .catch(() => {});
       } catch (error) {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : "poll failed";
@@ -256,17 +282,23 @@ export function WorkspaceShell() {
     };
   }, [activeRunId, activeRunStatus]);
 
-  // Fetch run result when productize run completes
+  // Fetch durable outputs when a run reaches a review or terminal state.
   useEffect(() => {
-    if (!activeRunId || activeRunMode !== "productize") return;
+    if (!activeRunId) return;
     if (activeRunStatus !== "success" && activeRunStatus !== "waiting_review" && activeRunStatus !== "failed") return;
-    fetchRunResult(activeRunId)
-      .then((result) => {
+    Promise.all([
+      fetchRunResult(activeRunId).catch(() => null),
+      fetchCommandResults(activeRunId).catch(() => []),
+      fetchRunActions(activeRunId).catch(() => []),
+    ])
+      .then(([result, commands, actions]) => {
         setRunResult(result);
-        setEvaluationIssues(issuesFromRunResult(result));
+        setCommandResults(commands);
+        setApiActions(actions);
+        setEvaluationIssues(result ? issuesFromRunResult(result) : []);
       })
       .catch(() => {});
-  }, [activeRunId, activeRunMode, activeRunStatus]);
+  }, [activeRunId, activeRunStatus]);
 
   function addTimelineEvent(message: string, status: WorkflowStatus = "running") {
     setTimelineEvents((events) => [
@@ -309,6 +341,8 @@ export function WorkspaceShell() {
     setNotice("New workspace ready. Upload a PDF and create a backend run.");
     setRunResult(null);
     setEvaluationIssues([]);
+    setCommandResults([]);
+    setApprovalBusyId("");
   }
 
   async function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -373,10 +407,12 @@ export function WorkspaceShell() {
             : "Productize the submitted research into a mock-first MVP."),
         run_pipeline: true,
       });
-      const [runEvents, runGraph, runActions] = await Promise.all([
+      const [runEvents, runGraph, runActions, runCommands, initialResult] = await Promise.all([
         fetchRunEvents(run.run_id).catch(() => []),
         fetchRunGraph(run.run_id).catch(() => []),
         fetchRunActions(run.run_id).catch(() => []),
+        fetchCommandResults(run.run_id).catch(() => []),
+        fetchRunResult(run.run_id).catch(() => null),
       ]);
       setApiRun(run);
       window.localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, run.run_id);
@@ -386,12 +422,13 @@ export function WorkspaceShell() {
         runEvents.length ? runEvents.map(eventFromApi) : eventsFromRun(run),
       );
       setApiActions(runActions ?? []);
+      setCommandResults(runCommands);
       setSelectedNavId("run");
       setNotice(`Started backend run ${run.run_id}. Agent progress will update here.`);
       setNewRunDrawerOpen(false);
       setActiveWorkbenchTab("workflow");
-      setRunResult(null);
-      setEvaluationIssues([]);
+      setRunResult(initialResult);
+      setEvaluationIssues(initialResult ? issuesFromRunResult(initialResult) : []);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown API error";
       setNotice(`Could not create backend run: ${message}`);
@@ -450,119 +487,96 @@ export function WorkspaceShell() {
     setNotice("Plan step toggled.");
   }
 
-  function askAgent() {
-    const text =
-      chatInput.trim() || "@terminal explain why the run is waiting for approval";
-    setChatMessages((messages) => [
-      ...messages,
-      { role: "user", text },
-      {
-        role: "agent",
-        text: apiRun
-          ? "I am showing backend run events for this workspace. Use Event Stream and Logs for live agent progress."
-          : "Create a backend run first so the chat can reference real PaperPilot events.",
-      },
-    ]);
-    setChatInput("");
-    setNotice("Agent response added to the chat panel.");
-  }
-
-  async function updateApproval(nextStatus: "approved" | "edited" | "rejected") {
-    const pendingActions = apiActions.filter((a) => a.status === "pending");
-    const target = pendingActions[0];
+  async function handleApproveAction(actionId: string) {
+    const target = apiActions.find((a) => a.action_id === actionId);
     if (!target) {
-      setNotice("No pending actions to approve, edit, or reject.");
+      setNotice("Action is no longer available.");
       return;
     }
+    setApprovalBusyId(actionId);
     try {
-      if (nextStatus === "approved") {
-        await approveAction(target.action_id);
-        setApiActions((prev) =>
-          prev.map((a) =>
-            a.action_id === target.action_id ? { ...a, status: "approved" } : a,
-          ),
-        );
-      } else if (nextStatus === "edited") {
-        await editAction(target.action_id, target.command);
-        setApiActions((prev) =>
-          prev.map((a) =>
-            a.action_id === target.action_id ? { ...a, status: "edited" } : a,
-          ),
-        );
-      } else {
-        await rejectAction(target.action_id);
-        setApiActions((prev) =>
-          prev.map((a) =>
-            a.action_id === target.action_id ? { ...a, status: "rejected" } : a,
-          ),
-        );
-      }
-      setNotice(`Action ${nextStatus}: ${target.command}`);
-      addTimelineEvent(`Action ${nextStatus}: ${target.command}`, "success");
+      const result = await executeAction(actionId);
+      setNotice(result.message);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "action failed";
-      setNotice(`Action ${nextStatus} failed: ${message}`);
-      addTimelineEvent(`Action ${nextStatus} failed: ${message}`, "failed");
+      setNotice(`Action execution did not complete: ${describeActionError(error)}`);
+    } finally {
+      await refreshCurrentRun(target.run_id, { quiet: true });
+      setApprovalBusyId("");
     }
   }
 
-  async function refreshCurrentRun(runId: string) {
-    setNotice("Refreshing backend run state...");
+  async function handleEditAction(actionId: string, command: string) {
+    const target = apiActions.find((a) => a.action_id === actionId);
+    if (!target) {
+      setNotice("Action is no longer available.");
+      return;
+    }
+    setApprovalBusyId(actionId);
     try {
-      const [nextRun, nextEvents, nextGraph] = await Promise.all([
+      await editAction(actionId, command);
+      setNotice("Command edit saved. Review and approve it again before execution.");
+    } catch (error) {
+      setNotice(`Action edit failed: ${describeActionError(error)}`);
+    } finally {
+      await refreshCurrentRun(target.run_id, { quiet: true });
+      setApprovalBusyId("");
+    }
+  }
+
+  async function handleRejectAction(actionId: string) {
+    const target = apiActions.find((a) => a.action_id === actionId);
+    if (!target) {
+      setNotice("Action is no longer available.");
+      return;
+    }
+    setApprovalBusyId(actionId);
+    try {
+      await rejectAction(actionId);
+      setNotice("Action rejected. No command or patch was executed.");
+    } catch (error) {
+      setNotice(`Action rejection failed: ${describeActionError(error)}`);
+    } finally {
+      await refreshCurrentRun(target.run_id, { quiet: true });
+      setApprovalBusyId("");
+    }
+  }
+
+  async function refreshCurrentRun(runId: string, options: { quiet?: boolean } = {}) {
+    if (!options.quiet) {
+      setNotice("Refreshing backend run state...");
+    }
+    try {
+      const [
+        nextRun,
+        nextEvents,
+        nextGraph,
+        nextActions,
+        nextCommands,
+        nextResult,
+      ] = await Promise.all([
         fetchRun(runId),
         fetchRunEvents(runId),
         fetchRunGraph(runId).catch(() => []),
+        fetchRunActions(runId).catch(() => []),
+        fetchCommandResults(runId).catch(() => []),
+        fetchRunResult(runId).catch(() => null),
       ]);
       setApiRun(nextRun);
       window.localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, nextRun.run_id);
       setTimelineEvents(nextEvents.map(eventFromApi));
       setGraphNodes(enrichGraphFromEvents(nextGraph, nextEvents, nextRun.mode));
       setPlanState(planForRunStatus(nextRun));
-      setNotice(nextRun.summary);
-      fetchRunActions(runId)
-        .then(setApiActions)
-        .catch(() => {});
+      setApiActions(nextActions);
+      setCommandResults(nextCommands);
+      setRunResult(nextResult);
+      setEvaluationIssues(nextResult ? issuesFromRunResult(nextResult) : []);
+      if (!options.quiet) {
+        setNotice(nextRun.summary);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "refresh failed";
       setNotice(`Could not refresh backend run state: ${message}`);
     }
-  }
-
-  function handleReduceScope(issueId: string) {
-    setEvaluationIssues((prev) =>
-      prev.map((issue) =>
-        issue.id === issueId ? { ...issue, status: "accepted" as const } : issue,
-      ),
-    );
-    setNotice(`Evaluation issue ${issueId}: scope reduction accepted.`);
-  }
-
-  function handleRevisePrd(issueId: string) {
-    setEvaluationIssues((prev) =>
-      prev.map((issue) =>
-        issue.id === issueId ? { ...issue, status: "revised" as const } : issue,
-      ),
-    );
-    setNotice(`Evaluation issue ${issueId}: PRD revision requested.`);
-  }
-
-  function handleRevisePrototype(issueId: string) {
-    setEvaluationIssues((prev) =>
-      prev.map((issue) =>
-        issue.id === issueId ? { ...issue, status: "revised" as const } : issue,
-      ),
-    );
-    setNotice(`Evaluation issue ${issueId}: prototype revision requested.`);
-  }
-
-  function handleAcceptWarning(issueId: string) {
-    setEvaluationIssues((prev) =>
-      prev.map((issue) =>
-        issue.id === issueId ? { ...issue, status: "accepted" as const } : issue,
-      ),
-    );
-    setNotice(`Evaluation issue ${issueId}: warning accepted.`);
   }
 
   return (
@@ -589,54 +603,41 @@ export function WorkspaceShell() {
           notice={notice}
           planState={planState}
           timelineEvents={timelineEvents}
-          chatMessages={displayedChatMessages}
           runStatus={apiRun?.status ?? "pending"}
+          hasRun={Boolean(apiRun)}
           graphNodes={graphNodes}
           activeTab={activeWorkbenchTab}
           onTabChange={setActiveWorkbenchTab}
           onTogglePlanStep={togglePlanStep}
           onApprovePlan={approvePlan}
-          onAskAgent={askAgent}
-          onChatInputChange={setChatInput}
-          chatInput={chatInput}
           onContinueRun={continueRun}
           evaluationIssues={evaluationIssues}
-          onReduceScope={handleReduceScope}
-          onRevisePrd={handleRevisePrd}
-          onRevisePrototype={handleRevisePrototype}
-          onAcceptWarning={handleAcceptWarning}
         />
 
         <InspectorPanel
           events={timelineEvents}
           refreshToken={apiRun?.updated_at ?? ""}
-          runId={apiRun?.run_id ?? "run_mock_reproduce"}
+          runId={apiRun?.run_id ?? ""}
           runStatus={apiRun?.status ?? "pending"}
+          preview={false}
         />
       </section>
 
       <BottomDock
         events={timelineEvents}
-        resultSummary={runResult as Record<string, unknown> | null}
+        commandResults={formatCommandResults(commandResults)}
+        resultSummary={buildResultSummary(runResult, apiActions, commandResults)}
         runId={apiRun?.run_id}
       />
 
       <ActionApprovalDrawer
         open={approvalOpen && displayedApprovalActions.length > 0}
         actions={displayedApprovalActions}
+        busyActionId={approvalBusyId}
         onClose={() => setApprovalOpen(false)}
-        onApprove={() => {
-          void updateApproval("approved");
-          setApprovalOpen(false);
-        }}
-        onEdit={() => {
-          void updateApproval("edited");
-          setApprovalOpen(false);
-        }}
-        onReject={() => {
-          void updateApproval("rejected");
-          setApprovalOpen(false);
-        }}
+        onApprove={(id) => void handleApproveAction(id)}
+        onEdit={(id, command) => void handleEditAction(id, command)}
+        onReject={(id) => void handleRejectAction(id)}
       />
 
       <RunIntakeDrawer
@@ -756,25 +757,6 @@ function planForRunStatus(run: ApiRun): PlanStep[] {
   return planFromRun(run);
 }
 
-function buildChatMessages(
-  events: AgentEvent[],
-  manualMessages: Array<{ role: "agent" | "user"; text: string }>,
-) {
-  const eventMessages = events.slice(-5).map((event) => ({
-    role: "agent" as const,
-    text: `${event.agent}: ${event.message}`,
-  }));
-  if (!eventMessages.length && !manualMessages.length) {
-    return [
-      {
-        role: "agent" as const,
-        text: "Start a backend run to see artifact-aware agent context here.",
-      },
-    ];
-  }
-  return [...eventMessages, ...manualMessages];
-}
-
 function eventsFromRun(run: ApiRun) {
   const timestamp = new Date().toLocaleTimeString([], {
     hour: "2-digit",
@@ -809,6 +791,77 @@ function eventsFromRun(run: ApiRun) {
       status: "waiting_review" as const,
     },
   ];
+}
+
+function describeActionError(error: unknown): string {
+  if (error instanceof ApiRequestError) {
+    if (typeof error.detail === "object" && error.detail !== null) {
+      const detail = error.detail as Record<string, unknown>;
+      if (typeof detail.message === "string") {
+        return detail.message;
+      }
+      if (typeof detail.blocked_reason === "string") {
+        return detail.blocked_reason;
+      }
+    }
+    return error.message || `API returned ${error.status}`;
+  }
+  return error instanceof Error ? error.message : "action failed";
+}
+
+function formatCommandResults(results: ApiCommandRunResult[]): string {
+  if (!results.length) {
+    return "";
+  }
+  return results
+    .map((result, index) => {
+      const lines = [
+        `$ ${result.command}`,
+        `cwd: ${result.cwd}`,
+        `mode: ${result.mode}`,
+        `risk: ${result.risk_level}`,
+        `executed: ${String(result.executed)}`,
+        `exit_code: ${result.exit_code ?? "not available"}`,
+      ];
+      if (result.blocked_reason) {
+        lines.push(`blocked_reason: ${result.blocked_reason}`);
+      }
+      if (result.stdout) {
+        lines.push("", "stdout:", result.stdout.trimEnd());
+      }
+      if (result.stderr) {
+        lines.push("", "stderr:", result.stderr.trimEnd());
+      }
+      return [`# Command result ${index + 1}`, ...lines].join("\n");
+    })
+    .join("\n\n");
+}
+
+function buildResultSummary(
+  runResult: ApiRunResult | null,
+  actions: ApiAction[],
+  commands: ApiCommandRunResult[],
+): Record<string, unknown> | null {
+  if (!runResult && !actions.length && !commands.length) {
+    return null;
+  }
+  return {
+    run: runResult,
+    actions: actions.map((action) => ({
+      action_id: action.action_id,
+      tool: action.tool,
+      status: action.status,
+      execution_status: action.execution_status,
+      command: action.edited_command || action.command || undefined,
+      cwd: action.cwd || undefined,
+      patch_id: action.patch_id || undefined,
+      path: action.path || undefined,
+      result: Object.keys(action.execution_result ?? {}).length
+        ? action.execution_result
+        : undefined,
+    })),
+    commands,
+  };
 }
 
 function enrichGraphFromEvents(

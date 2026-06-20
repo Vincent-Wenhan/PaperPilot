@@ -56,22 +56,7 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
         self.assertGreater(len(events), 0)
         self.assertIn("papers/custom.pdf", " ".join(event.message for event in events))
         self.assertNotIn("train.py, eval.py", " ".join(event.message for event in events))
-        action = service.list_actions(run.run_id)[0]
-
-        approved = service.approve_action(action.action_id)
-        self.assertIsNotNone(approved)
-        self.assertEqual(approved.status, "approved")
-
-        edited = service.edit_action(
-            action.action_id,
-            ActionEditRequest(
-                edited_command="python main.py --help",
-                reason="Use an even safer command",
-            ),
-        )
-        self.assertIsNotNone(edited)
-        self.assertEqual(edited.status, "edited")
-        self.assertEqual(edited.edited_command, "python main.py --help")
+        self.assertEqual(service.list_actions(run.run_id), [])
 
     def test_run_service_can_execute_reproduce_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -115,6 +100,196 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
                 service.get_result(run.run_id)["pipeline_status"],
                 "complete",
             )
+
+    def test_pipeline_output_creates_real_command_action(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "paper.pdf"
+            pdf.write_bytes(b"%PDF-1.4 mock paper")
+            service = InMemoryRunService()
+            request = RunCreateRequest(
+                mode="reproduce",
+                project_id="project_agents",
+                task="Run generated smoke check",
+                pdf_path=str(pdf),
+                mock_mode=True,
+                run_pipeline=False,
+            )
+            run = service.create_run(request)
+
+            with patch.object(
+                InMemoryRunService,
+                "_execute_reproduce",
+                return_value={
+                    "pipeline_status": "complete",
+                    "implementation_bundle": {
+                        "smoke_test_command": "python --version",
+                    },
+                    "generated_files": [{"path": "main.py"}],
+                    "errors": [],
+                    "llm_attempts": 0,
+                    "llm_failures": 0,
+                },
+            ):
+                completed = service.run_pipeline_now(run.run_id, request)
+
+            self.assertIsNotNone(completed)
+            self.assertEqual(completed.status, "waiting_review")
+            actions = service.list_actions(run.run_id)
+            self.assertEqual(len(actions), 1)
+            action = actions[0]
+            self.assertEqual(action.tool, "run_command")
+            self.assertEqual(action.command, "python --version")
+            self.assertEqual(action.cwd, ".")
+            self.assertEqual(action.execution_mode, "safe")
+            self.assertEqual(action.execution_status, "not_started")
+
+    def test_command_action_execute_edit_reject_and_idempotency(self) -> None:
+        service = InMemoryRunService()
+        run = service.create_run(
+            RunCreateRequest(
+                mode="reproduce",
+                project_id="project_agents",
+                task="Run generated smoke check",
+                pdf_path=__file__,
+                mock_mode=True,
+                run_pipeline=False,
+            )
+        )
+        action = service._command_action_from_result(
+            run.run_id,
+            {
+                "implementation_bundle": {
+                    "smoke_test_command": "python --version",
+                },
+            },
+            RunCreateRequest(mode="reproduce", pdf_path=__file__),
+        )
+        self.assertIsNotNone(action)
+        service._actions[run.run_id] = [action]
+
+        edited = service.edit_action(
+            action.action_id,
+            ActionEditRequest(
+                edited_command="python --version",
+                reason="Use a bounded version check",
+            ),
+        )
+        self.assertIsNotNone(edited)
+        self.assertEqual(edited.status, "edited")
+        self.assertEqual(edited.execution_status, "not_started")
+
+        executed = service.execute_action(action.action_id)
+        self.assertIsNotNone(executed)
+        self.assertEqual(executed.execution_status, "succeeded")
+        self.assertIsNotNone(executed.command_result)
+        self.assertTrue(executed.command_result.executed)
+
+        duplicate = service.execute_action(action.action_id)
+        self.assertIsNotNone(duplicate)
+        self.assertEqual(duplicate.execution_status, "succeeded")
+        success_events = [
+            event for event in service.list_events(run.run_id)
+            if event.event_type == "action_execution_succeeded"
+        ]
+        self.assertEqual(len(success_events), 1)
+
+        rejected_run = service.create_run(
+            RunCreateRequest(mode="reproduce", pdf_path=__file__)
+        )
+        reject_action = service._command_action_from_result(
+            rejected_run.run_id,
+            {
+                "implementation_bundle": {
+                    "smoke_test_command": "python --version",
+                },
+            },
+            RunCreateRequest(mode="reproduce", pdf_path=__file__),
+        )
+        self.assertIsNotNone(reject_action)
+        service._actions[rejected_run.run_id] = [reject_action]
+        rejected = service.reject_action(reject_action.action_id)
+        self.assertEqual(rejected.status, "rejected")
+        with self.assertRaises(ValueError):
+            service.execute_action(reject_action.action_id)
+
+    def test_blocked_command_action_records_non_executed_result(self) -> None:
+        service = InMemoryRunService()
+        run = service.create_run(
+            RunCreateRequest(mode="reproduce", pdf_path=__file__)
+        )
+        action = service._command_action_from_result(
+            run.run_id,
+            {"command_plans": [{"command": "rm -rf .", "purpose": "unsafe"}]},
+            RunCreateRequest(mode="reproduce", pdf_path=__file__),
+        )
+        self.assertIsNotNone(action)
+        service._actions[run.run_id] = [action]
+
+        executed = service.execute_action(action.action_id)
+        self.assertIsNotNone(executed)
+        self.assertEqual(executed.execution_status, "blocked")
+        self.assertIsNotNone(executed.command_result)
+        self.assertFalse(executed.command_result.executed)
+        self.assertIsNotNone(executed.blocked_reason)
+
+    def test_failed_command_action_is_distinct_from_policy_block(self) -> None:
+        service = InMemoryRunService()
+        run = service.create_run(
+            RunCreateRequest(mode="reproduce", pdf_path=__file__)
+        )
+        action = service._command_action_from_result(
+            run.run_id,
+            {
+                "implementation_bundle": {
+                    "smoke_test_command": "python demo.py --help",
+                },
+            },
+            RunCreateRequest(mode="reproduce", pdf_path=__file__),
+        )
+        self.assertIsNotNone(action)
+        service._actions[run.run_id] = [action]
+
+        executed = service.execute_action(action.action_id)
+        self.assertIsNotNone(executed)
+        self.assertEqual(executed.execution_status, "failed")
+        self.assertIsNotNone(executed.command_result)
+        self.assertTrue(executed.command_result.executed)
+        self.assertIsNone(executed.blocked_reason)
+
+    def test_patch_action_execution_applies_known_patch_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            target = workspace / "main.py"
+            target.write_text("print('old')\n", encoding="utf-8")
+
+            patches = PatchService(project_root=root, patch_roots=[workspace])
+            proposal = patches.propose_patch(
+                "run_patch",
+                PatchProposeRequest(
+                    path="workspace/main.py",
+                    new_content="print('new')\n",
+                    reason="test patch",
+                ),
+            )
+            service = InMemoryRunService()
+            run = service.create_run(
+                RunCreateRequest(mode="reproduce", pdf_path=__file__)
+            )
+
+            with patch("backend.services.run_service.patch_service", patches):
+                actions = service._patch_actions_from_result(
+                    run.run_id,
+                    {"patch_id": proposal.patch_id, "reason": "apply test patch"},
+                )
+                self.assertEqual(len(actions), 1)
+                service._actions[run.run_id] = actions
+                executed = service.execute_action(actions[0].action_id)
+
+            self.assertIsNotNone(executed)
+            self.assertEqual(executed.execution_status, "succeeded")
+            self.assertEqual(target.read_text(encoding="utf-8"), "print('new')\n")
 
     def test_artifact_and_file_services_are_read_only_and_root_limited(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -2,6 +2,7 @@
 
 import { Check, FilePenLine, Shield, X } from "lucide-react";
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 export type PendingAction = {
   id: string;
@@ -18,6 +19,7 @@ export type PendingAction = {
   reason: string;
   payload: Record<string, unknown>;
   status: "pending" | "approved" | "rejected" | "edited";
+  executionStatus?: "not_started" | "running" | "succeeded" | "failed" | "blocked";
 };
 
 const RISK_COLORS: Record<string, string> = {
@@ -31,11 +33,12 @@ type ApprovalCardProps = {
   action: PendingAction;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
-  onEdit: (id: string) => void;
+  onEdit: (id: string, command: string) => void;
+  busy?: boolean;
 };
 
-export function ApprovalCard({ action, onApprove, onReject, onEdit }: ApprovalCardProps) {
-  const isPending = action.status === "pending";
+export function ApprovalCard({ action, onApprove, onReject, onEdit, busy = false }: ApprovalCardProps) {
+  const isPending = action.status === "pending" || action.status === "edited";
   const command = (action.payload.command as string) ?? (action.payload.path as string) ?? "";
 
   return (
@@ -65,13 +68,15 @@ export function ApprovalCard({ action, onApprove, onReject, onEdit }: ApprovalCa
             className="command-button primary"
             type="button"
             onClick={() => onApprove(action.id)}
+            disabled={busy}
           >
-            Approve
+            Approve & Execute
           </button>
           <button
             className="command-button"
             type="button"
-            onClick={() => onEdit(action.id)}
+            onClick={() => onEdit(action.id, command)}
+            disabled={busy || action.type !== "run_command"}
           >
             Edit
           </button>
@@ -79,6 +84,7 @@ export function ApprovalCard({ action, onApprove, onReject, onEdit }: ApprovalCa
             className="command-button"
             type="button"
             onClick={() => onReject(action.id)}
+            disabled={busy}
           >
             Reject
           </button>
@@ -99,7 +105,8 @@ type ActionApprovalDrawerProps = {
   onClose: () => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
-  onEdit: (id: string) => void;
+  onEdit: (id: string, command: string) => void;
+  busyActionId?: string;
   children?: ReactNode;
 };
 
@@ -110,13 +117,28 @@ export function ActionApprovalDrawer({
   onApprove,
   onReject,
   onEdit,
+  busyActionId = "",
   children,
 }: ActionApprovalDrawerProps) {
-  if (!open) return null;
+  const [editing, setEditing] = useState(false);
+  const [draftCommand, setDraftCommand] = useState("");
+  const action =
+    actions.find((item) => item.status === "pending" || item.status === "edited") ??
+    actions[0];
+  const command =
+    ((action?.payload.command as string | undefined) ??
+    (action?.payload.path as string | undefined) ??
+    "Review requested action");
 
-  const action = actions.find((item) => item.status === "pending") ?? actions[0];
-  if (!action) return null;
-  const command = (action.payload.command as string) ?? (action.payload.path as string) ?? "Review requested action";
+  useEffect(() => {
+    setEditing(false);
+    setDraftCommand(String(command));
+  }, [action?.id, command]);
+
+  if (!open || !action) return null;
+
+  const isBusy = busyActionId === action.id || action.executionStatus === "running";
+  const canAct = action.status === "pending" || action.status === "edited";
 
   return (
     <aside className="approval-overlay" role="complementary" aria-label="Approval Required">
@@ -136,15 +158,68 @@ export function ActionApprovalDrawer({
         <span>Reason</span>
         <p>{action.reason}</p>
       </div>
-      {action.status === "pending" && (
+      {editing && action.type === "run_command" && (
+        <div className="approval-edit-block">
+          <label htmlFor="approval-command-edit">Command</label>
+          <textarea
+            id="approval-command-edit"
+            value={draftCommand}
+            onChange={(event) => setDraftCommand(event.target.value)}
+            rows={4}
+          />
+          <div className="action-row">
+            <button
+              className="command-button primary"
+              disabled={isBusy || !draftCommand.trim()}
+              type="button"
+              onClick={() => {
+                onEdit(action.id, draftCommand);
+                setEditing(false);
+              }}
+            >
+              Save Edit
+            </button>
+            <button
+              className="command-button"
+              disabled={isBusy}
+              type="button"
+              onClick={() => {
+                setDraftCommand(String(command));
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {canAct && !editing && (
         <div className="approval-actions">
-          <button className="command-button primary" type="button" onClick={() => onApprove(action.id)}>
-            <Check size={15} /> Approve
+          <button
+            className="command-button primary"
+            disabled={isBusy}
+            type="button"
+            onClick={() => onApprove(action.id)}
+          >
+            <Check size={15} /> {isBusy ? "Executing" : "Approve & Execute"}
           </button>
-          <button className="command-button" type="button" onClick={() => onEdit(action.id)}>
+          <button
+            className="command-button"
+            disabled={isBusy || action.type !== "run_command"}
+            type="button"
+            onClick={() => {
+              setDraftCommand(String(command));
+              setEditing(true);
+            }}
+          >
             <FilePenLine size={15} /> Edit
           </button>
-          <button className="command-button reject" type="button" onClick={() => onReject(action.id)}>
+          <button
+            className="command-button reject"
+            disabled={isBusy}
+            type="button"
+            onClick={() => onReject(action.id)}
+          >
             <X size={15} /> Reject
           </button>
         </div>

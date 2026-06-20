@@ -67,6 +67,7 @@ export type ApiEvent = {
   event_type: string;
   status: WorkflowStatus;
   message: string;
+  payload?: Record<string, unknown>;
   created_at: string;
 };
 
@@ -74,12 +75,60 @@ export type ApiAction = {
   action_id: string;
   run_id: string;
   agent: string;
-  tool: string;
+  tool: "run_command" | "apply_patch";
   command: string;
-  risk: "low" | "medium" | "high";
+  cwd: string;
+  execution_mode: "safe" | "review" | "sandbox";
+  patch_id: string;
+  path: string;
+  risk: "low" | "medium" | "high" | "blocked";
   reason: string;
   status: "pending" | "approved" | "rejected" | "edited";
+  edited_command: string;
+  execution_status: "not_started" | "running" | "succeeded" | "failed" | "blocked";
+  execution_result: Record<string, unknown>;
 };
+
+export type ApiCommandRunResult = {
+  run_id: string;
+  command: string;
+  cwd: string;
+  mode: string;
+  executed: boolean;
+  risk_level: string;
+  exit_code: number | null;
+  stdout: string;
+  stderr: string;
+  blocked_reason: string | null;
+};
+
+export type ApiPatchApplyResult = {
+  patch_id: string;
+  path: string;
+  applied: boolean;
+  message: string;
+};
+
+export type ApiActionExecutionResult = {
+  action: ApiAction;
+  message: string;
+  execution_status: ApiAction["execution_status"];
+  command_result: ApiCommandRunResult | null;
+  patch_result: ApiPatchApplyResult | null;
+  blocked_reason: string | null;
+};
+
+export class ApiRequestError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(message: string, status: number, detail: unknown) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
 
 export type ApiArtifact = {
   artifact_id: string;
@@ -193,6 +242,21 @@ export async function createRun(request: ApiRunCreateRequest) {
   return response.json() as Promise<ApiRun>;
 }
 
+async function apiError(response: Response, fallback: string): Promise<ApiRequestError> {
+  let detail: unknown = "";
+  try {
+    const body = await response.json();
+    detail = body.detail ?? body;
+  } catch {
+    detail = await response.text().catch(() => "");
+  }
+  const message =
+    typeof detail === "string"
+      ? detail
+      : fallback;
+  return new ApiRequestError(message, response.status, detail);
+}
+
 export async function fetchRun(runId: string) {
   const response = await fetch(`${API_BASE}/api/runs/${runId}`, {
     cache: "no-store",
@@ -276,6 +340,16 @@ export async function fetchRunActions(runId: string) {
   return response.json() as Promise<ApiAction[]>;
 }
 
+export async function fetchCommandResults(runId: string) {
+  const response = await fetch(`${API_BASE}/api/commands/${runId}/result`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Command results API returned ${response.status}`);
+  }
+  return response.json() as Promise<ApiCommandRunResult[]>;
+}
+
 export async function fetchPatches(runId: string) {
   const response = await fetch(`${API_BASE}/api/patches/${runId}`, {
     cache: "no-store",
@@ -294,6 +368,16 @@ export async function approveAction(actionId: string) {
     throw new Error(`Action approval failed with ${response.status}`);
   }
   return response.json();
+}
+
+export async function executeAction(actionId: string) {
+  const response = await fetch(`${API_BASE}/api/actions/${actionId}/execute`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw await apiError(response, `Action execution failed with ${response.status}`);
+  }
+  return response.json() as Promise<ApiActionExecutionResult>;
 }
 
 export async function rejectAction(actionId: string) {
@@ -354,6 +438,7 @@ export type ApiPatch = {
   new_content: string;
   unified_diff: string;
   reason: string;
+  status: "proposed" | "applied" | "rejected";
 };
 
 export type ApiRunResult = {

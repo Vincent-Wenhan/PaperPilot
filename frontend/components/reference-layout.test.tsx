@@ -45,7 +45,7 @@ describe("reference workbench layout", () => {
     expect(screen.getByText("Pro Plan")).toBeVisible();
   });
 
-  it("shows project context, run state, messages, and the primary command", () => {
+  it("shows project context, run state, and the primary command", () => {
     render(
       <TopBar
         run={{
@@ -61,8 +61,9 @@ describe("reference workbench layout", () => {
 
     expect(screen.getByText("LLM Compiler Design")).toBeVisible();
     expect(screen.getByText("Run #23")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Messages" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Messages" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New Run" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "New run options" })).not.toBeInTheDocument();
   });
 
   it("opens the inspector on Code and keeps the reference tab set", async () => {
@@ -82,8 +83,8 @@ describe("reference workbench layout", () => {
     render(<BottomDock events={agentEvents} commandResults="python main.py --help" />);
 
     expect(screen.getByRole("region", { name: "Run console" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Live" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Pause" })).toBeVisible();
+    expect(screen.getByLabelText("Live")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear" })).toBeVisible();
 
     await userEvent.click(screen.getByRole("tab", { name: "Terminal" }));
@@ -115,6 +116,41 @@ describe("reference workbench layout", () => {
 
     expect(screen.getByRole("complementary", { name: "Approval Required" })).toBeVisible();
     expect(screen.getByText("git apply prototype.patch")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Approve" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Approve & Execute" })).toBeVisible();
+  });
+
+  it("saves command edits without approving execution", async () => {
+    const onApprove = vi.fn();
+    const onEdit = vi.fn();
+    render(
+      <ActionApprovalDrawer
+        open
+        actions={[
+          {
+            id: "action_1",
+            runId: "run_demo",
+            agent: "Runner",
+            type: "run_command",
+            risk: "safe",
+            reason: "Check Python",
+            payload: { command: "python --version" },
+            status: "pending",
+          },
+        ]}
+        onClose={vi.fn()}
+        onApprove={onApprove}
+        onEdit={onEdit}
+        onReject={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const editor = screen.getByLabelText("Command");
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "python main.py --help");
+    await userEvent.click(screen.getByRole("button", { name: "Save Edit" }));
+
+    expect(onEdit).toHaveBeenCalledWith("action_1", "python main.py --help");
+    expect(onApprove).not.toHaveBeenCalled();
   });
 });

@@ -11,18 +11,27 @@ from uuid import uuid4
 
 from backend.schemas import (
     ActionEditRequest,
+    ActionExecutionResult,
     ActionRequest,
+    CommandRunResult,
+    CommandRunRequest,
+    PatchApplyResult,
+    PatchProposeRequest,
     RunCreateRequest,
     RunRecord,
     WorkbenchEvent,
 )
+from backend.services.command_service import command_service
 from backend.services.event_service import event_service
+from backend.services.patch_service import patch_service
 from backend.services.workbench_mock import (
     build_mock_actions,
     build_mock_events,
     build_mock_run,
     utc_now,
 )
+from config import PROJECT_ROOT
+from tools.command_runner import plan_command
 from tools.llm_client import LLMClient
 
 
@@ -107,15 +116,7 @@ class InMemoryRunService:
         with self._lock:
             self._runs[run_id] = run
             self._events[run_id] = self._build_run_events(run)
-            self._actions[run_id] = [
-                action.model_copy(
-                    update={
-                        "action_id": f"act_{uuid4().hex[:12]}",
-                        "run_id": run_id,
-                    }
-                )
-                for action in build_mock_actions(run_id)
-            ]
+            self._actions[run_id] = []
         if start_pipeline:
             self._executor.submit(self.run_pipeline_now, run_id, request)
         return deepcopy(run)
@@ -212,7 +213,18 @@ class InMemoryRunService:
         return self._update_action_status(action_id, "approved")
 
     def reject_action(self, action_id: str) -> ActionRequest | None:
-        return self._update_action_status(action_id, "rejected")
+        action = self._update_action_status(action_id, "rejected")
+        if action is not None:
+            self._append_event(
+                action.run_id,
+                node="runner_review",
+                agent="Workbench",
+                event_type="action_rejected",
+                status="failed",
+                message=f"Rejected action {action.action_id}.",
+                payload={"action_id": action.action_id, "tool": action.tool},
+            )
+        return action
 
     def edit_action(
         self,
@@ -223,6 +235,12 @@ class InMemoryRunService:
             for actions in self._actions.values():
                 for index, action in enumerate(actions):
                     if action.action_id == action_id:
+                        if action.tool != "run_command":
+                            raise ValueError("Only command actions can be edited.")
+                        if action.execution_status != "not_started":
+                            raise ValueError("Executed actions cannot be edited.")
+                        if action.status == "rejected":
+                            raise ValueError("Rejected actions cannot be edited.")
                         updated = action.model_copy(
                             update={
                                 "status": "edited",
@@ -231,8 +249,73 @@ class InMemoryRunService:
                             }
                         )
                         actions[index] = updated
-                        return deepcopy(updated)
-        return None
+                        result = deepcopy(updated)
+                        break
+                else:
+                    continue
+                break
+            else:
+                return None
+        self._append_event(
+            result.run_id,
+            node="runner_review",
+            agent="Workbench",
+            event_type="action_edited",
+            status="waiting_review",
+            message=f"Edited action {result.action_id}; execution still requires approval.",
+            payload={"action_id": result.action_id, "tool": result.tool},
+        )
+        return result
+
+    def execute_action(self, action_id: str) -> ActionExecutionResult | None:
+        with self._lock:
+            located = self._locate_action_locked(action_id)
+            if located is None:
+                return None
+            _, index, action = located
+            if action.execution_status in {"succeeded", "failed", "blocked"}:
+                return self._execution_response_from_action(action)
+            if action.execution_status == "running":
+                return self._execution_response_from_action(action)
+            if action.status == "rejected":
+                raise ValueError("Rejected actions cannot execute.")
+            if action.status not in {"pending", "edited"}:
+                raise ValueError("Only pending or edited actions can execute.")
+            if action.tool == "run_command" and not self._action_command(action):
+                raise ValueError("Command action is missing a command.")
+            if action.tool == "apply_patch" and not action.patch_id:
+                raise ValueError("Patch action is missing a patch id.")
+            updated = action.model_copy(
+                update={
+                    "status": "approved",
+                    "execution_status": "running",
+                    "execution_result": {},
+                }
+            )
+            self._actions[updated.run_id][index] = updated
+
+        self._append_event(
+            updated.run_id,
+            node="runner_review",
+            agent="Workbench",
+            event_type="action_approved",
+            status="success",
+            message=f"Approved action {updated.action_id}.",
+            payload={"action_id": updated.action_id, "tool": updated.tool},
+        )
+        self._append_event(
+            updated.run_id,
+            node="runner_execution",
+            agent="Workbench Runner",
+            event_type="action_execution_started",
+            status="running",
+            message=f"Executing {updated.tool} action {updated.action_id}.",
+            payload={"action_id": updated.action_id, "tool": updated.tool},
+        )
+
+        if updated.tool == "apply_patch":
+            return self._execute_patch_action(updated)
+        return self._execute_command_action(updated)
 
     def run_pipeline_now(
         self,
@@ -275,6 +358,11 @@ class InMemoryRunService:
         result_summary = self._summarize_result(result)
         pipeline_status = str(result.get("pipeline_status") or "complete")
         status = self._status_from_pipeline(pipeline_status)
+        actions = self._create_actions_from_result(run_id, result, request)
+        if actions:
+            result_summary["pending_actions"] = len(actions)
+            if status == "success":
+                status = "waiting_review"
         summary = self._summary_from_result(request, result_summary, status)
         self._store_result(run_id, result)
         self._append_event(
@@ -400,6 +488,358 @@ class InMemoryRunService:
         )
         result["source_analysis"] = self._summarize_result(analysis)
         return result
+
+    def _execute_command_action(self, action: ActionRequest) -> ActionExecutionResult:
+        command = self._action_command(action)
+        try:
+            result = command_service.run_command(
+                action.run_id,
+                CommandRunRequest(
+                    command=command,
+                    cwd=action.cwd or ".",
+                    mode=action.execution_mode,
+                ),
+            )
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            message = str(exc) or type(exc).__name__
+            return self._record_action_execution(
+                action.action_id,
+                execution_status="failed",
+                message=f"Command validation failed: {message}",
+                result={"error": message},
+            )
+
+        if result.blocked_reason:
+            return self._record_action_execution(
+                action.action_id,
+                execution_status="blocked",
+                message=f"Command was blocked by policy: {result.blocked_reason}",
+                result=result.model_dump(mode="json"),
+                command_result=result,
+                blocked_reason=result.blocked_reason,
+            )
+
+        success = bool(result.executed and result.exit_code == 0)
+        return self._record_action_execution(
+            action.action_id,
+            execution_status="succeeded" if success else "failed",
+            message=(
+                "Command completed successfully."
+                if success
+                else "Command execution finished with a failure result."
+            ),
+            result=result.model_dump(mode="json"),
+            command_result=result,
+        )
+
+    def _execute_patch_action(self, action: ActionRequest) -> ActionExecutionResult:
+        try:
+            result = patch_service.apply_patch(action.patch_id)
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            message = str(exc) or type(exc).__name__
+            return self._record_action_execution(
+                action.action_id,
+                execution_status="failed",
+                message=f"Patch validation failed: {message}",
+                result={"error": message},
+            )
+        if result is None:
+            return self._record_action_execution(
+                action.action_id,
+                execution_status="failed",
+                message=f"Patch proposal not found: {action.patch_id}",
+                result={"patch_id": action.patch_id, "applied": False},
+            )
+
+        return self._record_action_execution(
+            action.action_id,
+            execution_status="succeeded" if result.applied else "failed",
+            message=result.message,
+            result=result.model_dump(mode="json"),
+            patch_result=result,
+        )
+
+    def _record_action_execution(
+        self,
+        action_id: str,
+        *,
+        execution_status: str,
+        message: str,
+        result: dict[str, Any],
+        command_result: CommandRunResult | None = None,
+        patch_result: PatchApplyResult | None = None,
+        blocked_reason: str | None = None,
+    ) -> ActionExecutionResult:
+        with self._lock:
+            located = self._locate_action_locked(action_id)
+            if located is None:
+                raise ValueError("Action not found while recording execution.")
+            _, index, action = located
+            updated = action.model_copy(
+                update={
+                    "execution_status": execution_status,
+                    "execution_result": result,
+                }
+            )
+            self._actions[updated.run_id][index] = updated
+            response = ActionExecutionResult(
+                action=deepcopy(updated),
+                message=message,
+                execution_status=execution_status,
+                command_result=command_result,
+                patch_result=patch_result,
+                blocked_reason=blocked_reason,
+            )
+
+        if execution_status == "blocked":
+            event_type = "action_policy_blocked"
+            event_status = "failed"
+        elif execution_status == "succeeded":
+            event_type = "action_execution_succeeded"
+            event_status = "success"
+        else:
+            event_type = "action_execution_failed"
+            event_status = "failed"
+        self._append_event(
+            updated.run_id,
+            node="runner_execution",
+            agent="Workbench Runner",
+            event_type=event_type,
+            status=event_status,
+            message=message,
+            payload={
+                "action_id": updated.action_id,
+                "tool": updated.tool,
+                "execution_status": execution_status,
+                "result": result,
+            },
+        )
+        return response
+
+    def _execution_response_from_action(
+        self,
+        action: ActionRequest,
+    ) -> ActionExecutionResult:
+        command_result = None
+        patch_result = None
+        if action.execution_result:
+            if action.tool == "run_command":
+                try:
+                    command_result = CommandRunResult.model_validate(
+                        action.execution_result
+                    )
+                except ValueError:
+                    command_result = None
+            elif action.tool == "apply_patch":
+                try:
+                    patch_result = PatchApplyResult.model_validate(
+                        action.execution_result
+                    )
+                except ValueError:
+                    patch_result = None
+        message = (
+            "Action execution is already recorded."
+            if action.execution_status != "running"
+            else "Action execution is already in progress."
+        )
+        return ActionExecutionResult(
+            action=deepcopy(action),
+            message=message,
+            execution_status=action.execution_status,
+            command_result=command_result,
+            patch_result=patch_result,
+            blocked_reason=(
+                str(action.execution_result.get("blocked_reason"))
+                if action.execution_result.get("blocked_reason")
+                else None
+            ),
+        )
+
+    def _create_actions_from_result(
+        self,
+        run_id: str,
+        result: dict[str, Any],
+        request: RunCreateRequest,
+    ) -> list[ActionRequest]:
+        actions: list[ActionRequest] = []
+        command_action = self._command_action_from_result(run_id, result, request)
+        if command_action is not None:
+            actions.append(command_action)
+        actions.extend(self._patch_actions_from_result(run_id, result))
+        if not actions:
+            return []
+
+        with self._lock:
+            if self._actions.get(run_id):
+                return []
+            self._actions[run_id] = deepcopy(actions)
+
+        for action in actions:
+            self._append_event(
+                run_id,
+                node="runner_review",
+                agent=action.agent,
+                event_type="human_review_required",
+                status="waiting_review",
+                message=f"Action {action.action_id} requires review: {action.reason}",
+                payload=action.model_dump(mode="json"),
+            )
+        return actions
+
+    def _command_action_from_result(
+        self,
+        run_id: str,
+        result: dict[str, Any],
+        request: RunCreateRequest,
+    ) -> ActionRequest | None:
+        command = ""
+        reason = ""
+        bundle = result.get("implementation_bundle")
+        if isinstance(bundle, dict):
+            command = str(bundle.get("smoke_test_command") or "").strip()
+            if command:
+                reason = "Run the generated implementation smoke test from pipeline output."
+
+        if not command:
+            for raw_plan in result.get("command_plans") or []:
+                if not isinstance(raw_plan, dict):
+                    continue
+                candidate = str(raw_plan.get("command") or "").strip()
+                if candidate:
+                    command = candidate
+                    reason = str(
+                        raw_plan.get("purpose")
+                        or "Review the concrete command proposed by the reproduction plan."
+                    )
+                    break
+
+        if not command:
+            command = self._first_run_script_command(str(result.get("run_sh") or ""))
+            if command:
+                reason = "Review the first concrete command from generated run.sh."
+
+        if not command:
+            return None
+
+        plan = plan_command(command)
+        risk = str(plan.risk_level or "medium").lower()
+        if risk not in {"low", "medium", "high", "blocked"}:
+            risk = "medium"
+        cwd = self._display_cwd(
+            str(
+                result.get("generated_repo_path")
+                or result.get("repo_path")
+                or "."
+            )
+        )
+        execution_mode = "safe" if risk == "low" else "review"
+        if not reason:
+            reason = plan.blocked_reason or "Review command before execution."
+        return ActionRequest(
+            action_id=f"act_{uuid4().hex[:12]}",
+            run_id=run_id,
+            agent="Reproduction Planner Agent",
+            tool="run_command",
+            command=command,
+            cwd=cwd,
+            execution_mode=execution_mode,
+            risk=risk,  # type: ignore[arg-type]
+            reason=reason,
+        )
+
+    def _patch_actions_from_result(
+        self,
+        run_id: str,
+        result: dict[str, Any],
+    ) -> list[ActionRequest]:
+        raw_specs: list[Any] = []
+        if result.get("patch_id"):
+            raw_specs.append(result)
+        if isinstance(result.get("patch_proposal"), dict):
+            raw_specs.append(result["patch_proposal"])
+        if isinstance(result.get("patch_proposals"), list):
+            raw_specs.extend(result["patch_proposals"])
+
+        actions: list[ActionRequest] = []
+        for spec in raw_specs:
+            if not isinstance(spec, dict):
+                continue
+            patch_id = str(spec.get("patch_id") or "").strip()
+            patch = patch_service.get_patch(patch_id) if patch_id else None
+            if patch is None and spec.get("path") and "new_content" in spec:
+                patch = patch_service.propose_patch(
+                    run_id,
+                    PatchProposeRequest(
+                        path=str(spec["path"]),
+                        new_content=str(spec.get("new_content") or ""),
+                        reason=str(spec.get("reason") or ""),
+                    ),
+                )
+            if patch is None:
+                continue
+            actions.append(
+                ActionRequest(
+                    action_id=f"act_{uuid4().hex[:12]}",
+                    run_id=run_id,
+                    agent=str(spec.get("agent") or "Prototype Builder Agent"),
+                    tool="apply_patch",
+                    patch_id=patch.patch_id,
+                    path=patch.path,
+                    risk="medium",
+                    reason=str(
+                        spec.get("reason")
+                        or patch.reason
+                        or "Apply generated patch proposal."
+                    ),
+                )
+            )
+        return actions
+
+    @staticmethod
+    def _action_command(action: ActionRequest) -> str:
+        if action.status == "edited" and action.edited_command.strip():
+            return action.edited_command.strip()
+        return action.command.strip()
+
+    @staticmethod
+    def _display_cwd(raw_cwd: str) -> str:
+        if not raw_cwd.strip():
+            return "."
+        path = Path(raw_cwd).expanduser()
+        if not path.is_absolute():
+            return raw_cwd
+        resolved = path.resolve()
+        try:
+            return resolved.relative_to(PROJECT_ROOT).as_posix() or "."
+        except ValueError:
+            return str(resolved)
+
+    @staticmethod
+    def _first_run_script_command(script: str) -> str:
+        for line in script.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("#") or stripped.startswith("#!"):
+                continue
+            if stripped.startswith("set ") or stripped.startswith("conda "):
+                continue
+            if "<" in stripped or "TODO" in stripped:
+                continue
+            if not stripped.startswith(("python ", "pip ", "bash ", "sh ")):
+                continue
+            return stripped
+        return ""
+
+    def _locate_action_locked(
+        self,
+        action_id: str,
+    ) -> tuple[str, int, ActionRequest] | None:
+        for run_id, actions in self._actions.items():
+            for index, action in enumerate(actions):
+                if action.action_id == action_id:
+                    return run_id, index, action
+        return None
 
     def _append_event(
         self,

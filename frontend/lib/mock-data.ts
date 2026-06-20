@@ -70,7 +70,7 @@ export type ApprovalRequest = {
   agent: string;
   tool: string;
   command: string;
-  risk: "low" | "medium" | "high";
+  risk: "low" | "medium" | "high" | "blocked";
   reason: string;
 };
 

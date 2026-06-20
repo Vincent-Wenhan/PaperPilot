@@ -8,9 +8,9 @@ type RunnerPanelProps = {
   runnerReview: RunnerReview;
   runnerStatus: WorkflowStatus;
   runnerMessage: string;
-  onApprove: () => void;
-  onEdit: () => void;
-  onReject: () => void;
+  onApprove?: () => void;
+  onEdit?: () => void;
+  onReject?: () => void;
 };
 
 export function RunnerPanel({
@@ -59,13 +59,17 @@ export function RunnerPanel({
       <pre className="terminal-block">
         <code>{runnerMessage}</code>
       </pre>
-      <div className="action-row">
-        <button className="command-button primary" type="button" onClick={onApprove}>
-          <Check size={15} /> Approve
-        </button>
-        <button className="command-button" type="button" onClick={onEdit}>Edit</button>
-        <button className="command-button" type="button" onClick={onReject}>Reject</button>
-      </div>
+      {(onApprove || onEdit || onReject) && (
+        <div className="action-row">
+          {onApprove && (
+            <button className="command-button primary" type="button" onClick={onApprove}>
+              <Check size={15} /> Approve
+            </button>
+          )}
+          {onEdit && <button className="command-button" type="button" onClick={onEdit}>Edit</button>}
+          {onReject && <button className="command-button" type="button" onClick={onReject}>Reject</button>}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import { Boxes, GitGraph, MessageSquareText, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Boxes, GitGraph, ShieldAlert, type LucideIcon } from "lucide-react";
 
-export type WorkbenchTabId = "workflow" | "chat" | "evaluation" | "product";
+export type WorkbenchTabId = "workflow" | "evaluation" | "product";
 
 type WorkbenchTabsProps = {
   activeTab: WorkbenchTabId;
@@ -11,7 +11,6 @@ type WorkbenchTabsProps = {
 
 const TABS: Array<{ id: WorkbenchTabId; label: string; icon: LucideIcon }> = [
   { id: "workflow", label: "Workflow", icon: GitGraph },
-  { id: "chat", label: "Chat", icon: MessageSquareText },
   { id: "evaluation", label: "Evaluation", icon: ShieldAlert },
   { id: "product", label: "Product Design", icon: Boxes },
 ];

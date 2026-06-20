@@ -17,6 +17,16 @@ WorkflowStatus = Literal[
     "revised",
 ]
 ActionDecision = Literal["approved", "rejected", "edited"]
+ActionStatus = Literal["pending", "approved", "rejected", "edited"]
+ActionRisk = Literal["low", "medium", "high", "blocked"]
+ActionExecutionStatus = Literal[
+    "not_started",
+    "running",
+    "succeeded",
+    "failed",
+    "blocked",
+]
+ActionTool = Literal["run_command", "apply_patch"]
 
 
 class RunCreateRequest(BaseModel):
@@ -90,12 +100,18 @@ class ActionRequest(BaseModel):
     action_id: str
     run_id: str
     agent: str
-    tool: str
+    tool: ActionTool
     command: str = ""
-    risk: Literal["low", "medium", "high"]
+    cwd: str = "."
+    execution_mode: Literal["safe", "review", "sandbox"] = "review"
+    patch_id: str = ""
+    path: str = ""
+    risk: ActionRisk
     reason: str
-    status: Literal["pending", "approved", "rejected", "edited"] = "pending"
+    status: ActionStatus = "pending"
     edited_command: str = ""
+    execution_status: ActionExecutionStatus = "not_started"
+    execution_result: dict[str, Any] = Field(default_factory=dict)
 
 
 class ActionEditRequest(BaseModel):
@@ -200,6 +216,15 @@ class CommandRunResult(BaseModel):
     exit_code: int | None = None
     stdout: str = ""
     stderr: str = ""
+    blocked_reason: str | None = None
+
+
+class ActionExecutionResult(BaseModel):
+    action: ActionRequest
+    message: str
+    execution_status: ActionExecutionStatus
+    command_result: CommandRunResult | None = None
+    patch_result: PatchApplyResult | None = None
     blocked_reason: str | None = None
 
 

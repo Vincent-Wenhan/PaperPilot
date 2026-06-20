@@ -1658,6 +1658,7 @@ body {
 .workflow-node-card.status-waiting_review .node-status-row span { color: #996000; background: #fff4d8; padding: 3px 6px; border-radius: 4px; }
 .node-meta { display: none; }
 .workflow-edge path { stroke: #7d8798; stroke-width: 1.2; }
+.workflow-node-handle { width: 6px; height: 6px; opacity: 0; pointer-events: none; }
 
 .activity-panel { min-height: 0; overflow: hidden; background: #fff; }
 .activity-panel .panel-heading { height: 40px; padding: 0 18px; border-bottom: 1px solid var(--border); }
@@ -1784,6 +1785,19 @@ body {
 .approval-reason-block { display: grid; gap: 5px; }
 .approval-reason-block > span { color: #374154; font-weight: 700; }
 .approval-reason-block p { margin: 0; color: var(--muted); line-height: 1.45; }
+.approval-edit-block { display: grid; gap: 8px; }
+.approval-edit-block label { color: #374154; font-weight: 700; }
+.approval-edit-block textarea {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  font: 11px/1.45 "SFMono-Regular", Consolas, monospace;
+  color: var(--text);
+  background: #fff;
+}
 .approval-actions { display: grid; gap: 7px; }
 .approval-actions .command-button { width: 100%; height: 31px; justify-content: center; font-size: 10px; }
 .approval-actions .reject { color: var(--red); }

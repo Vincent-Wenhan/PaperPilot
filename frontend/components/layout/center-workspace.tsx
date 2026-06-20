@@ -1,8 +1,5 @@
 "use client";
 
-import { CheckSquare } from "lucide-react";
-
-import { StatusPill } from "@/components/status-pill";
 import type { AgentEvent, PlanStep, RunMode, WorkflowStatus } from "@/lib/mock-data";
 import type { EvaluationIssue } from "@/components/productize/evaluation-issues";
 import { IssueCard } from "@/components/productize/evaluation-issues";
@@ -15,22 +12,15 @@ type CenterWorkspaceProps = {
   notice: string;
   planState: PlanStep[];
   timelineEvents: AgentEvent[];
-  chatMessages: Array<{ role: "agent" | "user"; text: string }>;
   runStatus: WorkflowStatus;
+  hasRun: boolean;
   graphNodes?: GraphNodeData[];
   activeTab: WorkbenchTabId;
   onTabChange: (tab: WorkbenchTabId) => void;
   onTogglePlanStep: (stepId: string) => void;
   onApprovePlan: () => void;
-  onAskAgent: () => void;
-  onChatInputChange: (value: string) => void;
-  chatInput: string;
   onContinueRun: () => void;
   evaluationIssues?: EvaluationIssue[];
-  onReduceScope?: (id: string) => void;
-  onRevisePrd?: (id: string) => void;
-  onRevisePrototype?: (id: string) => void;
-  onAcceptWarning?: (id: string) => void;
 };
 
 export function CenterWorkspace({
@@ -38,23 +28,20 @@ export function CenterWorkspace({
   notice,
   planState,
   timelineEvents,
-  chatMessages,
   runStatus,
+  hasRun,
   graphNodes,
   activeTab,
   onTabChange,
   onTogglePlanStep,
   onApprovePlan,
-  onAskAgent,
-  onChatInputChange,
-  chatInput,
   onContinueRun,
   evaluationIssues,
-  onReduceScope,
-  onRevisePrd,
-  onRevisePrototype,
-  onAcceptWarning,
 }: CenterWorkspaceProps) {
+  void planState;
+  void onTogglePlanStep;
+  void onApprovePlan;
+
   return (
     <section className="center-workspace" data-run-status={runStatus}>
       <WorkbenchTabs activeTab={activeTab} onTabChange={onTabChange} />
@@ -66,60 +53,15 @@ export function CenterWorkspace({
               <span>{mode === "reproduce" ? "Reproduce workflow" : "Product Design workflow"}</span>
               <button className="refresh-link" type="button" onClick={onContinueRun}>Refresh</button>
             </div>
-            <WorkflowGraph nodes={graphNodes} />
+            {hasRun ? (
+              <WorkflowGraph nodes={graphNodes} />
+            ) : (
+              <div className="empty-state">
+                No backend run yet. Upload a PDF and create a run to see pipeline progress.
+              </div>
+            )}
           </section>
           <ActivityPanel events={timelineEvents} />
-        </div>
-      )}
-
-      {activeTab === "chat" && (
-        <div className="chat-workspace">
-        <section className="tool-panel plan-panel">
-          <div className="panel-heading">
-            <div><p className="eyebrow">Co-planning</p><h2>Editable plan</h2></div>
-            <button className="icon-button" title="Approve plan" type="button" onClick={onApprovePlan}><CheckSquare size={17} /></button>
-          </div>
-          <div className="plan-list">
-            {planState.map((step) => (
-              <label className="plan-step" key={step.id}>
-                <input type="checkbox" checked={step.enabled} onChange={() => onTogglePlanStep(step.id)} />
-                <span>{step.label}</span><StatusPill status={step.status} />
-              </label>
-            ))}
-          </div>
-        </section>
-        <section className="tool-panel chat-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Agent chat</p>
-              <h2>Artifact-aware context</h2>
-            </div>
-            <StatusPill status="running" />
-          </div>
-          <div className="chat-thread">
-            {chatMessages.map((message, index) => (
-              <ChatBubble
-                key={`${message.role}-${index}`}
-                role={message.role}
-                text={message.text}
-              />
-            ))}
-          </div>
-          <div className="composer">
-            <span>@</span>
-            <input
-              aria-label="Agent message"
-              placeholder="paper, repo, prd, code, terminal"
-              value={chatInput}
-              onChange={(event) => onChatInputChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  onAskAgent();
-                }
-              }}
-            />
-          </div>
-        </section>
         </div>
       )}
 
@@ -137,10 +79,6 @@ export function CenterWorkspace({
                 <IssueCard
                   key={issue.id}
                   issue={issue}
-                  onReduceScope={onReduceScope}
-                  onRevisePrd={onRevisePrd}
-                  onRevisePrototype={onRevisePrototype}
-                  onAcceptWarning={onAcceptWarning}
                 />
               ))}
             </div>
@@ -168,8 +106,4 @@ export function CenterWorkspace({
       )}
     </section>
   );
-}
-
-function ChatBubble({ role, text }: { role: "agent" | "user"; text: string }) {
-  return <div className={`chat-bubble ${role}`}>{text}</div>;
 }

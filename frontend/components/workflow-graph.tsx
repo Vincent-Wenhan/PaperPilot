@@ -3,6 +3,8 @@
 import {
   Background,
   Controls,
+  Handle,
+  Position,
   ReactFlow,
   type Edge,
   type Node,
@@ -91,6 +93,7 @@ function WorkflowNodeCard({ data }: NodeProps) {
   const StatusIcon = nodeData.status === "success" ? CheckCircle2 : nodeData.status === "running" ? LoaderCircle : nodeData.status === "waiting_review" ? Clock3 : Circle;
   return (
     <div className={`workflow-node-card status-${nodeData.status}`}>
+      <Handle className="workflow-node-handle" position={Position.Left} type="target" />
       <div className="node-title"><StatusIcon size={17} /><strong>{nodeData.label}</strong></div>
       <div className="node-status-row">
         <span>{nodeData.status === "success" ? "Completed" : nodeData.status === "waiting_review" ? "Pending" : nodeData.status}</span>
@@ -100,6 +103,7 @@ function WorkflowNodeCard({ data }: NodeProps) {
         {toolCount > 0 && <span className="node-badge">{toolCount} tools</span>}
         {issueCount > 0 && <span className="node-badge issue">{issueCount} issues</span>}
       </div>
+      <Handle className="workflow-node-handle" position={Position.Right} type="source" />
     </div>
   );
 }

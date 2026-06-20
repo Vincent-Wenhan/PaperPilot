@@ -1,8 +1,10 @@
 "use client";
 
+import { MoreVertical, Pause, Radio, Trash2 } from "lucide-react";
 import { useState } from "react";
-import type { AgentEvent } from "@/lib/mock-data";
+
 import { LogsPanel } from "@/components/inspector/logs-panel";
+import type { AgentEvent } from "@/lib/mock-data";
 
 type BottomDockTab = "logs" | "terminal" | "results" | "metrics";
 
@@ -13,56 +15,65 @@ type BottomDockProps = {
   runId?: string;
 };
 
+const TABS: Array<{ id: BottomDockTab; label: string }> = [
+  { id: "logs", label: "Logs" },
+  { id: "terminal", label: "Terminal" },
+  { id: "results", label: "Results" },
+  { id: "metrics", label: "Metrics" },
+];
+
 export function BottomDock({ events, commandResults, resultSummary }: BottomDockProps) {
   const [activeTab, setActiveTab] = useState<BottomDockTab>("logs");
-  const [collapsed, setCollapsed] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [cleared, setCleared] = useState(false);
 
   return (
-    <section className={`bottom-dock ${collapsed ? "collapsed" : ""}`}>
-      <div className="bottom-dock-handle" onClick={() => setCollapsed(!collapsed)}>
-        <span>Terminal / Output</span>
-        <button className="icon-button" type="button" style={{ width: 24, height: 24, fontSize: 10 }}>
-          {collapsed ? "▲" : "▼"}
-        </button>
-      </div>
+    <section className="bottom-dock" aria-label="Run console">
+      <header className="console-toolbar">
+        <div className="console-tabs" role="tablist" aria-label="Bottom dock tabs">
+          {TABS.map((tab) => (
+            <button
+              aria-selected={activeTab === tab.id}
+              className={activeTab === tab.id ? "console-tab active" : "console-tab"}
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              role="tab"
+              type="button"
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="console-actions">
+          <button className="console-control live" type="button" aria-label="Live">
+            <Radio size={14} /> Live
+          </button>
+          <button className="console-control" type="button" aria-label="Pause" onClick={() => setPaused(!paused)}>
+            <Pause size={14} /> {paused ? "Resume" : "Pause"}
+          </button>
+          <button className="console-control" type="button" aria-label="Clear" onClick={() => setCleared(true)}>
+            <Trash2 size={14} /> Clear
+          </button>
+          <button className="icon-button console-more" aria-label="More console actions" type="button">
+            <MoreVertical size={16} />
+          </button>
+        </div>
+      </header>
 
-      {!collapsed && (
-        <>
-          <div className="tab-list" role="tablist" aria-label="Bottom dock tabs" style={{ margin: "8px 12px 0" }}>
-            {(["logs", "terminal", "results", "metrics"] as BottomDockTab[]).map((tab) => (
-              <button
-                key={tab}
-                className={activeTab === tab ? "tab active" : "tab"}
-                onClick={() => setActiveTab(tab)}
-                type="button"
-                style={{ textTransform: "capitalize" }}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-          <div className="bottom-dock-content">
+      <div className="bottom-dock-content" role="tabpanel">
+        {cleared ? <div className="empty-state">Console cleared.</div> : (
+          <>
             {activeTab === "logs" && <LogsPanel events={events} />}
             {activeTab === "terminal" && (
-              <pre className="terminal-block">
-                <code>{commandResults || "No command output yet."}</code>
-              </pre>
+              <pre className="terminal-block"><code>{commandResults || "No command output yet."}</code></pre>
             )}
             {activeTab === "results" && (
-              <pre className="terminal-block">
-                <code>
-                  {resultSummary
-                    ? JSON.stringify(resultSummary, null, 2)
-                    : "No run result available."}
-                </code>
-              </pre>
+              <pre className="terminal-block"><code>{resultSummary ? JSON.stringify(resultSummary, null, 2) : "No run result available."}</code></pre>
             )}
-            {activeTab === "metrics" && (
-              <div className="empty-state">Metrics coming soon.</div>
-            )}
-          </div>
-        </>
-      )}
+            {activeTab === "metrics" && <div className="empty-state">Metrics will appear after a completed run.</div>}
+          </>
+        )}
+      </div>
     </section>
   );
 }

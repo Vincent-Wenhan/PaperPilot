@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Shield, X } from "lucide-react";
+import { Check, FilePenLine, Shield, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 export type PendingAction = {
@@ -114,40 +114,42 @@ export function ActionApprovalDrawer({
 }: ActionApprovalDrawerProps) {
   if (!open) return null;
 
-  const pendingCount = actions.filter((a) => a.status === "pending").length;
+  const action = actions.find((item) => item.status === "pending") ?? actions[0];
+  if (!action) return null;
+  const command = (action.payload.command as string) ?? (action.payload.path as string) ?? "Review requested action";
 
   return (
-    <div className="approval-drawer-overlay" onClick={onClose}>
-      <div className="approval-drawer" onClick={(e) => e.stopPropagation()}>
-        <div className="approval-drawer-header">
-          <div>
-            <p className="eyebrow">Action Approval</p>
-            <h3>
-              {pendingCount > 0
-                ? `${pendingCount} action${pendingCount > 1 ? "s" : ""} need review`
-                : "No pending actions"}
-            </h3>
-          </div>
-          <button className="icon-button" type="button" onClick={onClose} title="Close">
-            <X size={17} />
+    <aside className="approval-overlay" role="complementary" aria-label="Approval Required">
+      <header className="approval-overlay-header">
+        <span className="approval-alert"><Shield size={17} /></span>
+        <strong>Approval Required</strong>
+        <button className="icon-button" type="button" onClick={onClose} title="Close approval">
+          <X size={16} />
+        </button>
+      </header>
+      <p>The agent wants to apply the following action:</p>
+      <div className="approval-command-block">
+        <code>{command}</code>
+        <span>{action.type.replace(/_/g, " ")}</span>
+      </div>
+      <div className="approval-reason-block">
+        <span>Reason</span>
+        <p>{action.reason}</p>
+      </div>
+      {action.status === "pending" && (
+        <div className="approval-actions">
+          <button className="command-button primary" type="button" onClick={() => onApprove(action.id)}>
+            <Check size={15} /> Approve
+          </button>
+          <button className="command-button" type="button" onClick={() => onEdit(action.id)}>
+            <FilePenLine size={15} /> Edit
+          </button>
+          <button className="command-button reject" type="button" onClick={() => onReject(action.id)}>
+            <X size={15} /> Reject
           </button>
         </div>
-        <div className="approval-drawer-body">
-          {actions.length === 0 && (
-            <div className="empty-state">No actions to review.</div>
-          )}
-          {actions.map((action) => (
-            <ApprovalCard
-              key={action.id}
-              action={action}
-              onApprove={onApprove}
-              onReject={onReject}
-              onEdit={onEdit}
-            />
-          ))}
-        </div>
-        {children}
-      </div>
-    </div>
+      )}
+      {children}
+    </aside>
   );
 }

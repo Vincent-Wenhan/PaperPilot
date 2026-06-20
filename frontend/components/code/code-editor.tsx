@@ -94,9 +94,10 @@ export function CodeEditor({
       <div className="monaco-container">
         <Editor
           height="100%"
+          loading={null}
           language={detectLanguage(file.path)}
           value={file.content}
-          theme="vs-dark"
+          theme="vs"
           onMount={handleMount}
           options={{
             readOnly,

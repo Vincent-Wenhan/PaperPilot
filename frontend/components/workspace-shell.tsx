@@ -9,6 +9,10 @@ import { ProjectSidebar } from "@/components/layout/project-sidebar";
 import type { RunFormState } from "@/components/layout/project-sidebar";
 import { CenterWorkspace } from "@/components/layout/center-workspace";
 import { BottomDock } from "@/components/layout/bottom-dock";
+import {
+  ActionApprovalDrawer,
+  type PendingAction,
+} from "@/components/approval/action-approval-drawer";
 import { RunIntakeDrawer } from "@/components/run/run-intake-drawer";
 import type { WorkbenchTabId } from "@/components/workbench/workbench-tabs";
 import {
@@ -37,6 +41,7 @@ import {
   type ApiRunResult,
 } from "@/lib/api";
 import {
+  agentEvents,
   planSteps,
   type AgentEvent,
   type PlanStep,
@@ -68,7 +73,7 @@ const ACTIVE_RUN_STORAGE_KEY = "paperpilot.activeRunId";
 
 export function WorkspaceShell() {
   const [apiRun, setApiRun] = useState<ApiRun | null>(null);
-  const [timelineEvents, setTimelineEvents] = useState<AgentEvent[]>([]);
+  const [timelineEvents, setTimelineEvents] = useState<AgentEvent[]>(agentEvents);
   const [graphNodes, setGraphNodes] = useState<ApiGraphNode[]>([]);
   const [runForm, setRunForm] = useState<RunFormState>(defaultRunForm);
   const [creatingRun, setCreatingRun] = useState(false);
@@ -90,6 +95,7 @@ export function WorkspaceShell() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [newRunDrawerOpen, setNewRunDrawerOpen] = useState(false);
+  const [approvalOpen, setApprovalOpen] = useState(true);
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<WorkbenchTabId>("workflow");
   const [runResult, setRunResult] = useState<ApiRunResult | null>(null);
   const [evaluationIssues, setEvaluationIssues] = useState<EvaluationIssue[]>([]);
@@ -128,6 +134,32 @@ export function WorkspaceShell() {
     const haystack = `${item.label} ${item.meta}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
+  const pendingApprovalActions: PendingAction[] = apiActions
+    .filter((action) => action.status === "pending")
+    .map((action) => ({
+      id: action.action_id,
+      runId: action.run_id,
+      agent: action.agent,
+      type: action.tool === "apply_patch" ? "apply_patch" : "run_command",
+      risk: action.risk === "low" ? "safe" : "review",
+      reason: action.reason,
+      payload: { command: action.command },
+      status: action.status,
+    }));
+  const displayedApprovalActions: PendingAction[] = pendingApprovalActions.length
+    ? pendingApprovalActions
+    : !apiRun
+      ? [{
+          id: "preview-approval",
+          runId: "preview-run",
+          agent: "Prototype Builder",
+          type: "apply_patch",
+          risk: "review",
+          reason: "Implement prototype scaffold and API endpoints.",
+          payload: { command: "git apply prototype.patch" },
+          status: "pending",
+        }]
+      : [];
   const displayedChatMessages = buildChatMessages(timelineEvents, chatMessages);
 
   // Load persisted LLM config on mount
@@ -583,13 +615,29 @@ export function WorkspaceShell() {
         />
       </section>
 
-      {apiRun && (
-        <BottomDock
-          events={timelineEvents}
-          resultSummary={runResult as Record<string, unknown> | null}
-          runId={apiRun.run_id}
-        />
-      )}
+      <BottomDock
+        events={timelineEvents}
+        resultSummary={runResult as Record<string, unknown> | null}
+        runId={apiRun?.run_id}
+      />
+
+      <ActionApprovalDrawer
+        open={approvalOpen && displayedApprovalActions.length > 0}
+        actions={displayedApprovalActions}
+        onClose={() => setApprovalOpen(false)}
+        onApprove={() => {
+          void updateApproval("approved");
+          setApprovalOpen(false);
+        }}
+        onEdit={() => {
+          void updateApproval("edited");
+          setApprovalOpen(false);
+        }}
+        onReject={() => {
+          void updateApproval("rejected");
+          setApprovalOpen(false);
+        }}
+      />
 
       <RunIntakeDrawer
         open={newRunDrawerOpen}

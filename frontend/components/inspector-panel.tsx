@@ -5,8 +5,6 @@ import {
   FileText,
   GitCompare,
   ListChecks,
-  Play,
-  RotateCcw,
   Terminal,
   type LucideIcon,
 } from "lucide-react";
@@ -39,10 +37,8 @@ import { CodePanel } from "@/components/inspector/code-panel";
 import { DiffPanel } from "@/components/inspector/diff-panel";
 import { RunnerPanel } from "@/components/inspector/runner-panel";
 import { ToolCallPanel } from "@/components/inspector/tool-call-panel";
-import { LogsPanel } from "@/components/inspector/logs-panel";
-import { PreviewPanel } from "@/components/inspector/preview-panel";
 
-type InspectorTab = "artifacts" | "code" | "diff" | "runner" | "tools" | "logs" | "preview";
+type InspectorTab = "artifacts" | "code" | "diff" | "runner" | "tools";
 
 const tabs: Array<{ id: InspectorTab; label: string; icon: LucideIcon }> = [
   { id: "artifacts", label: "Artifacts", icon: FileText },
@@ -50,8 +46,6 @@ const tabs: Array<{ id: InspectorTab; label: string; icon: LucideIcon }> = [
   { id: "diff", label: "Diff", icon: GitCompare },
   { id: "runner", label: "Runner", icon: Terminal },
   { id: "tools", label: "Tool Calls", icon: ListChecks },
-  { id: "logs", label: "Logs", icon: Play },
-  { id: "preview", label: "Preview", icon: RotateCcw },
 ];
 
 export function InspectorPanel({
@@ -65,7 +59,7 @@ export function InspectorPanel({
   runId: string;
   runStatus?: "pending" | "running" | "success" | "waiting_review" | "failed" | "revised";
 }) {
-  const [activeTab, setActiveTab] = useState<InspectorTab>("artifacts");
+  const [activeTab, setActiveTab] = useState<InspectorTab>("code");
   const [activeFileId, setActiveFileId] = useState(codeFiles[0]?.id ?? "");
   const [artifactRows, setArtifactRows] = useState(mockArtifacts);
   const [apiFiles, setApiFiles] = useState<ApiFileNode[]>([]);
@@ -164,12 +158,9 @@ export function InspectorPanel({
   const pendingRunnerAction = apiActions.find((a) => a.status === "pending");
 
   return (
-    <aside className="inspector">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">Inspector</p>
-          <h2>Run workspace</h2>
-        </div>
+    <aside className="inspector" aria-label="Run inspector">
+      <div className="inspector-titlebar">
+        <strong>Artifacts</strong>
         <StatusPill status={runStatus} />
       </div>
 
@@ -180,7 +171,9 @@ export function InspectorPanel({
             <button
               key={tab.id}
               className={activeTab === tab.id ? "tab active" : "tab"}
+              aria-selected={activeTab === tab.id}
               onClick={() => setActiveTab(tab.id)}
+              role="tab"
               type="button"
               title={tab.label}
             >
@@ -281,9 +274,6 @@ export function InspectorPanel({
           <ToolCallPanel toolCalls={derivedToolCalls.length ? derivedToolCalls : mockToolCalls} />
         )}
 
-        {activeTab === "logs" && <LogsPanel events={events} />}
-
-        {activeTab === "preview" && <PreviewPanel />}
       </div>
     </aside>
   );

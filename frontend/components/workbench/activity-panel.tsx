@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3 } from "lucide-react";
+import { CheckCircle2, Circle, Filter } from "lucide-react";
 import { StatusPill } from "@/components/status-pill";
 import type { AgentEvent } from "@/lib/mock-data";
 
@@ -10,13 +10,15 @@ type ActivityPanelProps = {
 
 export function ActivityPanel({ events }: ActivityPanelProps) {
   return (
-    <div className="tool-panel timeline-panel">
+    <section className="activity-panel" aria-label="Activity">
       <div className="panel-heading">
-        <div>
-          <p className="eyebrow">Event stream</p>
-          <h2>Agent trace</h2>
+        <h2>Activity</h2>
+        <div className="activity-actions">
+          <button className="filter-button" type="button">
+            <Filter size={13} /> All Events
+          </button>
+          <button className="clear-button" type="button">Clear</button>
         </div>
-        <Clock3 size={17} />
       </div>
       <div className="timeline">
         {events.length === 0 && (
@@ -24,16 +26,13 @@ export function ActivityPanel({ events }: ActivityPanelProps) {
         )}
         {events.map((event) => (
           <article className="timeline-event" key={event.id}>
-            <div className={`event-dot status-${event.status}`} />
-            <div>
-              <span>{event.time}</span>
-              <strong>{event.agent}</strong>
-              <p>{event.message}</p>
-            </div>
+            {event.status === "success" ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+            <time>{event.time}</time>
+            <p><strong>{event.agent}</strong> {event.message}</p>
             <StatusPill status={event.status} />
           </article>
         ))}
       </div>
-    </div>
+    </section>
   );
 }

@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  CheckSquare,
-  MessageSquareText,
-  Play,
-  ShieldCheck,
-} from "lucide-react";
+import { CheckSquare } from "lucide-react";
 
 import { StatusPill } from "@/components/status-pill";
 import type { AgentEvent, PlanStep, RunMode, WorkflowStatus } from "@/lib/mock-data";
@@ -60,96 +55,39 @@ export function CenterWorkspace({
   onRevisePrototype,
   onAcceptWarning,
 }: CenterWorkspaceProps) {
-  const approvalCopy = getApprovalCopy(runStatus);
   return (
-    <section className="center-workspace">
-      <div className="workspace-toolbar">
-        <div>
-          <p className="eyebrow">Run</p>
-          <h2>{mode === "reproduce" ? "Reproduce workflow" : "Productize workflow"}</h2>
-        </div>
-        <div className="toolbar-actions">
-          <button className="command-button" type="button" onClick={onAskAgent}>
-            <MessageSquareText size={15} />
-            Ask Agent
-          </button>
-          <button className="command-button primary" type="button" onClick={onContinueRun}>
-            <Play size={15} />
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      <div className="notice-strip">{notice}</div>
-
+    <section className="center-workspace" data-run-status={runStatus}>
       <WorkbenchTabs activeTab={activeTab} onTabChange={onTabChange} />
 
       {activeTab === "workflow" && (
-        <>
-          <section className="tool-panel plan-panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Co-planning</p>
-                <h2>Editable plan</h2>
-              </div>
-              <button
-                className="icon-button"
-                title="Approve plan"
-                type="button"
-                onClick={onApprovePlan}
-              >
-                <CheckSquare size={17} />
-              </button>
-            </div>
-            <div className="plan-list">
-              {planState.map((step) => (
-                <label className="plan-step" key={step.id}>
-                  <input
-                    type="checkbox"
-                    checked={step.enabled}
-                    onChange={() => onTogglePlanStep(step.id)}
-                  />
-                  <span>{step.label}</span>
-                  <StatusPill status={step.status} />
-                </label>
-              ))}
-            </div>
-          </section>
-
-          <section className="tool-panel graph-panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">LangGraph</p>
-                <h2>Workflow graph</h2>
-              </div>
-              <div className="legend">
-                <span className="legend-item success">success</span>
-                <span className="legend-item running">running</span>
-                <span className="legend-item review">review</span>
-              </div>
+        <div className="workflow-surface">
+          <section className="graph-panel" aria-label="Workflow graph panel">
+            <div className="graph-context" title={notice}>
+              <span>{mode === "reproduce" ? "Reproduce workflow" : "Product Design workflow"}</span>
+              <button className="refresh-link" type="button" onClick={onContinueRun}>Refresh</button>
             </div>
             <WorkflowGraph nodes={graphNodes} />
           </section>
-
           <ActivityPanel events={timelineEvents} />
-
-          <section className="tool-panel approval-panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Approval</p>
-                <h2>Human-in-the-loop</h2>
-              </div>
-              <ShieldCheck size={18} />
-            </div>
-            <div className="approval-summary">
-              <code>{approvalCopy.command}</code>
-              <p>{approvalCopy.message}</p>
-            </div>
-          </section>
-        </>
+        </div>
       )}
 
       {activeTab === "chat" && (
+        <div className="chat-workspace">
+        <section className="tool-panel plan-panel">
+          <div className="panel-heading">
+            <div><p className="eyebrow">Co-planning</p><h2>Editable plan</h2></div>
+            <button className="icon-button" title="Approve plan" type="button" onClick={onApprovePlan}><CheckSquare size={17} /></button>
+          </div>
+          <div className="plan-list">
+            {planState.map((step) => (
+              <label className="plan-step" key={step.id}>
+                <input type="checkbox" checked={step.enabled} onChange={() => onTogglePlanStep(step.id)} />
+                <span>{step.label}</span><StatusPill status={step.status} />
+              </label>
+            ))}
+          </div>
+        </section>
         <section className="tool-panel chat-panel">
           <div className="panel-heading">
             <div>
@@ -182,6 +120,7 @@ export function CenterWorkspace({
             />
           </div>
         </section>
+        </div>
       )}
 
       {activeTab === "evaluation" && (
@@ -233,37 +172,4 @@ export function CenterWorkspace({
 
 function ChatBubble({ role, text }: { role: "agent" | "user"; text: string }) {
   return <div className={`chat-bubble ${role}`}>{text}</div>;
-}
-
-function getApprovalCopy(runStatus: WorkflowStatus) {
-  if (runStatus === "running") {
-    return {
-      command: "waiting for backend agent stage",
-      message:
-        "No command approval is pending. The backend agent is still running; artifacts appear after the pipeline finishes.",
-    };
-  }
-  if (runStatus === "waiting_review") {
-    return {
-      command: "review generated report and code",
-      message:
-        "The run finished with review items. Open Artifacts, Logs, or Code to inspect the generated output.",
-    };
-  }
-  if (runStatus === "success") {
-    return {
-      command: "pipeline complete",
-      message: "The run completed successfully. Generated artifacts are available in the inspector.",
-    };
-  }
-  if (runStatus === "failed") {
-    return {
-      command: "pipeline failed",
-      message: "The run failed. Open Logs to inspect the backend error before retrying.",
-    };
-  }
-  return {
-    command: "no active backend approval",
-    message: "Create a backend run to receive live approval requests.",
-  };
 }

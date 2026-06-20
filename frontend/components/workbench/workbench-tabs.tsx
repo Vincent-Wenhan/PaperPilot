@@ -13,7 +13,7 @@ const TABS: Array<{ id: WorkbenchTabId; label: string; icon: LucideIcon }> = [
   { id: "workflow", label: "Workflow", icon: GitGraph },
   { id: "chat", label: "Chat", icon: MessageSquareText },
   { id: "evaluation", label: "Evaluation", icon: ShieldAlert },
-  { id: "product", label: "Product", icon: Boxes },
+  { id: "product", label: "Product Design", icon: Boxes },
 ];
 
 export function WorkbenchTabs({ activeTab, onTabChange }: WorkbenchTabsProps) {
@@ -23,9 +23,11 @@ export function WorkbenchTabs({ activeTab, onTabChange }: WorkbenchTabsProps) {
         const Icon = tab.icon;
         return (
           <button
+            aria-selected={activeTab === tab.id}
             key={tab.id}
             className={activeTab === tab.id ? "tab active" : "tab"}
             onClick={() => onTabChange(tab.id)}
+            role="tab"
             type="button"
           >
             <Icon size={15} />

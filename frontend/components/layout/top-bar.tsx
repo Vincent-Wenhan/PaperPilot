@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers } from "lucide-react";
+import { ChevronDown, ChevronRight, MessageSquare, Play } from "lucide-react";
 import { StatusPill } from "@/components/status-pill";
 import type { WorkflowStatus } from "@/lib/mock-data";
 
@@ -20,52 +20,55 @@ type TopBarProps = {
 };
 
 export function TopBar({ run, onNewRun, onModeChange }: TopBarProps) {
-  const initials = run.projectName
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-
   return (
-    <header className="topbar">
-      <div className="brand-block">
-        <div className="brand-mark">
-          <Layers size={18} />
-        </div>
-        <div>
-          <span className="brand-name">PaperPilot</span>
-          <span className="brand-subtitle">Research Agent IDE</span>
-        </div>
-      </div>
-
+    <header className="topbar" aria-label="Project context">
       <div className="breadcrumbs">
         <span>Projects</span>
-        <span className="breadcrumb-sep">/</span>
+        <ChevronRight size={15} />
         <strong>{run.projectName}</strong>
+        <ChevronDown size={15} />
       </div>
 
-      <select
-        className="mode-select"
-        value={run.mode}
-        onChange={(event) =>
-          onModeChange?.(event.target.value as "reproduce" | "productize")
-        }
-      >
-        <option value="reproduce">Reproduce</option>
-        <option value="productize">Product Design</option>
-      </select>
+      <label className="mode-control">
+        <span>Mode:</span>
+        <select
+          className="mode-select"
+          aria-label="Workbench mode"
+          value={run.mode}
+          onChange={(event) => onModeChange?.(event.target.value as "reproduce" | "productize")}
+        >
+          <option value="reproduce">Reproduce</option>
+          <option value="productize">Product Design</option>
+        </select>
+      </label>
+
+      <div className="topbar-spacer" />
 
       <div className="run-status">
-        <span>{run.runId ?? "No Run"}</span>
+        <span className="live-dot" />
+        <strong>{run.runId ?? "No Run"}</strong>
         <StatusPill status={run.status} />
         <span>{run.elapsed ?? "00:00:00"}</span>
       </div>
 
-      <button className="command-button primary" type="button" onClick={onNewRun}>
-        New Run
+      <button className="icon-button topbar-icon" aria-label="Messages" title="Messages" type="button">
+        <MessageSquare size={17} />
       </button>
 
-      <div className="avatar">{initials || "PP"}</div>
+      <div className="new-run-group">
+        <button className="command-button primary" type="button" onClick={onNewRun}>
+          <Play size={16} fill="currentColor" />
+          <span>New Run</span>
+        </button>
+        <button className="new-run-menu" aria-label="New run options" type="button">
+          <ChevronDown size={15} />
+        </button>
+      </div>
+
+      <button className="profile-menu" aria-label="User menu" type="button">
+        <span className="avatar">JM</span>
+        <ChevronDown size={15} />
+      </button>
     </header>
   );
 }

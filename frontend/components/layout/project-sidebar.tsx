@@ -1,16 +1,16 @@
 "use client";
 
-import type { ReactNode } from "react";
 import {
-  Activity,
-  Boxes,
+  Bot,
+  ChevronDown,
+  CirclePlay,
   FileText,
-  Plus,
-  Search,
+  FolderKanban,
+  GitFork,
+  Grid2X2,
   Settings,
 } from "lucide-react";
 
-import { StatusPill } from "@/components/status-pill";
 import type { ProjectNavItem, RunMode } from "@/lib/mock-data";
 
 export type RunFormState = {
@@ -42,107 +42,60 @@ type ProjectSidebarProps = {
   onNewRun: () => void;
 };
 
-export function ProjectSidebar({
-  currentTask,
-  query,
-  selectedNavId,
-  visibleNavItems,
-  onQueryChange,
-  onNavSelect,
-  onNewRun,
-}: ProjectSidebarProps) {
-  return (
-    <aside className="navigator">
-      <div className="navigator-header">
-        <div>
-          <p className="eyebrow">Workspace</p>
-          <h1>{currentTask}</h1>
-        </div>
-        <button
-          className="icon-button"
-          title="New run"
-          type="button"
-          onClick={onNewRun}
-        >
-          <Plus size={17} />
-        </button>
-      </div>
+const NAV_ITEMS = [
+  { label: "Projects", id: "run", icon: FolderKanban },
+  { label: "Papers", id: "paper", icon: FileText },
+  { label: "Repos", id: "repo", icon: GitFork },
+  { label: "Runs", id: "run", icon: CirclePlay },
+  { label: "Agents", id: "product", icon: Bot },
+] as const;
 
-      <div className="search-box">
-        <Search size={16} />
-        <input
-          aria-label="Search workspace"
-          placeholder="Search runs, files, agents"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-        />
+export function ProjectSidebar({ currentTask, selectedNavId, onNavSelect }: ProjectSidebarProps) {
+  return (
+    <aside className="navigator" title={currentTask}>
+      <div className="sidebar-brand">
+        <span className="paperpilot-mark" aria-hidden="true">
+          <Grid2X2 size={22} />
+        </span>
+        <strong>PaperPilot</strong>
       </div>
 
       <nav className="nav-section" aria-label="Project navigation">
-        <NavGroup
-          title="Inputs"
-          icon={<FileText size={16} />}
-          items={visibleNavItems.filter((item) => ["paper", "repo"].includes(item.id))}
-          selectedId={selectedNavId}
-          onSelect={onNavSelect}
-        />
-        <NavGroup
-          title="Runs"
-          icon={<Activity size={16} />}
-          items={visibleNavItems.filter((item) => item.id === "run")}
-          selectedId={selectedNavId}
-          onSelect={onNavSelect}
-        />
-        <NavGroup
-          title="Artifacts"
-          icon={<Boxes size={16} />}
-          items={visibleNavItems.filter((item) => item.id === "product")}
-          selectedId={selectedNavId}
-          onSelect={onNavSelect}
-        />
+        <div className="primary-nav">
+          {NAV_ITEMS.map(({ label, id, icon: Icon }, index) => (
+            <button
+              aria-label={label}
+              className={index === 0 ? "global-nav-item active" : "global-nav-item"}
+              key={label}
+              type="button"
+              onClick={() => onNavSelect(id)}
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+        <button className="global-nav-item settings-nav" aria-label="Settings" type="button">
+          <Settings size={18} />
+          <span>Settings</span>
+        </button>
       </nav>
 
-      <div className="settings-strip">
-        <Settings size={15} />
-        <span>Runner: review-required</span>
+      <div className="sidebar-footer">
+        <section className="plan-usage" aria-label="Plan usage">
+          <strong>Pro Plan</strong>
+          <span><b>12k</b> / 50k credits used</span>
+          <div className="usage-track"><span /></div>
+        </section>
+        <button className="user-profile" type="button" aria-label="Jane Miller profile">
+          <span className="avatar avatar-small">JM</span>
+          <span className="user-copy">
+            <strong>Jane Miller</strong>
+            <small>jane@acme.ai</small>
+          </span>
+          <ChevronDown size={15} />
+        </button>
       </div>
     </aside>
-  );
-}
-
-function NavGroup({
-  title,
-  icon,
-  items,
-  selectedId,
-  onSelect,
-}: {
-  title: string;
-  icon: ReactNode;
-  items: ProjectNavItem[];
-  selectedId: string;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <section className="nav-group">
-      <div className="nav-group-title">
-        {icon}
-        <span>{title}</span>
-      </div>
-      {items.map((item) => (
-        <button
-          className={selectedId === item.id ? "nav-item active" : "nav-item"}
-          key={item.id}
-          type="button"
-          onClick={() => onSelect(item.id)}
-        >
-          <div>
-            <strong>{item.label}</strong>
-            <span>{item.meta}</span>
-          </div>
-          <StatusPill status={item.status} />
-        </button>
-      ))}
-    </section>
   );
 }

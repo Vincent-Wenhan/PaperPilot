@@ -3,12 +3,12 @@
 import {
   Background,
   Controls,
-  MiniMap,
   ReactFlow,
   type Edge,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
+import { CheckCircle2, Circle, Clock3, LoaderCircle } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import type { WorkflowStatus } from "@/lib/mock-data";
@@ -42,26 +42,35 @@ type WorkflowGraphProps = {
 };
 
 const DEFAULT_LAYOUT: Record<string, { x: number; y: number }> = {
-  parse: { x: 0, y: 40 },
-  research_evidence: { x: 210, y: 0 },
-  repo_evidence: { x: 210, y: 96 },
-  planning: { x: 460, y: 48 },
-  command_routing: { x: 720, y: 48 },
-  implementation: { x: 980, y: 48 },
-  review: { x: 1240, y: 48 },
-  diagnosis: { x: 1500, y: 48 },
-  outputs: { x: 1760, y: 48 },
-  capability_cards: { x: 210, y: 0 },
-  capability_map: { x: 460, y: 0 },
-  method_composition: { x: 720, y: 0 },
-  jtbd: { x: 980, y: 0 },
-  prd: { x: 1240, y: 0 },
-  mvp: { x: 1500, y: 0 },
-  prototype: { x: 1760, y: 48 },
-  evaluation: { x: 1760, y: 0 },
-  revision: { x: 2020, y: 0 },
-  scaffold: { x: 2020, y: 48 },
+  parse: { x: 20, y: 20 },
+  research_evidence: { x: 220, y: 20 },
+  repo_evidence: { x: 220, y: 20 },
+  planning: { x: 420, y: 20 },
+  command_routing: { x: 620, y: 20 },
+  implementation: { x: 620, y: 20 },
+  review: { x: 100, y: 170 },
+  evaluation: { x: 100, y: 170 },
+  revision: { x: 360, y: 170 },
+  diagnosis: { x: 360, y: 170 },
+  outputs: { x: 620, y: 170 },
+  capability_cards: { x: 20, y: 20 },
+  capability_map: { x: 220, y: 20 },
+  method_composition: { x: 420, y: 20 },
+  jtbd: { x: 620, y: 20 },
+  prd: { x: 100, y: 170 },
+  mvp: { x: 360, y: 170 },
+  prototype: { x: 620, y: 170 },
+  scaffold: { x: 620, y: 170 },
 };
+
+const FALLBACK_NODES: GraphNodeData[] = [
+  { id: "parse", label: "Parse Paper", agent: "Paper parser", status: "success", startedAt: "", finishedAt: "00:45", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
+  { id: "repo_evidence", label: "Repo Understanding", agent: "Repository agent", status: "success", startedAt: "", finishedAt: "01:20", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
+  { id: "planning", label: "Product Planner", agent: "Planning agent", status: "success", startedAt: "", finishedAt: "01:10", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
+  { id: "implementation", label: "Prototype Builder", agent: "Builder agent", status: "running", startedAt: "", finishedAt: "02:34", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
+  { id: "evaluation", label: "Evaluator", agent: "Evaluation agent", status: "waiting_review", startedAt: "", finishedAt: "", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
+  { id: "revision", label: "Revision", agent: "Revision agent", status: "pending", startedAt: "", finishedAt: "", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
+];
 
 function computeEdges(nodeIds: string[]): Array<{ id: string; source: string; target: string }> {
   const edges: Array<{ id: string; source: string; target: string }> = [];
@@ -79,10 +88,14 @@ function WorkflowNodeCard({ data }: NodeProps) {
   const nodeData = data as unknown as GraphNodeData;
   const toolCount = nodeData.toolCalls?.length ?? 0;
   const issueCount = nodeData.issues?.length ?? 0;
+  const StatusIcon = nodeData.status === "success" ? CheckCircle2 : nodeData.status === "running" ? LoaderCircle : nodeData.status === "waiting_review" ? Clock3 : Circle;
   return (
     <div className={`workflow-node-card status-${nodeData.status}`}>
-      <strong>{nodeData.label}</strong>
-      <small>{nodeData.agent}</small>
+      <div className="node-title"><StatusIcon size={17} /><strong>{nodeData.label}</strong></div>
+      <div className="node-status-row">
+        <span>{nodeData.status === "success" ? "Completed" : nodeData.status === "waiting_review" ? "Pending" : nodeData.status}</span>
+        <time>{nodeData.finishedAt}</time>
+      </div>
       <div className="node-meta">
         {toolCount > 0 && <span className="node-badge">{toolCount} tools</span>}
         {issueCount > 0 && <span className="node-badge issue">{issueCount} issues</span>}
@@ -104,9 +117,8 @@ export function WorkflowGraph({ nodes: graphNodes, edges: graphEdges }: Workflow
     [graphNodes],
   );
 
-  const compiledNodes: Node[] = (graphNodes && graphNodes.length > 0
-    ? graphNodes
-    : []
+  const displayNodes = graphNodes && graphNodes.length > 0 ? graphNodes : FALLBACK_NODES;
+  const compiledNodes: Node[] = (displayNodes
   ).map((gn) => {
     const pos = DEFAULT_LAYOUT[gn.id] ?? { x: 0, y: 0 };
     return {
@@ -120,7 +132,7 @@ export function WorkflowGraph({ nodes: graphNodes, edges: graphEdges }: Workflow
 
   const compiledEdges: Edge[] = (graphEdges && graphEdges.length > 0
     ? graphEdges
-    : computeEdges((graphNodes ?? []).map((n) => n.id))
+    : computeEdges(displayNodes.map((n) => n.id))
   ).map((edge) => ({
     ...edge,
     type: "smoothstep",
@@ -144,7 +156,6 @@ export function WorkflowGraph({ nodes: graphNodes, edges: graphEdges }: Workflow
           nodesConnectable={false}
         >
           <Background gap={18} size={1} />
-          <MiniMap pannable zoomable />
           <Controls showInteractive={false} />
         </ReactFlow>
       </div>

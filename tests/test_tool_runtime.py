@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from runtime.tool_executor import ToolExecutor
 from runtime.tool_registry import ToolRegistry, build_default_registry
 from schemas.tool_schema import ToolCall, ToolSpec
+from tools.repo_evidence_gatherer import gather_repo_evidence
 
 
 class ToolRuntimeTests(unittest.TestCase):
@@ -142,6 +145,26 @@ class ToolRuntimeTests(unittest.TestCase):
         self.assertIn("pytest_collect", names)
         self.assertIn("parse_requirements", names)
         self.assertNotIn("safe_write_file", names)
+
+    def test_repository_evidence_tool_calls_include_required_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "README.md").write_text("# Demo\n\nRun python main.py\n", encoding="utf-8")
+            (root / "requirements.txt").write_text("streamlit>=1.40\n", encoding="utf-8")
+            (root / "main.py").write_text(
+                "def main():\n"
+                "    pass\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n",
+                encoding="utf-8",
+            )
+
+            evidence = gather_repo_evidence(root)
+
+        self.assertTrue(evidence["available"])
+        self.assertIn("Read README.md via read_file tool.", evidence["notes"])
+        self.assertTrue(evidence["dependency_summaries"])
 
 
 if __name__ == "__main__":

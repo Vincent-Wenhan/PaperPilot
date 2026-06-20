@@ -32,8 +32,18 @@ class ArtifactService:
             )
         ]
 
-    def list_artifacts(self, run_id: str = "latest", limit: int = 80) -> list[ArtifactSummary]:
+    def list_artifacts(
+        self,
+        run_id: str = "latest",
+        limit: int = 80,
+        prefixes: list[str] | None = None,
+    ) -> list[ArtifactSummary]:
         artifacts: list[ArtifactSummary] = []
+        normalized_prefixes = [
+            prefix.replace("\\", "/").strip("/").lower()
+            for prefix in (prefixes or [])
+            if prefix.strip()
+        ]
         for root in self.artifact_roots:
             if not root.exists():
                 continue
@@ -43,6 +53,11 @@ class ArtifactService:
                 if not path.is_file() or path.suffix.lower() not in ARTIFACT_SUFFIXES:
                     continue
                 relative = path.relative_to(self.project_root).as_posix()
+                if normalized_prefixes and not any(
+                    relative.lower().startswith(prefix)
+                    for prefix in normalized_prefixes
+                ):
+                    continue
                 artifacts.append(
                     ArtifactSummary(
                         artifact_id=relative,

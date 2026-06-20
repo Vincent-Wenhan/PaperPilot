@@ -43,9 +43,17 @@ class FileService:
             )
         ]
 
-    def list_files(self, limit: int = 200) -> list[FileNode]:
+    def _run_root(self, run_id: str) -> Path:
+        return WORKSPACE_DIR / "runs" / run_id
+
+    def _run_scoped_roots(self, run_id: str) -> list[Path]:
+        run_root = self._run_root(run_id)
+        return [run_root] + self.file_roots
+
+    def list_files(self, run_id: str = "", limit: int = 200) -> list[FileNode]:
+        roots = self._run_scoped_roots(run_id) if run_id else self.file_roots
         nodes: list[FileNode] = []
-        for root in self.file_roots:
+        for root in roots:
             if not root.exists():
                 continue
             for path in sorted(root.rglob("*")):
@@ -69,14 +77,15 @@ class FileService:
                 )
         return nodes
 
-    def read_content(self, path: str, max_chars: int = 80_000) -> FileContent:
+    def read_content(self, path: str, run_id: str = "", max_chars: int = 80_000) -> FileContent:
+        roots = self._run_scoped_roots(run_id) if run_id else self.file_roots
         resolved = resolve_allowed_path(
             self.project_root / path,
-            self.file_roots,
+            roots,
         )
         data = read_file(
             resolved,
-            allowed_roots=self.file_roots,
+            allowed_roots=roots,
             max_chars=max_chars,
         )
         return FileContent(

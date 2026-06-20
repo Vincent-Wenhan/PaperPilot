@@ -52,7 +52,49 @@ PaperPilot combines paper understanding, repository analysis, reproduction plann
 
 ## System Architecture
 
+PaperPilot combines a Next.js Agent Workbench frontend with a FastAPI backend and
+LangGraph-powered agent pipelines.
+
 ```text
+┌──────────────────────────────────────────────────────────────┐
+│                    Agent Workbench (Next.js)                  │
+│  ┌──────────┐  ┌──────────────────┐  ┌───────────────────┐  │
+│  │ Project  │  │ Center Workspace │  │ Right Inspector   │  │
+│  │ Sidebar  │  │                  │  │                   │  │
+│  │          │  │ • Co-planning    │  │ • Artifacts       │  │
+│  │ • Papers │  │ • Agent Chat     │  │ • Code Workbench  │  │
+│  │ • Repos  │  │ • Workflow Graph │  │ • Diff Viewer     │  │
+│  │ • Runs   │  │ • Event Timeline │  │ • Runner Review   │  │
+│  │ • Config │  │ • Action Approv. │  │ • Tool Calls      │  │
+│  │          │  │                  │  │ • Logs / Preview  │  │
+│  └──────────┘  └──────────────────┘  └───────────────────┘  │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ HTTP + WebSocket
+┌──────────────────────────▼───────────────────────────────────┐
+│                   FastAPI Backend                             │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐ │
+│  │ Run Service  │ │ Event Service│ │ Graph / Patch /      │ │
+│  │ (in-memory   │ │ (JSONL       │ │ Action / File        │ │
+│  │  + pipeline) │ │  persistence)│ │ Services             │ │
+│  └──────────────┘ └──────────────┘ └──────────────────────┘ │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+┌──────────────────────────▼───────────────────────────────────┐
+│              LangGraph Agent Pipelines                        │
+│  ┌─────────────────────┐  ┌──────────────────────────────┐  │
+│  │ Reproduce Graph     │  │ Productize Graph             │  │
+│  │ parse → research →  │  │ fan-out → synthesize →       │  │
+│  │ repo → plan →       │  │ plan → prototype →           │  │
+│  │ implement → review  │  │ evaluate → revise → scaffold │  │
+│  └─────────────────────┘  └──────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐│
+│  │          Tools: PDF / GitHub / Runner / AST / Tests      ││
+│  └──────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Pipeline Flow
+
 Paper PDF(s) + GitHub URL(s) (optional)
 ↓
 Reproduce Mode
@@ -81,7 +123,6 @@ Productize Mode
 │   └── Final deterministic scaffold and static inspection
 ↓
 generated_product/<product_name>/
-```
 
 ## Example Output
 
@@ -94,7 +135,40 @@ We provide a sample run in [`examples/`](examples/), including:
 - product opportunity report
 - mock-first Streamlit prototype
 
-See [`examples/sample_input.md`](examples/sample_input.md) for suggested inputs and [`examples/screenshots/`](examples/screenshots/) for UI capture placeholders.
+See [`examples/sample_input.md`](examples/sample_input.md) for suggested inputs and [`examples/screenshots/`](examples/screenshots/) for UI captures.
+
+## Workbench User Flow
+
+```text
+1. Create a run
+   Upload PDF → configure model → set mode (Reproduce / Productize) → submit
+
+2. Review the plan
+   Agent generates editable plan → toggle steps → approve plan
+
+3. Watch agent execution
+   WorkflowGraph shows node status → Event stream shows agent trace →
+   Tool calls appear in Inspector
+
+4. Approve high-risk actions
+   Runner commands, patches, file writes → Action Approval drawer →
+   Approve / Edit / Reject each action
+
+5. Inspect code
+   File tree → Monaco Editor → Syntax check → Explain file →
+   Ask Agent to patch
+
+6. Review diffs
+   Agent proposes patch → Diff Viewer (split/unified) →
+   Approve / Reject / Ask Revision
+
+7. Evaluate product quality
+   Productize Evaluation tab → Issue cards → Reduce MVP Scope /
+   Revise PRD / Revise Prototype / Accept with Warning
+
+8. Download artifacts
+   Plans, reports, scripts, generated products available in Artifacts tab
+```
 
 ## Agent Overview
 
@@ -131,12 +205,27 @@ PaperPilot/
 ├── prompts/
 ├── uploads/
 ├── workspace/
-├── outputs/                   # Per-paper outputs (outputs/<paper_name>/)
+├── frontend/                # Next.js Agent Workbench
+│   ├── app/                 # App Router entry point
+│   ├── components/
+│   │   ├── layout/          # TopBar, ProjectSidebar, CenterWorkspace
+│   │   ├── inspector/       # Artifacts, Code, Diff, Runner, ToolCall, Logs, Preview
+│   │   ├── code/            # FileTree, CodeEditor (Monaco), DiffViewer
+│   │   ├── approval/        # ActionApprovalDrawer, ApprovalCard
+│   │   ├── productize/      # EvaluationIssueCard, ProductizeTabs
+│   │   └── reproduce/       # BlueprintPanel, EvidenceTrace
+│   ├── lib/                 # API client, mock data, cn() utility
+│   └── package.json
+├── backend/                 # FastAPI workbench API
+│   ├── routers/             # runs, actions, artifacts, files, patches, checks, commands
+│   ├── services/            # run, event, graph, artifact, file, patch, command services
+│   └── schemas.py
+├── outputs/                 # Per-paper outputs (outputs/<paper_name>/)
 │   ├── reproduction_plan.md
 │   ├── run.sh
 │   └── report.md
-├── generated_product/         # Runtime-generated prototypes (generated_product/<product_name>/)
-├── examples/                  # Sample outputs illustrating pipeline results
+├── generated_product/       # Runtime-generated prototypes (generated_product/<product_name>/)
+├── examples/                # Sample outputs illustrating pipeline results
 ├── requirements.txt
 └── README.md
 ```
@@ -177,6 +266,8 @@ conda run -n paperpilot python -c "import fitz, langgraph, openai, streamlit, ya
 
 ## Running
 
+### Legacy Streamlit App
+
 ```bash
 cd <path/to/PaperPilot>
 conda run -n paperpilot streamlit run app.py
@@ -184,33 +275,30 @@ conda run -n paperpilot streamlit run app.py
 
 Open the local address output by Streamlit in your browser. The application entry is `app.py`; the core orchestration function is `run_paperpilot()` in `main.py`.
 
-## Agent Workbench Preview
+### Agent Workbench (Next.js + FastAPI)
 
-PaperPilot now also includes a parallel Next.js + FastAPI workbench shell under
-`frontend/` and `backend/`. The Streamlit app remains the stable legacy demo;
-the workbench is the new Research Agent IDE surface for workflow graph,
+The workbench is the new Research Agent IDE surface with workflow graph,
 co-planning, action approval, artifacts, code, diff, runner review, and tool
 trace panels.
 
-Start the API facade:
+**Start the FastAPI backend:**
 
 ```bash
 cd <path/to/PaperPilot>
 conda run -n paperpilot uvicorn backend.main:app --reload --port 8000
 ```
 
-Start the workbench UI:
+**Start the Next.js frontend (in a separate terminal):**
 
 ```bash
-cd <path/to/PaperPilot>/frontend
+cd <path/to/PaperPilot/frontend>
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The workbench uses mock run data when no API is
-available, and uses the FastAPI facade for artifacts, files, patch proposals,
-syntax checks, reviewed commands, and action approvals when the API is running.
-Existing Streamlit pipelines are unchanged.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+**Node dependencies:** Node.js 20+ required. Install with `npm install` inside `frontend/`.
 
 ## Mock Mode
 

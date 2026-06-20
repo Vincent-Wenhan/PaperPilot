@@ -505,7 +505,13 @@ if st.button(button_label, type="primary", disabled=run_disabled):
         adapter = ModelAdapter(mock_mode=mock_mode)
         adapter.setup()
         adapter.load_model()
-        result = adapter.predict(input_data)
+        result = adapter.predict(
+            {{
+                "primary_input": input_data,
+                "context": context_values,
+                "notes": notes,
+            }}
+        )
     except Exception as exc:
         st.error(f"Product execution failed: {{exc}}")
     else:
@@ -571,6 +577,8 @@ def build_adapter_source(
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -607,12 +615,73 @@ class ModelAdapter:
             "repository inference code and implement it here manually."
         )
 
+    def _summarize_input(self, value: Any) -> Any:
+        """Convert Streamlit inputs into deterministic, displayable metadata."""
+        if isinstance(value, dict):
+            return {{
+                str(key): self._summarize_input(item)
+                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            }}
+        if isinstance(value, (list, tuple)):
+            return [self._summarize_input(item) for item in value]
+        if isinstance(value, str):
+            return {{
+                "kind": "text",
+                "characters": len(value),
+                "preview": value[:160],
+            }}
+        if isinstance(value, bytes):
+            return {{"kind": "bytes", "bytes": len(value)}}
+        file_name = str(getattr(value, "name", "") or "")
+        if file_name:
+            size = getattr(value, "size", None)
+            if size is None and hasattr(value, "getbuffer"):
+                try:
+                    size = len(value.getbuffer())
+                except Exception:
+                    size = None
+            return {{
+                "kind": "uploaded_file",
+                "name": file_name,
+                "content_type": str(getattr(value, "type", "") or ""),
+                "size_bytes": size,
+            }}
+        if value is None:
+            return {{"kind": "empty"}}
+        return {{"kind": type(value).__name__, "value": str(value)[:160]}}
+
+    def _stable_signature(self, summary: Any) -> str:
+        payload = json.dumps(summary, ensure_ascii=True, sort_keys=True, default=str)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+    def _base_mock_result(self) -> dict[str, Any]:
+        return {mock_result_source}
+
     def predict(self, input_data: Any) -> dict[str, Any]:
-        """Run reviewed inference or return a deterministic mock result."""
+        """Run reviewed inference or return an input-aware deterministic mock result."""
         if not self.mock_mode:
             raise NotImplementedError(
                 "Real prediction is not configured. Enable it only after "
                 "manual review and implementation."
             )
-        return {mock_result_source}
+        input_summary = self._summarize_input(input_data)
+        input_signature = self._stable_signature(input_summary)
+        result = dict(self._base_mock_result())
+        result["input_summary"] = input_summary
+        result["input_signature"] = input_signature
+        result.setdefault("message", "Mock analysis completed.")
+        if isinstance(result.get("result"), dict):
+            result["result"] = {{
+                **result["result"],
+                "input_signature": input_signature,
+            }}
+        elif isinstance(result.get("result"), str):
+            result["result"] = (
+                f"{{result['result']}} Input signature: {{input_signature}}."
+            )
+        else:
+            result["result"] = (
+                f"Processed {template} input with signature {{input_signature}}."
+            )
+        return result
 '''

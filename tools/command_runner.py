@@ -39,6 +39,14 @@ FORBIDDEN_PATTERNS = (
 MAX_OUTPUT_CHARS = 4000
 
 
+def _requirements_has_installable_lines(path: Path) -> bool:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    return any(line.strip() and not line.lstrip().startswith("#") for line in lines)
+
+
 def is_safe_command(command: str) -> tuple[bool, str]:
     """Validate a command against shell controls and the exact allowlist."""
     if not command or not command.strip():
@@ -378,15 +386,27 @@ def run_sandbox_verification(
     results: list[dict[str, Any]] = []
 
     # 1. pip install
-    pip_result = run_command_sandbox("pip install -r requirements.txt", str(sandbox_dir), timeout=300)
-    results.append({
-        "step": "pip install",
-        "command": "pip install -r requirements.txt",
-        "exit_code": pip_result.exit_code,
-        "stdout": pip_result.stdout,
-        "stderr": pip_result.stderr,
-        "passed": pip_result.executed and pip_result.exit_code == 0,
-    })
+    requirements_path = sandbox_dir / "requirements.txt"
+    pip_command = "python -m pip install --disable-pip-version-check -r requirements.txt"
+    if _requirements_has_installable_lines(requirements_path):
+        pip_result = run_command_sandbox(pip_command, str(sandbox_dir), timeout=180)
+        results.append({
+            "step": "pip install",
+            "command": pip_command,
+            "exit_code": pip_result.exit_code,
+            "stdout": pip_result.stdout,
+            "stderr": pip_result.stderr,
+            "passed": pip_result.executed and pip_result.exit_code == 0,
+        })
+    else:
+        results.append({
+            "step": "pip install",
+            "command": pip_command,
+            "exit_code": 0,
+            "stdout": "Skipped because requirements.txt has no installable entries.",
+            "stderr": "",
+            "passed": True,
+        })
 
     # 2. import check for each .py file
     py_files = sorted(resolved.rglob("*.py"))

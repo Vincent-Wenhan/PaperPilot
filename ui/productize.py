@@ -10,6 +10,7 @@ import streamlit as st
 from pipeline.productize_pipeline import execute_proposal, generate_proposals
 from schemas.product_schema import ProductOpportunity, ProductProposal
 from ui.llm_config import get_llm_client
+from ui.progress import ThreadSafeProgress
 from ui.productize_helpers import (
     analysis_to_productize_paper,
     assign_repo_urls,
@@ -100,17 +101,8 @@ def render_productize_mode() -> None:
         )
 
         if st.button("Generate Proposals", type="primary", key="generate_proposals_btn"):
-            progress_lines: list[str] = []
             progress_log = st.empty()
-
-            def _on_progress(msg: str) -> None:
-                progress_lines.append(f"- {msg}")
-                try:
-                    progress_log.markdown(
-                        "**Progress**\n" + "\n".join(progress_lines)
-                    )
-                except Exception:
-                    pass  # Cross-thread call from LangGraph, no session context
+            progress = ThreadSafeProgress("Progress", progress_log.markdown)
 
             analyses: list[dict[str, Any]] = []
             titles: list[str] = []
@@ -123,7 +115,7 @@ def render_productize_mode() -> None:
                 for index, (uploaded_pdf, assigned_url) in enumerate(
                     zip(uploaded_pdfs, assigned_urls, strict=True), 1
                 ):
-                    _on_progress(f"Analyzing paper {index}: {uploaded_pdf.name}")
+                    progress(f"Analyzing paper {index}: {uploaded_pdf.name}")
                     try:
                         saved_pdf = save_uploaded_pdf(uploaded_pdf)
                         analysis = run_analysis_for_productize(
@@ -132,7 +124,7 @@ def render_productize_mode() -> None:
                             hardware=hardware,
                             gpu_info=gpu_info.strip(),
                             llm_client=get_llm_client(),
-                            progress_callback=_on_progress,
+                            progress_callback=progress,
                         )
                     except Exception as exc:
                         import traceback
@@ -141,6 +133,7 @@ def render_productize_mode() -> None:
                         )
                         with st.expander("Error details"):
                             st.code(traceback.format_exc())
+                        progress.render()
                         return
                     analyses.append(analysis)
                     titles.append(Path(uploaded_pdf.name).stem)
@@ -174,7 +167,7 @@ def render_productize_mode() -> None:
                 for idx, analysis in enumerate(analyses, 1)
             ]
 
-            _on_progress("Generating proposals...")
+            progress("Generating proposals...")
             try:
                 proposals, proposal_meta = generate_proposals(
                     papers=papers,
@@ -182,15 +175,18 @@ def render_productize_mode() -> None:
                     product_goal=product_goal.strip(),
                     llm_client=get_llm_client(),
                     user_idea=user_idea.strip(),
-                    progress_callback=_on_progress,
+                    progress_callback=progress,
                 )
             except Exception as exc:
                 st.error(f"Proposal generation failed: {exc}")
+                progress.render()
                 return
 
             if not proposals:
                 st.error("No proposals were generated. Please try different inputs.")
+                progress.render()
                 return
+            progress.render()
 
             st.session_state["productize_proposals"] = [
                 p.model_dump(mode="json") for p in proposals
@@ -336,19 +332,13 @@ def render_productize_mode() -> None:
                         risks=selected_data.get("risks", []),
                     )
 
-                    progress_lines = []
                     progress_log = st.empty()
+                    progress = ThreadSafeProgress(
+                        "Execution Progress",
+                        progress_log.markdown,
+                    )
 
-                    def _on_progress2(msg: str) -> None:
-                        progress_lines.append(f"- {msg}")
-                        try:
-                            progress_log.markdown(
-                                "**Execution Progress**\n" + "\n".join(progress_lines)
-                            )
-                        except Exception:
-                            pass
-
-                    _on_progress2("Executing proposal...")
+                    progress("Executing proposal...")
                     try:
                         result = execute_proposal(
                             proposal=edited_proposal,
@@ -357,12 +347,14 @@ def render_productize_mode() -> None:
                             preferred_type=preferred_type,
                             repo_path="",
                             llm_client=get_llm_client(),
-                            progress_callback=_on_progress2,
+                            progress_callback=progress,
                         )
                     except Exception as exc:
                         st.error(f"Proposal execution failed: {exc}")
+                        progress.render()
                         return
 
+                    progress.render()
                     st.session_state["productize_result"] = result
                     st.session_state["productize_stage"] = "result"
                     st.rerun()

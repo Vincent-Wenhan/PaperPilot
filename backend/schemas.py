@@ -31,9 +31,18 @@ class RunCreateRequest(BaseModel):
     task: str = ""
     pdf_path: str = ""
     github_url: str = ""
+    hardware: str = "CPU only"
+    gpu_info: str = ""
+    goal: str = "minimal training experiment"
     target_user: str = ""
     product_goal: str = ""
-    mock: bool = True
+    preferred_type: str = "auto"
+    run_pipeline: bool = True
+    api_key: str = ""
+    base_url: str = ""
+    model: str = "gpt-4o-mini"
+    implementation_model: str = ""
+    mock_mode: bool = False
 
 
 class RunRecord(BaseModel):
@@ -45,7 +54,24 @@ class RunRecord(BaseModel):
     created_at: str
     updated_at: str
     summary: str
+    inputs: dict[str, str] = Field(default_factory=dict)
+    result_summary: dict[str, Any] = Field(default_factory=dict)
     plan: list[str] = Field(default_factory=list)
+
+
+class LLMConnectionRequest(BaseModel):
+    api_key: str = ""
+    base_url: str = ""
+    model: str = "gpt-4o-mini"
+    mock_mode: bool = False
+
+
+class LLMConnectionResult(BaseModel):
+    ok: bool
+    message: str
+    endpoint: str = ""
+    model: str = ""
+    mock_mode: bool = False
 
 
 class WorkbenchEvent(BaseModel):

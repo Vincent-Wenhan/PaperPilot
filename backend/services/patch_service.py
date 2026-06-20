@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import compileall
 import difflib
 from copy import deepcopy
 from pathlib import Path
@@ -13,7 +14,11 @@ from tools.file_tools import resolve_allowed_path
 
 
 class PatchService:
-    """Generate and apply reviewed patches inside generated-code roots only."""
+    """Generate and apply reviewed patches inside generated-code roots only.
+
+    Patch lifecycle:
+      propose → PendingAction → approve → apply → syntax_check → event
+    """
 
     def __init__(
         self,
@@ -33,6 +38,13 @@ class PatchService:
             )
         ]
         self._patches: dict[str, PatchProposal] = {}
+
+    def list_patches(self, run_id: str = "") -> list[PatchProposal]:
+        matches = [
+            p for p in self._patches.values()
+            if not run_id or p.run_id == run_id
+        ]
+        return [deepcopy(p) for p in matches]
 
     def propose_patch(
         self,
@@ -80,18 +92,33 @@ class PatchService:
         )
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(patch.new_content, encoding="utf-8")
+        check_ok, check_msg = self._syntax_check(resolved)
         updated = patch.model_copy(update={"status": "applied"})
         self._patches[patch_id] = updated
+        message = "Patch applied to generated workspace file."
+        if check_ok:
+            message += " Syntax check passed."
+        else:
+            message += f" Syntax check warning: {check_msg}"
         return PatchApplyResult(
             patch_id=patch_id,
             path=patch.path,
             applied=True,
-            message="Patch applied to generated workspace file.",
+            message=message,
         )
 
     def get_patch(self, patch_id: str) -> PatchProposal | None:
         patch = self._patches.get(patch_id)
         return deepcopy(patch) if patch else None
+
+    def _syntax_check(self, resolved: Path) -> tuple[bool, str]:
+        if resolved.suffix != ".py":
+            return True, ""
+        try:
+            compileall.compile_file(str(resolved), ddir=str(resolved.parent), force=True, quiet=1)
+            return True, ""
+        except Exception as exc:
+            return False, str(exc)
 
 
 patch_service = PatchService()

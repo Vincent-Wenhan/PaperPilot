@@ -2,9 +2,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 import unittest
 
-from tools.command_runner import assess_risk, is_safe_command, run_command
+from tools.command_runner import (
+    assess_risk,
+    is_safe_command,
+    run_command,
+    run_sandbox_verification,
+)
 
 
 class TestCommandRunner(unittest.TestCase):
@@ -64,3 +70,32 @@ class TestCommandRunner(unittest.TestCase):
         result = run_command("python --version", cwd="/nonexistent/path")
         self.assertFalse(result["success"])
         self.assertIn("does not exist", result["stderr"])
+
+    def test_sandbox_verification_skips_empty_requirements(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "requirements.txt").write_text(
+                "# No dependencies for this generated smoke test.\n",
+                encoding="utf-8",
+            )
+            (root / "main.py").write_text(
+                "import argparse\n\n"
+                "def main() -> None:\n"
+                "    parser = argparse.ArgumentParser()\n"
+                "    parser.add_argument('--smoke-test', action='store_true')\n"
+                "    parser.parse_args()\n"
+                "    print('ok')\n\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n",
+                encoding="utf-8",
+            )
+
+            result = run_sandbox_verification(
+                root,
+                smoke_test_command="python main.py --smoke-test",
+            )
+
+        pip_step = next(item for item in result["results"] if item["step"] == "pip install")
+        self.assertTrue(pip_step["passed"])
+        self.assertIn("Skipped", pip_step["stdout"])
+        self.assertTrue(result["passed"])

@@ -51,6 +51,7 @@ def gather_repo_evidence(repo_path: str | Path) -> dict[str, Any]:
             ToolCall(
                 tool_name="read_file",
                 arguments={"path": str(readme_path), "allowed_roots": allowed_roots},
+                reason="Read repository README content to extract setup and usage evidence.",
                 requested_by=AGENT_NAME,
             )
         )
@@ -68,6 +69,7 @@ def gather_repo_evidence(repo_path: str | Path) -> dict[str, Any]:
             ToolCall(
                 tool_name="parse_dependency_file",
                 arguments={"path": str(dep_path), "allowed_roots": allowed_roots},
+                reason="Parse dependency manifests to summarize the repository runtime environment.",
                 requested_by=AGENT_NAME,
             )
         )
@@ -84,6 +86,7 @@ def gather_repo_evidence(repo_path: str | Path) -> dict[str, Any]:
             ToolCall(
                 tool_name=tool_name,
                 arguments={"root": str(root), "allowed_roots": allowed_roots},
+                reason=f"Collect {key.replace('_', ' ')} from the repository for reproduction planning.",
                 requested_by=AGENT_NAME,
             )
         )

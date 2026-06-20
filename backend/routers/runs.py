@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from typing import Any
 
-from backend.schemas import RunCreateRequest, RunRecord, WorkbenchEvent, WorkbenchSnapshot
+from fastapi import APIRouter, HTTPException, Query
+
+from backend.schemas import RunCreateRequest, RunRecord, WorkbenchEvent, WorkbenchSnapshot, ActionRequest
+from backend.services.event_service import event_service
+from backend.services.graph_service import graph_service
 from backend.services.run_service import run_service
 from backend.services.workbench_mock import build_workbench_snapshot
 
@@ -18,7 +22,10 @@ def get_mock_workbench() -> WorkbenchSnapshot:
 
 @router.post("/runs", response_model=RunRecord)
 def create_run(request: RunCreateRequest) -> RunRecord:
-    return run_service.create_run(request)
+    return run_service.create_run(
+        request,
+        start_pipeline=request.run_pipeline,
+    )
 
 
 @router.get("/runs/{run_id}", response_model=RunRecord)
@@ -30,7 +37,35 @@ def get_run(run_id: str) -> RunRecord:
 
 
 @router.get("/runs/{run_id}/events", response_model=list[WorkbenchEvent])
-def get_run_events(run_id: str) -> list[WorkbenchEvent]:
+def get_run_events(run_id: str, after: str = Query(default="")) -> list[WorkbenchEvent]:
     if run_service.get_run(run_id) is None:
         raise HTTPException(status_code=404, detail="Run not found")
+    if after:
+        return event_service.list_events(run_id, after_id=after)
     return run_service.list_events(run_id)
+
+
+@router.get("/runs/{run_id}/actions", response_model=list[ActionRequest])
+def get_run_actions(run_id: str) -> list[ActionRequest]:
+    if run_service.get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run_service.list_actions(run_id)
+
+
+@router.get("/runs/{run_id}/result")
+def get_run_result(run_id: str) -> dict[str, Any]:
+    if run_service.get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    result = run_service.get_result(run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Run result not available")
+    return result
+
+
+@router.get("/runs/{run_id}/graph")
+def get_run_graph(run_id: str) -> list[dict[str, Any]]:
+    run = run_service.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    events = run_service.list_events(run_id)
+    return graph_service.build_graph(run.mode, events)

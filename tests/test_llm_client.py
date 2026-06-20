@@ -87,6 +87,24 @@ class LLMClientTests(unittest.TestCase):
         self.assertIn("model not found", message)
         self.assertFalse(raised.exception.blocks_client)
 
+    def test_missing_socksio_dependency_reports_proxy_setup(self) -> None:
+        client = LLMClient(
+            api_key="test-key",
+            base_url="https://api.openai-proxy.org/v1",
+            model="test-model",
+        )
+        client._client = _FakeOpenAIClient(
+            ImportError("No module named 'socksio'")
+        )
+
+        with self.assertRaises(LLMConfigurationError) as raised:
+            client.generate("system", "user")
+
+        message = str(raised.exception)
+        self.assertIn("SOCKS proxy", message)
+        self.assertIn("socksio", message)
+        self.assertIn("requirements.txt", message)
+
 
 if __name__ == "__main__":
     unittest.main()

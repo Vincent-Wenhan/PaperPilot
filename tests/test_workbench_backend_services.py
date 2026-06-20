@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.schemas import (
     ActionEditRequest,
@@ -38,12 +39,23 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
                 mode="reproduce",
                 project_id="project_test",
                 task="Reproduce with bounded runner",
+                pdf_path="papers/custom.pdf",
+                github_url="https://github.com/example/custom-paper",
             )
         )
 
         self.assertEqual(run.project_id, "project_test")
         self.assertEqual(run.mode, "reproduce")
-        self.assertGreater(len(service.list_events(run.run_id)), 0)
+        self.assertEqual(run.inputs["pdf_path"], "papers/custom.pdf")
+        self.assertEqual(
+            run.inputs["github_url"],
+            "https://github.com/example/custom-paper",
+        )
+        self.assertNotIn("api_key", run.inputs)
+        events = service.list_events(run.run_id)
+        self.assertGreater(len(events), 0)
+        self.assertIn("papers/custom.pdf", " ".join(event.message for event in events))
+        self.assertNotIn("train.py, eval.py", " ".join(event.message for event in events))
         action = service.list_actions(run.run_id)[0]
 
         approved = service.approve_action(action.action_id)
@@ -61,6 +73,49 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
         self.assertEqual(edited.status, "edited")
         self.assertEqual(edited.edited_command, "python main.py --help")
 
+    def test_run_service_can_execute_reproduce_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "paper.pdf"
+            pdf.write_bytes(b"%PDF-1.4 mock paper")
+            service = InMemoryRunService()
+            request = RunCreateRequest(
+                mode="reproduce",
+                project_id="project_agents",
+                task="Run the existing reproduce agents",
+                pdf_path=str(pdf),
+                api_key="secret-key",
+                mock_mode=True,
+                run_pipeline=False,
+            )
+            run = service.create_run(request)
+
+            with patch.object(
+                InMemoryRunService,
+                "_execute_reproduce",
+                return_value={
+                    "pipeline_status": "complete",
+                    "paper_info": "paper",
+                    "method_info": "method",
+                    "report": "report",
+                    "run_sh": "run",
+                    "generated_files": [{"path": "main.py"}],
+                    "errors": [],
+                    "llm_attempts": 0,
+                    "llm_failures": 0,
+                },
+            ) as mocked_pipeline:
+                completed = service.run_pipeline_now(run.run_id, request)
+
+            self.assertIsNotNone(completed)
+            self.assertEqual(completed.status, "success")
+            mocked_pipeline.assert_called_once()
+            self.assertEqual(str(mocked_pipeline.call_args.args[0]), str(pdf))
+            self.assertNotIn("secret-key", str(service.list_events(run.run_id)))
+            self.assertEqual(
+                service.get_result(run.run_id)["pipeline_status"],
+                "complete",
+            )
+
     def test_artifact_and_file_services_are_read_only_and_root_limited(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -68,7 +123,12 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             workspace = root / "workspace"
             outputs.mkdir()
             workspace.mkdir()
+            (outputs / "other").mkdir()
             (outputs / "report.md").write_text("# Report\n", encoding="utf-8")
+            (outputs / "other" / "report.md").write_text(
+                "# Other\n",
+                encoding="utf-8",
+            )
             (workspace / "main.py").write_text("print('ok')\n", encoding="utf-8")
             (workspace / "sandboxes").mkdir()
             (workspace / "sandboxes" / "scratch.py").write_text(
@@ -81,7 +141,18 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
                 artifact_roots=[outputs],
             )
             listed_artifacts = artifacts.list_artifacts(run_id="run_test")
-            self.assertEqual(listed_artifacts[0].path, "outputs/report.md")
+            self.assertIn(
+                "outputs/report.md",
+                {item.path for item in listed_artifacts},
+            )
+            filtered_artifacts = artifacts.list_artifacts(
+                run_id="run_test",
+                prefixes=["outputs/other"],
+            )
+            self.assertEqual(
+                [item.path for item in filtered_artifacts],
+                ["outputs/other/report.md"],
+            )
             report = artifacts.read_artifact("outputs/report.md")
             self.assertIn("# Report", report.content)
 

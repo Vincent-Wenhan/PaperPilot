@@ -355,3 +355,28 @@ export type ApiPatch = {
   unified_diff: string;
   reason: string;
 };
+
+export type ApiRunResult = {
+  pipeline_status?: string;
+  errors?: string[];
+  llm_attempts?: number;
+  llm_failures?: number;
+  report_ready?: boolean;
+  run_script_ready?: boolean;
+  generated_files?: number;
+  product_output_dir?: string;
+  detected_problems?: string[];
+  revision_suggestions?: string[];
+  safety_warnings?: string[];
+  [key: string]: unknown;
+};
+
+export async function fetchRunResult(runId: string) {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}/result`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Run result API returned ${response.status}`);
+  }
+  return response.json() as Promise<ApiRunResult>;
+}

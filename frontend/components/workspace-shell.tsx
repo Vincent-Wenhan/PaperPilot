@@ -1,30 +1,20 @@
 "use client";
 
-import {
-  Activity,
-  Boxes,
-  CheckSquare,
-  Clock3,
-  FileText,
-  Layers,
-  MessageSquareText,
-  Play,
-  Plus,
-  Save,
-  Search,
-  Settings,
-  ShieldCheck,
-  Upload,
-} from "lucide-react";
-import type { ChangeEvent, FormEvent, ReactNode } from "react";
+import type { ChangeEvent, FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { InspectorPanel } from "@/components/inspector-panel";
-import { StatusPill } from "@/components/status-pill";
-import { TopBar } from "@/components/layout/top-bar";
+import { TopBar, type TopBarRunState } from "@/components/layout/top-bar";
 import { ProjectSidebar } from "@/components/layout/project-sidebar";
-import { CenterWorkspace } from "@/components/layout/center-workspace";
 import type { RunFormState } from "@/components/layout/project-sidebar";
+import { CenterWorkspace } from "@/components/layout/center-workspace";
+import { BottomDock } from "@/components/layout/bottom-dock";
+import { RunIntakeDrawer } from "@/components/run/run-intake-drawer";
+import type { WorkbenchTabId } from "@/components/workbench/workbench-tabs";
+import {
+  issuesFromRunResult,
+  type EvaluationIssue,
+} from "@/components/productize/evaluation-issues";
 import {
   approveAction,
   createRun,
@@ -35,6 +25,7 @@ import {
   fetchRunActions,
   fetchRunEvents,
   fetchRunGraph,
+  fetchRunResult,
   rejectAction,
   saveLlmConfig,
   testLlmConnection,
@@ -43,7 +34,7 @@ import {
   type ApiEvent,
   type ApiGraphNode,
   type ApiRun,
-  type ApiLlmConfig,
+  type ApiRunResult,
 } from "@/lib/api";
 import {
   planSteps,
@@ -90,9 +81,6 @@ export function WorkspaceShell() {
     Array<{ role: "agent" | "user"; text: string }>
   >([]);
   const [chatInput, setChatInput] = useState("");
-  const [approvalStatus, setApprovalStatus] = useState<
-    "pending" | "approved" | "edited" | "rejected"
-  >("pending");
   const [apiActions, setApiActions] = useState<ApiAction[]>([]);
   const [notice, setNotice] = useState(
     "Upload a PDF and configure agent settings, then create a backend run.",
@@ -100,6 +88,11 @@ export function WorkspaceShell() {
   const [uploadedFileName, setUploadedFileName] = useState("");
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [newRunDrawerOpen, setNewRunDrawerOpen] = useState(false);
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<WorkbenchTabId>("workflow");
+  const [runResult, setRunResult] = useState<ApiRunResult | null>(null);
+  const [evaluationIssues, setEvaluationIssues] = useState<EvaluationIssue[]>([]);
 
   const currentProject = apiRun?.project_id ?? runForm.project_id;
   const currentMode = apiRun?.mode ?? runForm.mode;
@@ -110,6 +103,16 @@ export function WorkspaceShell() {
   const productGoal = apiRun?.inputs?.product_goal ?? runForm.product_goal;
   const targetUser = apiRun?.inputs?.target_user ?? runForm.target_user;
   const currentModel = apiRun?.inputs?.llm_model ?? runForm.model;
+
+  const topBarRun: TopBarRunState = {
+    projectName: currentProject,
+    runId: apiRun?.run_id,
+    mode: currentMode,
+    status: apiRun?.status ?? "pending",
+    elapsed: computeElapsed(apiRun?.created_at),
+    model: currentModel,
+  };
+
   const projectNavItems = buildNavItems({
     run: apiRun,
     form: runForm,
@@ -141,6 +144,7 @@ export function WorkspaceShell() {
       });
   }, []);
 
+  // Restore active run from localStorage
   useEffect(() => {
     const storedRunId = window.localStorage.getItem(ACTIVE_RUN_STORAGE_KEY);
     if (!storedRunId) {
@@ -175,6 +179,7 @@ export function WorkspaceShell() {
     };
   }, []);
 
+  // Poll running runs
   useEffect(() => {
     if (!apiRun || apiRun.status !== "running") {
       return;
@@ -215,6 +220,18 @@ export function WorkspaceShell() {
     };
   }, [apiRun?.run_id, apiRun?.status]);
 
+  // Fetch run result when productize run completes
+  useEffect(() => {
+    if (!apiRun || apiRun.mode !== "productize") return;
+    if (apiRun.status !== "success" && apiRun.status !== "waiting_review" && apiRun.status !== "failed") return;
+    fetchRunResult(apiRun.run_id)
+      .then((result) => {
+        setRunResult(result);
+        setEvaluationIssues(issuesFromRunResult(result));
+      })
+      .catch(() => {});
+  }, [apiRun?.run_id, apiRun?.status, apiRun?.mode]);
+
   function addTimelineEvent(message: string, status: WorkflowStatus = "running") {
     setTimelineEvents((events) => [
       {
@@ -240,6 +257,10 @@ export function WorkspaceShell() {
     setRunForm((current) => ({ ...current, [key]: value }));
   }
 
+  function handleModeChange(mode: "reproduce" | "productize") {
+    updateRunForm("mode", mode);
+  }
+
   function resetWorkspace() {
     setApiRun(null);
     window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
@@ -248,9 +269,10 @@ export function WorkspaceShell() {
     setGraphNodes([]);
     setTimelineEvents([]);
     setSelectedNavId("paper");
-    setApprovalStatus("pending");
     setUploadedFileName("");
     setNotice("New workspace ready. Upload a PDF and create a backend run.");
+    setRunResult(null);
+    setEvaluationIssues([]);
   }
 
   async function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -329,8 +351,11 @@ export function WorkspaceShell() {
       );
       setApiActions(runActions ?? []);
       setSelectedNavId("run");
-      setApprovalStatus("pending");
       setNotice(`Started backend run ${run.run_id}. Agent progress will update here.`);
+      setNewRunDrawerOpen(false);
+      setActiveWorkbenchTab("workflow");
+      setRunResult(null);
+      setEvaluationIssues([]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown API error";
       setNotice(`Could not create backend run: ${message}`);
@@ -436,7 +461,6 @@ export function WorkspaceShell() {
           ),
         );
       }
-      setApprovalStatus(nextStatus);
       setNotice(`Action ${nextStatus}: ${target.command}`);
       addTimelineEvent(`Action ${nextStatus}: ${target.command}`, "success");
     } catch (error) {
@@ -469,37 +493,59 @@ export function WorkspaceShell() {
     }
   }
 
+  function handleReduceScope(issueId: string) {
+    setEvaluationIssues((prev) =>
+      prev.map((issue) =>
+        issue.id === issueId ? { ...issue, status: "accepted" as const } : issue,
+      ),
+    );
+    setNotice(`Evaluation issue ${issueId}: scope reduction accepted.`);
+  }
+
+  function handleRevisePrd(issueId: string) {
+    setEvaluationIssues((prev) =>
+      prev.map((issue) =>
+        issue.id === issueId ? { ...issue, status: "revised" as const } : issue,
+      ),
+    );
+    setNotice(`Evaluation issue ${issueId}: PRD revision requested.`);
+  }
+
+  function handleRevisePrototype(issueId: string) {
+    setEvaluationIssues((prev) =>
+      prev.map((issue) =>
+        issue.id === issueId ? { ...issue, status: "revised" as const } : issue,
+      ),
+    );
+    setNotice(`Evaluation issue ${issueId}: prototype revision requested.`);
+  }
+
+  function handleAcceptWarning(issueId: string) {
+    setEvaluationIssues((prev) =>
+      prev.map((issue) =>
+        issue.id === issueId ? { ...issue, status: "accepted" as const } : issue,
+      ),
+    );
+    setNotice(`Evaluation issue ${issueId}: warning accepted.`);
+  }
+
   return (
     <main className="workbench-shell">
       <TopBar
-        project={currentProject}
-        mode={currentMode}
-        model={currentModel}
-        summary={apiRun?.summary ?? ""}
-        runStatus={apiRun?.status ?? "pending"}
+        run={topBarRun}
+        onNewRun={() => setNewRunDrawerOpen(true)}
+        onModeChange={handleModeChange}
       />
 
       <section className="workspace-grid">
         <ProjectSidebar
           currentTask={currentTask}
-          mode={currentMode}
-          runForm={runForm}
           query={query}
           selectedNavId={selectedNavId}
           visibleNavItems={visibleNavItems}
-          creatingRun={creatingRun}
-          testingConnection={testingConnection}
-          savingConfig={savingConfig}
-          uploadingPdf={uploadingPdf}
-          uploadedFileName={uploadedFileName}
           onQueryChange={setQuery}
           onNavSelect={setSelectedNavId}
-          onFormUpdate={updateRunForm}
-          onFileUpload={handleFileUpload}
-          onSaveConfig={handleSaveConfig}
-          onTestConnection={testConnection}
-          onSubmitRun={submitRun}
-          onResetWorkspace={resetWorkspace}
+          onNewRun={() => setNewRunDrawerOpen(true)}
         />
 
         <CenterWorkspace
@@ -508,16 +554,21 @@ export function WorkspaceShell() {
           planState={planState}
           timelineEvents={timelineEvents}
           chatMessages={displayedChatMessages}
-          approvalStatus={approvalStatus}
           runStatus={apiRun?.status ?? "pending"}
           graphNodes={graphNodes}
+          activeTab={activeWorkbenchTab}
+          onTabChange={setActiveWorkbenchTab}
           onTogglePlanStep={togglePlanStep}
           onApprovePlan={approvePlan}
           onAskAgent={askAgent}
           onChatInputChange={setChatInput}
           chatInput={chatInput}
           onContinueRun={continueRun}
-          onUpdateApproval={updateApproval}
+          evaluationIssues={evaluationIssues}
+          onReduceScope={handleReduceScope}
+          onRevisePrd={handleRevisePrd}
+          onRevisePrototype={handleRevisePrototype}
+          onAcceptWarning={handleAcceptWarning}
         />
 
         <InspectorPanel
@@ -527,8 +578,42 @@ export function WorkspaceShell() {
           runStatus={apiRun?.status ?? "pending"}
         />
       </section>
+
+      {apiRun && (
+        <BottomDock
+          events={timelineEvents}
+          resultSummary={runResult as Record<string, unknown> | null}
+          runId={apiRun.run_id}
+        />
+      )}
+
+      <RunIntakeDrawer
+        open={newRunDrawerOpen}
+        runForm={runForm}
+        creatingRun={creatingRun}
+        testingConnection={testingConnection}
+        savingConfig={savingConfig}
+        uploadingPdf={uploadingPdf}
+        uploadedFileName={uploadedFileName}
+        onClose={() => setNewRunDrawerOpen(false)}
+        onFormUpdate={updateRunForm}
+        onFileUpload={handleFileUpload}
+        onSaveConfig={handleSaveConfig}
+        onTestConnection={testConnection}
+        onSubmitRun={submitRun}
+      />
     </main>
   );
+}
+
+function computeElapsed(createdAt?: string): string {
+  if (!createdAt) return "00:00:00";
+  const start = new Date(createdAt).getTime();
+  const diff = Math.max(0, Date.now() - start);
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 function buildNavItems({
@@ -764,5 +849,3 @@ function graphNodeFromEvent(event: ApiEvent, mode: RunMode): string {
   if (message.includes("report") || message.includes("output")) return "outputs";
   return event.node;
 }
-
-

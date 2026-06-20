@@ -1,7 +1,6 @@
 "use client";
 
 import { AlertTriangle, CheckCircle, ShieldAlert, Info } from "lucide-react";
-import type { WorkflowStatus } from "@/lib/mock-data";
 
 export type EvaluationIssue = {
   id: string;
@@ -130,36 +129,50 @@ export function ProductizeTabs({ activeTab, onTabChange }: ProductizeTabsProps) 
   );
 }
 
-const MOCK_ISSUES: EvaluationIssue[] = [
-  {
-    id: "issue-1",
-    message: "MVP scope is too broad for a first prototype",
-    severity: "medium",
-    target: "Product Planner",
-    suggestion:
-      "Reduce features to upload → mock output → explanation → download report.",
-    status: "open",
-  },
-  {
-    id: "issue-2",
-    message: "Missing safety warning for generated content",
-    severity: "high",
-    target: "Prototype Builder",
-    suggestion:
-      "Add a safety disclaimer banner and content filter boundary in the adapter.",
-    status: "open",
-  },
-  {
-    id: "issue-3",
-    message: "Demo readiness score is below threshold",
-    severity: "low",
-    target: "Product Evaluator",
-    suggestion:
-      "Consider simplifying the flow to a single-page mock with clear results.",
-    status: "accepted",
-  },
-];
+export function issuesFromRunResult(result: Record<string, unknown>): EvaluationIssue[] {
+  const issues: EvaluationIssue[] = [];
+  let counter = 0;
 
-export function getMockIssues(): EvaluationIssue[] {
-  return MOCK_ISSUES.map((i) => ({ ...i }));
+  const problems = Array.isArray(result["detected_problems"])
+    ? (result["detected_problems"] as string[])
+    : [];
+  const suggestions = Array.isArray(result["revision_suggestions"])
+    ? (result["revision_suggestions"] as string[])
+    : [];
+  const warnings = Array.isArray(result["safety_warnings"])
+    ? (result["safety_warnings"] as string[])
+    : [];
+
+  for (const problem of problems) {
+    issues.push({
+      id: `eval-problem-${counter++}`,
+      message: problem,
+      severity: "high",
+      target: "Product Evaluator",
+      suggestion: "",
+      status: "open",
+    });
+  }
+  for (const suggestion of suggestions) {
+    issues.push({
+      id: `eval-suggestion-${counter++}`,
+      message: suggestion,
+      severity: "medium",
+      target: "Product Planner",
+      suggestion: "",
+      status: "open",
+    });
+  }
+  for (const warning of warnings) {
+    issues.push({
+      id: `eval-warning-${counter++}`,
+      message: warning,
+      severity: "critical",
+      target: "Safety Reviewer",
+      suggestion: "",
+      status: "open",
+    });
+  }
+
+  return issues;
 }

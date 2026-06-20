@@ -2,7 +2,6 @@
 
 import {
   CheckSquare,
-  Clock3,
   MessageSquareText,
   Play,
   ShieldCheck,
@@ -10,7 +9,11 @@ import {
 
 import { StatusPill } from "@/components/status-pill";
 import type { AgentEvent, PlanStep, RunMode, WorkflowStatus } from "@/lib/mock-data";
+import type { EvaluationIssue } from "@/components/productize/evaluation-issues";
+import { IssueCard } from "@/components/productize/evaluation-issues";
 import { WorkflowGraph, type GraphNodeData } from "@/components/workflow-graph";
+import { WorkbenchTabs, type WorkbenchTabId } from "@/components/workbench/workbench-tabs";
+import { ActivityPanel } from "@/components/workbench/activity-panel";
 
 type CenterWorkspaceProps = {
   mode: RunMode;
@@ -18,16 +21,21 @@ type CenterWorkspaceProps = {
   planState: PlanStep[];
   timelineEvents: AgentEvent[];
   chatMessages: Array<{ role: "agent" | "user"; text: string }>;
-  approvalStatus: "pending" | "approved" | "edited" | "rejected";
   runStatus: WorkflowStatus;
   graphNodes?: GraphNodeData[];
+  activeTab: WorkbenchTabId;
+  onTabChange: (tab: WorkbenchTabId) => void;
   onTogglePlanStep: (stepId: string) => void;
   onApprovePlan: () => void;
   onAskAgent: () => void;
   onChatInputChange: (value: string) => void;
   chatInput: string;
   onContinueRun: () => void;
-  onUpdateApproval: (nextStatus: "approved" | "edited" | "rejected") => void;
+  evaluationIssues?: EvaluationIssue[];
+  onReduceScope?: (id: string) => void;
+  onRevisePrd?: (id: string) => void;
+  onRevisePrototype?: (id: string) => void;
+  onAcceptWarning?: (id: string) => void;
 };
 
 export function CenterWorkspace({
@@ -36,18 +44,23 @@ export function CenterWorkspace({
   planState,
   timelineEvents,
   chatMessages,
-  approvalStatus,
   runStatus,
   graphNodes,
+  activeTab,
+  onTabChange,
   onTogglePlanStep,
   onApprovePlan,
   onAskAgent,
   onChatInputChange,
   chatInput,
   onContinueRun,
-  onUpdateApproval,
+  evaluationIssues,
+  onReduceScope,
+  onRevisePrd,
+  onRevisePrototype,
+  onAcceptWarning,
 }: CenterWorkspaceProps) {
-  const approvalCopy = getApprovalCopy(runStatus, approvalStatus);
+  const approvalCopy = getApprovalCopy(runStatus);
   return (
     <section className="center-workspace">
       <div className="workspace-toolbar">
@@ -66,35 +79,78 @@ export function CenterWorkspace({
           </button>
         </div>
       </div>
+
       <div className="notice-strip">{notice}</div>
 
-      <section className="workspace-band two-columns">
-        <div className="tool-panel plan-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Co-planning</p>
-              <h2>Editable plan</h2>
-            </div>
-            <button className="icon-button" title="Approve plan" type="button" onClick={onApprovePlan}>
-              <CheckSquare size={17} />
-            </button>
-          </div>
-          <div className="plan-list">
-            {planState.map((step) => (
-              <label className="plan-step" key={step.id}>
-                <input
-                  type="checkbox"
-                  checked={step.enabled}
-                  onChange={() => onTogglePlanStep(step.id)}
-                />
-                <span>{step.label}</span>
-                <StatusPill status={step.status} />
-              </label>
-            ))}
-          </div>
-        </div>
+      <WorkbenchTabs activeTab={activeTab} onTabChange={onTabChange} />
 
-        <div className="tool-panel chat-panel">
+      {activeTab === "workflow" && (
+        <>
+          <section className="tool-panel plan-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Co-planning</p>
+                <h2>Editable plan</h2>
+              </div>
+              <button
+                className="icon-button"
+                title="Approve plan"
+                type="button"
+                onClick={onApprovePlan}
+              >
+                <CheckSquare size={17} />
+              </button>
+            </div>
+            <div className="plan-list">
+              {planState.map((step) => (
+                <label className="plan-step" key={step.id}>
+                  <input
+                    type="checkbox"
+                    checked={step.enabled}
+                    onChange={() => onTogglePlanStep(step.id)}
+                  />
+                  <span>{step.label}</span>
+                  <StatusPill status={step.status} />
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="tool-panel graph-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">LangGraph</p>
+                <h2>Workflow graph</h2>
+              </div>
+              <div className="legend">
+                <span className="legend-item success">success</span>
+                <span className="legend-item running">running</span>
+                <span className="legend-item review">review</span>
+              </div>
+            </div>
+            <WorkflowGraph nodes={graphNodes} />
+          </section>
+
+          <ActivityPanel events={timelineEvents} />
+
+          <section className="tool-panel approval-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Approval</p>
+                <h2>Human-in-the-loop</h2>
+              </div>
+              <ShieldCheck size={18} />
+            </div>
+            <div className="approval-summary">
+              <code>{approvalCopy.command}</code>
+              <p>{approvalCopy.message}</p>
+            </div>
+          </section>
+        </>
+      )}
+
+      {activeTab === "chat" && (
+        <section className="tool-panel chat-panel">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Agent chat</p>
@@ -125,91 +181,52 @@ export function CenterWorkspace({
               }}
             />
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      <section className="tool-panel graph-panel">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">LangGraph</p>
-            <h2>Workflow graph</h2>
-          </div>
-          <div className="legend">
-            <span className="legend-item success">success</span>
-            <span className="legend-item running">running</span>
-            <span className="legend-item review">review</span>
-          </div>
-        </div>
-        <WorkflowGraph nodes={graphNodes} />
-      </section>
-
-      <section className="workspace-band two-columns bottom-band">
-        <div className="tool-panel timeline-panel">
+      {activeTab === "evaluation" && (
+        <section className="tool-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">Event stream</p>
-              <h2>Agent trace</h2>
+              <p className="eyebrow">Quality</p>
+              <h2>Evaluation issues</h2>
             </div>
-            <Clock3 size={17} />
           </div>
-          <div className="timeline">
-            {timelineEvents.map((event) => (
-              <article className="timeline-event" key={event.id}>
-                <div className={`event-dot status-${event.status}`} />
-                <div>
-                  <span>{event.time}</span>
-                  <strong>{event.agent}</strong>
-                  <p>{event.message}</p>
-                </div>
-                <StatusPill status={event.status} />
-              </article>
-            ))}
-          </div>
-        </div>
+          {evaluationIssues && evaluationIssues.length > 0 ? (
+            <div className="stack">
+              {evaluationIssues.map((issue) => (
+                <IssueCard
+                  key={issue.id}
+                  issue={issue}
+                  onReduceScope={onReduceScope}
+                  onRevisePrd={onRevisePrd}
+                  onRevisePrototype={onRevisePrototype}
+                  onAcceptWarning={onAcceptWarning}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              No evaluation issues. Run a productize pipeline to see evaluator feedback.
+            </div>
+          )}
+        </section>
+      )}
 
-        <div className="tool-panel approval-panel">
+      {activeTab === "product" && (
+        <section className="tool-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">Approval</p>
-              <h2>Human-in-the-loop</h2>
+              <p className="eyebrow">Product Design</p>
+              <h2>PRD / MVP / Prototype</h2>
             </div>
-            <ShieldCheck size={18} />
           </div>
-          <div className="approval-summary">
-            <code>{approvalCopy.command}</code>
-            <p>{approvalCopy.message}</p>
+          <div className="empty-state">
+            Product design content will appear after running a productize pipeline. Check the
+            Artifacts and Code tabs in the Inspector for generated outputs.
           </div>
-          <div className="action-row">
-            <button
-              className="command-button primary"
-              type="button"
-              onClick={() => onUpdateApproval("approved")}
-              disabled
-              title="No backend command approval is pending."
-            >
-              Approve
-            </button>
-            <button
-              className="command-button"
-              type="button"
-              onClick={() => onUpdateApproval("edited")}
-              disabled
-              title="No backend command approval is pending."
-            >
-              Edit
-            </button>
-            <button
-              className="command-button"
-              type="button"
-              onClick={() => onUpdateApproval("rejected")}
-              disabled
-              title="No backend command approval is pending."
-            >
-              Reject
-            </button>
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
     </section>
   );
 }
@@ -218,10 +235,7 @@ function ChatBubble({ role, text }: { role: "agent" | "user"; text: string }) {
   return <div className={`chat-bubble ${role}`}>{text}</div>;
 }
 
-function getApprovalCopy(
-  runStatus: WorkflowStatus,
-  approvalStatus: "pending" | "approved" | "edited" | "rejected",
-) {
+function getApprovalCopy(runStatus: WorkflowStatus) {
   if (runStatus === "running") {
     return {
       command: "waiting for backend agent stage",
@@ -250,6 +264,6 @@ function getApprovalCopy(
   }
   return {
     command: "no active backend approval",
-    message: `Current local decision: ${approvalStatus}. Create a backend run to receive live approval requests.`,
+    message: "Create a backend run to receive live approval requests.",
   };
 }

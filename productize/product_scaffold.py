@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from config import PROJECT_ROOT
-from productize.product_templates import build_adapter_source, build_app_source
+from productize.product_templates import build_static_bundle_sources
 
 
 def _backup_existing_directory(output_dir: Path) -> Path | None:
@@ -55,31 +55,24 @@ It demonstrates the product interaction with a deterministic mock adapter.
 
 ## Files
 
-- `app.py`: Streamlit interface
-- `adapter.py`: unified mock-first `ModelAdapter`
-- `run_product.py`: launcher using the active Python interpreter
+- `index.html`: browser-native interface
+- `app.js`: product workflow, controls, rendering, and JSON export
+- `adapter.js`: unified mock-first `ModelAdapter`
+- `styles.css`: local styling for the generated UI
 - `product_spec.md`: generated MVP requirements
 - `outputs/`: downloaded or manually saved results
 
 ## How to Run
 
-```bash
-python -m pip install -r requirements.txt
-python run_product.py
-```
-
-The launcher runs:
+Open `index.html` directly in a browser, or serve the directory locally:
 
 ```bash
-python -m streamlit run app.py
+python -m http.server 8000
 ```
 
-If you prefer to call Streamlit directly:
+Then open:
 
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
+http://localhost:8000
 
 ## Mock Mode
 
@@ -88,7 +81,7 @@ to be shown even when the original research model is not fully integrated.
 
 ## Real Model Integration
 
-To connect the real model, update `adapter.py` according to the original
+To connect the real model, update `adapter.js` according to the original
 repository's inference code. Review dependencies, inputs, checkpoints, and
 outputs manually before disabling mock mode.
 
@@ -106,27 +99,6 @@ This generated product is a prototype. It does not guarantee full reproduction
 of the original paper results, and it never downloads weights, trains models,
 or executes repository scripts automatically.
 """
-
-
-def _build_runner_source() -> str:
-    return '''"""Launch the generated Streamlit product with the active Python."""
-
-from __future__ import annotations
-
-from pathlib import Path
-import subprocess
-import sys
-
-
-def main() -> int:
-    app_path = Path(__file__).with_name("app.py")
-    command = [sys.executable, "-m", "streamlit", "run", str(app_path)]
-    return subprocess.call(command)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-'''
 
 
 def scaffold_product(
@@ -148,28 +120,24 @@ def scaffold_product(
     root.mkdir(parents=True)
     (root / "outputs").mkdir()
 
-    contents = {
-        "app.py": build_app_source(
-            template_type,
-            product_spec,
-            frontend_plan,
-            prototype_plan=prototype_plan,
-            ui_spec=ui_spec,
-        ),
-        "adapter.py": build_adapter_source(
-            template_type,
-            repo_path,
-            prototype_plan=prototype_plan,
-        ),
-        "run_product.py": _build_runner_source(),
-        "README.md": _build_readme(
-            template_type,
-            adapter_plan,
-            frontend_plan,
-        ),
-        "product_spec.md": product_spec,
-        "requirements.txt": "streamlit>=1.40,<2\n",
-    }
+    contents = build_static_bundle_sources(
+        template_type,
+        product_spec=product_spec,
+        frontend_plan=frontend_plan,
+        prototype_plan=prototype_plan,
+        ui_spec=ui_spec,
+        repo_path=repo_path,
+    )
+    contents.update(
+        {
+            "README.md": _build_readme(
+                template_type,
+                adapter_plan,
+                frontend_plan,
+            ),
+            "product_spec.md": product_spec,
+        }
+    )
     for filename, content in contents.items():
         (root / filename).write_text(content.rstrip() + "\n", encoding="utf-8")
 
@@ -183,5 +151,5 @@ def scaffold_product(
         "files": files,
         "backup_dir": str(backup_dir) if backup_dir else "",
         "success": True,
-        "message": "Generated product prototype successfully.",
+        "message": "Generated static product prototype successfully.",
     }

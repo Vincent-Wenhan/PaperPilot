@@ -3,7 +3,7 @@
 import { Check } from "lucide-react";
 import { StatusPill } from "@/components/status-pill";
 import { DiffViewer } from "@/components/code/diff-viewer";
-import type { WorkflowStatus } from "@/lib/mock-data";
+import type { WorkflowStatus } from "@/lib/workbench-types";
 
 type DiffPanelProps = {
   patchFile: string;

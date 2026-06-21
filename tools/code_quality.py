@@ -24,6 +24,13 @@ GENERIC_TEXT_PATTERNS = (
     "valid llm result unavailable",
 )
 UNAVAILABLE_FALLBACK_PATHS = {"unavailable.py"}
+GENERIC_ARTIFACT_TERMS = (
+    "placeholder",
+    "dummy",
+    "fallback_analysis",
+    "mock_reproduction",
+    "demo_object",
+)
 
 
 def _normalized_paths(bundle: ImplementationBundle) -> list[str]:
@@ -47,6 +54,21 @@ def _python_complexity(source: str) -> dict[str, int]:
     return {"functions": functions, "classes": classes}
 
 
+def _test_has_assertion(source: str) -> bool:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assert):
+            return True
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr.startswith("assert"):
+                return True
+    return False
+
+
 def assess_implementation_quality(
     bundle: ImplementationBundle,
     blueprint: ImplementationBlueprint | None = None,
@@ -60,6 +82,11 @@ def assess_implementation_quality(
         path
         for path in paths
         if path.startswith("tests/") and path.endswith(".py")
+    ]
+    test_files = [
+        item
+        for item in bundle.files
+        if item.path.strip().replace("\\", "/").lower() in tests
     ]
     has_readme = "readme.md" in paths
     has_config = any(path in {"config.py", "settings.py"} for path in paths)
@@ -90,6 +117,12 @@ def assess_implementation_quality(
         issue_codes.append("missing_tests")
         issues.append("Generated bundle does not include tests under tests/.")
         suggestions.append("Add a smoke or dataflow test under tests/.")
+    elif not any(_test_has_assertion(item.content) for item in test_files):
+        issue_codes.append("assertion_free_tests")
+        issues.append("Generated tests do not assert behavior or dataflow outputs.")
+        suggestions.append(
+            "Add assertions for behavior, shapes, numeric ranges, or serialized outputs."
+        )
     if not has_readme:
         issue_codes.append("missing_readme")
         issues.append("Generated bundle does not include README.md.")
@@ -121,6 +154,27 @@ def assess_implementation_quality(
         )
         suggestions.append(
             "Regenerate paper-specific module names and replace unavailable.py with the planned method module."
+        )
+    generic_paths = [
+        path
+        for path in paths
+        if any(term in path for term in GENERIC_ARTIFACT_TERMS)
+    ]
+    generic_symbols = []
+    for item in python_files:
+        try:
+            tree = ast.parse(item.content)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            name = getattr(node, "name", "")
+            if name and any(term in name.lower() for term in GENERIC_ARTIFACT_TERMS):
+                generic_symbols.append(name)
+    if generic_paths or generic_symbols:
+        issue_codes.append("generic_artifact_names")
+        issues.append("Generated implementation uses generic placeholder artifact names.")
+        suggestions.append(
+            "Use paper-specific module, class, and function names for the implemented method."
         )
 
     complexity = {"functions": 0, "classes": 0}
@@ -154,6 +208,8 @@ def assess_implementation_quality(
     score -= 0.6 if "missing_python" in issue_codes else 0.0
     score -= 0.5 if "thin_single_file" in issue_codes else 0.0
     score -= 0.8 if "unavailable_fallback_artifact" in issue_codes else 0.0
+    score -= 0.7 if "assertion_free_tests" in issue_codes else 0.0
+    score -= 0.6 if "generic_artifact_names" in issue_codes else 0.0
     if has_config:
         score += 0.2
     if has_requirements:
@@ -182,7 +238,9 @@ def assess_implementation_quality(
                 "placeholder_body",
                 "missing_python",
                 "missing_tests",
+                "assertion_free_tests",
                 "unavailable_fallback_artifact",
+                "generic_artifact_names",
             }.intersection(issue_codes)
             and bool(blueprint_quality["passes_blueprint_coverage"])
         ),

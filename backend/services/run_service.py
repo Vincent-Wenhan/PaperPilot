@@ -33,7 +33,7 @@ from backend.services.workbench_mock import (
     build_mock_run,
     utc_now,
 )
-from config import PROJECT_ROOT
+from config import PROJECT_ROOT, WORKSPACE_DIR
 from tools.command_runner import plan_command
 from tools.llm_client import LLMClient
 
@@ -65,7 +65,7 @@ class InMemoryRunService:
     """Small state store for local workbench development.
 
     The workbench keeps state in memory for now, but it calls the same
-    PaperPilot pipeline functions that power the Streamlit UI.
+    PaperPilot pipeline functions that power the API and local workflows.
     """
 
     def __init__(self) -> None:
@@ -764,8 +764,8 @@ class InMemoryRunService:
             )
 
         if request.mode == "productize":
-            return self._execute_productize(pdf_path, request, client, progress)
-        return self._execute_reproduce(pdf_path, request, client, progress)
+            return self._execute_productize(run_id, pdf_path, request, client, progress)
+        return self._execute_reproduce(run_id, pdf_path, request, client, progress)
 
     @staticmethod
     def _graph_node_for_progress_stage(stage: str, mode: str) -> str:
@@ -811,6 +811,7 @@ class InMemoryRunService:
 
     @staticmethod
     def _execute_reproduce(
+        run_id: str,
         pdf_path: Path,
         request: RunCreateRequest,
         client: LLMClient,
@@ -832,10 +833,12 @@ class InMemoryRunService:
             paper_name=pdf_path.stem.replace(" ", "_")[:80],
             generate_code=generate_code,
             implementation_model=request.implementation_model.strip(),
+            output_dir=WORKSPACE_DIR / "runs" / run_id / "outputs",
         )
 
     def _execute_productize(
         self,
+        run_id: str,
         pdf_path: Path,
         request: RunCreateRequest,
         client: LLMClient,
@@ -876,6 +879,7 @@ class InMemoryRunService:
             product_goal=request.product_goal.strip() or request.task.strip(),
             llm_client=client,
             preferred_type=request.preferred_type or "auto",
+            output_dir=WORKSPACE_DIR / "runs" / run_id / "generated_product",
             progress_callback=progress,
             user_idea=request.task.strip(),
             papers=[paper],

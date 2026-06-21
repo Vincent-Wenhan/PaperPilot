@@ -133,8 +133,8 @@ def build_mock_files() -> list[FileNode]:
             size_bytes=0,
         ),
         FileNode(
-            path="generated_product/example/app.py",
-            name="app.py",
+            path="generated_product/example/index.html",
+            name="index.html",
             kind="file",
             size_bytes=0,
         ),

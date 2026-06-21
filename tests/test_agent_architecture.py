@@ -90,7 +90,6 @@ class AgentArchitectureTests(unittest.TestCase):
     def test_active_code_does_not_import_legacy_agents(self) -> None:
         project_root = Path(agents.__file__).resolve().parent.parent
         active_paths = [
-            project_root / "app.py",
             project_root / "main.py",
             *project_root.joinpath("pipeline").glob("*.py"),
             *project_root.joinpath("productize").glob("*.py"),

@@ -5,7 +5,7 @@ import { useRef } from "react";
 import { Play, Save, Upload, X } from "lucide-react";
 
 import type { RunFormState } from "@/components/layout/project-sidebar";
-import type { RunMode } from "@/lib/mock-data";
+import type { RunMode } from "@/lib/workbench-types";
 
 type RunIntakeDrawerProps = {
   open: boolean;

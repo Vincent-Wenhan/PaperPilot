@@ -1,6 +1,6 @@
 "use client";
 
-import type { AgentEvent, PlanStep, RunMode, WorkflowStatus } from "@/lib/mock-data";
+import type { AgentEvent, PlanStep, RunMode, WorkflowStatus } from "@/lib/workbench-types";
 import type { EvaluationIssue } from "@/components/productize/evaluation-issues";
 import { IssueCard } from "@/components/productize/evaluation-issues";
 import type { ApiRevisionAction } from "@/lib/api";

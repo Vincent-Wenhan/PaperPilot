@@ -10,7 +10,7 @@ from tools.llm_client import LLMClient
 
 
 class PrototypeBuilderAgent(StructuredAgent[PrototypePlan]):
-    """Define the bounded Streamlit prototype and adapter boundary."""
+    """Define the bounded product prototype and adapter boundary."""
 
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         super().__init__(
@@ -18,7 +18,7 @@ class PrototypeBuilderAgent(StructuredAgent[PrototypePlan]):
             prompt_path="prototype_builder_prompt.txt",
             schema_type=PrototypePlan,
             guideline_names=(
-                "streamlit_ui_rules.md",
+                "frontend_prototype_rules.md",
                 "mvp_scope_rules.md",
                 "evidence_traceability_rules.md",
                 "confidence_and_limitations_rules.md",

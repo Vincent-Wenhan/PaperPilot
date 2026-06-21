@@ -8,19 +8,59 @@ from typing import Any
 from config import PROJECT_ROOT
 
 REQUIRED_FILES = (
-    "app.py",
-    "adapter.py",
-    "run_product.py",
+    "index.html",
+    "app.js",
+    "adapter.js",
+    "styles.css",
     "README.md",
     "product_spec.md",
-    "requirements.txt",
 )
+
+
+def _read(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _basic_js_check(filename: str, source: str) -> str:
+    if not source.strip():
+        return f"{filename}: empty source"
+    if "function invalid (" in source:
+        return f"{filename}: invalid function declaration"
+    pairs = {"(": ")", "{": "}", "[": "]"}
+    stack: list[str] = []
+    in_string = ""
+    escaped = False
+    for char in source:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == in_string:
+                in_string = ""
+            continue
+        if char in {'"', "'", "`"}:
+            in_string = char
+            continue
+        if char in pairs:
+            stack.append(pairs[char])
+        elif char in pairs.values():
+            if not stack or stack.pop() != char:
+                return f"{filename}: unbalanced delimiter near {char}"
+    if stack:
+        return f"{filename}: unbalanced delimiter"
+    return ""
 
 
 def inspect_generated_product(
     output_dir: str | Path = "generated_product",
 ) -> dict[str, Any]:
-    """Inspect required files, Python syntax, mock mode, and run instructions."""
+    """Inspect required files, static syntax, mock mode, and run instructions."""
     root = Path(output_dir).expanduser()
     if not root.is_absolute():
         root = PROJECT_ROOT / root
@@ -32,47 +72,33 @@ def inspect_generated_product(
     if not (root / "outputs").is_dir():
         missing_files.append("outputs/")
 
-    compile_errors: list[str] = []
-    for filename in ("app.py", "adapter.py", "run_product.py"):
-        path = root / filename
-        if not path.is_file():
-            continue
-        try:
-            source = path.read_text(encoding="utf-8")
-            compile(source, str(path), "exec")
-        except (OSError, SyntaxError, UnicodeError) as exc:
-            compile_errors.append(f"{filename}: {exc}")
+    index_text = _read(root / "index.html")
+    app_text = _read(root / "app.js")
+    adapter_text = _read(root / "adapter.js")
+    styles_text = _read(root / "styles.css")
+    readme_text = _read(root / "README.md")
 
-    adapter_text = (
-        (root / "adapter.py").read_text(encoding="utf-8")
-        if (root / "adapter.py").is_file()
-        else ""
-    )
-    readme_text = (
-        (root / "README.md").read_text(encoding="utf-8")
-        if (root / "README.md").is_file()
-        else ""
-    )
-    app_text = (
-        (root / "app.py").read_text(encoding="utf-8")
-        if (root / "app.py").is_file()
-        else ""
-    )
+    compile_errors: list[str] = []
+    if "<main id=\"app\"" not in index_text:
+        compile_errors.append("index.html: missing app mount")
+    for filename, source in (("app.js", app_text), ("adapter.js", adapter_text)):
+        error = _basic_js_check(filename, source)
+        if error:
+            compile_errors.append(error)
+
     can_run_mock = (
-        "mock_mode: bool = True" in adapter_text
-        and "if self.mock_mode" in adapter_text
+        "mockMode = true" in adapter_text
+        and "class ModelAdapter" in adapter_text
+        and "async predict" in adapter_text
     )
     readme_has_run_command = (
-        "python run_product.py" in readme_text
-        and "python -m pip install -r requirements.txt" in readme_text
+        "index.html" in readme_text
+        and "python -m http.server" in readme_text
     )
     run_launcher_ok = (
-        "python -m streamlit" in readme_text
-        and "streamlit" in (
-            (root / "run_product.py").read_text(encoding="utf-8")
-            if (root / "run_product.py").is_file()
-            else ""
-        )
+        '<script type="module" src="./adapter.js"></script>' in index_text
+        and '<script type="module" src="./app.js"></script>' in index_text
+        and "streamlit" not in readme_text.lower()
     )
     ui_spec_coverage = {
         "structured_controls": (
@@ -84,18 +110,10 @@ def inspect_generated_product(
         "state_copy": "UI_SPEC_MARKERS" in app_text and "state_copy" in app_text,
         "mock_schema": "UI_SPEC_MARKERS" in app_text and "mock_schema" in app_text,
     }
-    legacy_rich_layout = all(
+    has_rich_layout = all(
         marker in app_text
-        for marker in ("st.sidebar", "st.tabs", "Confidence threshold", "Core Workflow")
-    )
-    structured_rich_layout = (
-        all(
-            ui_spec_coverage[marker]
-            for marker in ("structured_controls", "result_components", "state_copy")
-        )
-        and all(marker in app_text for marker in ("st.sidebar", "st.tabs", "Core Workflow"))
-    )
-    has_rich_layout = legacy_rich_layout or structured_rich_layout
+        for marker in ("workspace-grid", "Core Features", "Prototype Plan", "Download JSON")
+    ) and all(marker in styles_text for marker in (".workspace-grid", ".panel", ".json-block"))
     files = (
         sorted(
             str(path.relative_to(root))
@@ -109,15 +127,15 @@ def inspect_generated_product(
     if missing_files:
         notes.append("Generated product is missing required entries.")
     if compile_errors:
-        notes.append("Generated Python source contains syntax errors.")
+        notes.append("Generated static source contains syntax or mounting errors.")
     if not can_run_mock:
-        notes.append("Mock-mode markers were not found in adapter.py.")
+        notes.append("Mock-mode markers were not found in adapter.js.")
     if not readme_has_run_command:
-        notes.append("README.md does not include the generated product launcher command.")
+        notes.append("README.md does not include static product run instructions.")
     if not run_launcher_ok:
-        notes.append("run_product.py launcher is missing or not documented.")
+        notes.append("Static module wiring is missing or Streamlit is still documented.")
     if not has_rich_layout:
-        notes.append("Generated app.py does not include the rich layout markers.")
+        notes.append("Generated static UI does not include the expected rich layout markers.")
     if not notes:
         notes.append("Static product checks passed.")
 

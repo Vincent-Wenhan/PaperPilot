@@ -5,11 +5,22 @@ from __future__ import annotations
 from pathlib import Path
 
 from backend.schemas import ArtifactContent, ArtifactSummary
-from config import OUTPUTS_DIR, PROJECT_ROOT
+from config import OUTPUTS_DIR, PROJECT_ROOT, WORKSPACE_DIR
 from tools.file_tools import read_file, resolve_allowed_path
 
 
-ARTIFACT_SUFFIXES = {".md", ".txt", ".json", ".py", ".sh", ".yaml", ".yml"}
+ARTIFACT_SUFFIXES = {
+    ".md",
+    ".txt",
+    ".json",
+    ".py",
+    ".sh",
+    ".yaml",
+    ".yml",
+    ".html",
+    ".js",
+    ".css",
+}
 
 
 class ArtifactService:
@@ -26,6 +37,7 @@ class ArtifactService:
                 artifact_roots
                 or [
                     OUTPUTS_DIR,
+                    WORKSPACE_DIR / "runs",
                     PROJECT_ROOT / "examples" / "sample_outputs",
                     PROJECT_ROOT / "generated_product",
                 ]

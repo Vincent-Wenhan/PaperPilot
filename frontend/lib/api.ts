@@ -1,4 +1,4 @@
-import type { ArtifactItem, AgentEvent, WorkflowStatus } from "@/lib/mock-data";
+import type { ArtifactItem, AgentEvent, WorkflowStatus } from "@/lib/workbench-types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_PAPERPILOT_API_BASE ?? "http://localhost:8000";

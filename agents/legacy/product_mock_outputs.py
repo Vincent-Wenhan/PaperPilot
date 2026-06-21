@@ -28,7 +28,7 @@ workflow. Real inputs and outputs require repository-specific verification.
 Interactive research analyzer.
 
 ## Recommendation Reason
-It has a clear input-to-result flow, fits a Streamlit course demo, and can be
+It has a clear input-to-result flow, fits a browser-based course demo, and can be
 shown safely with a mock adapter until the real inference API is verified.
 """
 
@@ -60,7 +60,7 @@ The selected template defines the input. Output is structured JSON plus a
 human-readable result panel.
 
 ## Page Design
-A single-page Streamlit interface with instructions, input, action, and result.
+A single-page browser interface with instructions, input, action, and result.
 
 ## MVP Boundary
 No training, weight download, arbitrary script execution, or guaranteed real
@@ -94,7 +94,7 @@ Confirm dependencies, preprocessing, checkpoint path, inference entry point,
 device behavior, and output conversion.
 """
 
-FRONTEND_BUILDER_MOCK = """# Streamlit Frontend Plan
+FRONTEND_BUILDER_MOCK = """# Frontend Plan
 
 ## Page Title
 Generated Product Prototype
@@ -103,8 +103,8 @@ Generated Product Prototype
 Instructions, input panel, primary action, result panel, and download control.
 
 ## Input Components
-Use the selected template's image uploader, text area, video uploader, or
-generic file uploader.
+Use the selected template's image upload, text area, video upload, or generic
+file upload control.
 
 ## Action
 One explicit Run Model or Analyze button.
@@ -113,22 +113,22 @@ One explicit Run Model or Analyze button.
 Display structured JSON and provide a JSON download button.
 
 ## Errors and Guidance
-Catch adapter errors with `st.error` and explain that mock mode is enabled.
+Catch adapter errors visibly and explain that mock mode is enabled.
 """
 
 PRODUCT_TEST_MOCK = """# Product Prototype Test Report
 
 ## File Completeness
-Review `app.py`, `adapter.py`, `README.md`, `product_spec.md`,
-`requirements.txt`, and `outputs/` using the deterministic inspection result.
+Review `index.html`, `app.js`, `adapter.js`, `styles.css`, `README.md`,
+`product_spec.md`, and `outputs/` using the deterministic inspection result.
 
 ## Mock Mode
 The generated adapter defaults to mock mode and is sufficient to demonstrate
 the product interaction.
 
 ## Run Instructions
-Install requirements and run `streamlit run app.py` inside the generated
-product directory.
+Open `index.html` directly or run `python -m http.server 8000` inside the
+generated product directory.
 
 ## Safety Review
 The prototype does not train, download weights, or execute source-repository

@@ -2,7 +2,7 @@
 
 import { ChevronDown, ChevronRight, Play } from "lucide-react";
 import { StatusPill } from "@/components/status-pill";
-import type { WorkflowStatus } from "@/lib/mock-data";
+import type { WorkflowStatus } from "@/lib/workbench-types";
 
 export type TopBarRunState = {
   projectName: string;

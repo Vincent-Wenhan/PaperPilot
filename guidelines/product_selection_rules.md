@@ -14,7 +14,7 @@ safely within MVP scope.
 
 - `paper_faithfulness`: alignment with cited paper capabilities.
 - `multi_paper_coherence`: compatibility of selected papers and workflow.
-- `demo_feasibility`: can a short Streamlit demo show the core job?
+- `demo_feasibility`: can a short local or browser prototype show the core job?
 - `mock_first_suitability`: can the MVP work without real model integration?
 - `integration_risk`: lower is better; high risk should reduce overall score.
 - `course_presentation_value`: clarity for a classroom or project demo.

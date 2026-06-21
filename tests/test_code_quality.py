@@ -227,6 +227,100 @@ class CodeQualityTests(unittest.TestCase):
         self.assertIn("unavailable_fallback_artifact", quality["issue_codes"])
         self.assertFalse(quality["passes_minimum_quality"])
 
+    def test_assertion_free_tests_fail_minimum_quality(self) -> None:
+        bundle = ImplementationBundle(
+            project_name="paper_method",
+            summary="Looks structured but test does not verify behavior.",
+            smoke_test_command="python main.py --smoke-test",
+            files=[
+                GeneratedCodeFile(
+                    path="README.md",
+                    purpose="docs",
+                    content="# Paper Method\n",
+                ),
+                GeneratedCodeFile(
+                    path="config.py",
+                    purpose="configuration",
+                    content="VALUE = 1\n",
+                ),
+                GeneratedCodeFile(
+                    path="model.py",
+                    purpose="method",
+                    content=(
+                        "def encode(values: list[float]) -> list[float]:\n"
+                        "    total = sum(values) or 1.0\n"
+                        "    return [value / total for value in values]\n"
+                    ),
+                ),
+                GeneratedCodeFile(
+                    path="main.py",
+                    purpose="entry",
+                    content="from model import encode\nprint(encode([1.0]))\n",
+                ),
+                GeneratedCodeFile(
+                    path="tests/test_model.py",
+                    purpose="tests",
+                    content=(
+                        "from model import encode\n\n"
+                        "def test_encode_imports() -> None:\n"
+                        "    encode([1.0, 2.0])\n"
+                    ),
+                ),
+                GeneratedCodeFile(
+                    path="requirements.txt",
+                    purpose="dependencies",
+                    content="# standard library only\n",
+                ),
+            ],
+        )
+
+        quality = assess_implementation_quality(bundle)
+
+        self.assertIn("assertion_free_tests", quality["issue_codes"])
+        self.assertFalse(quality["passes_minimum_quality"])
+
+    def test_generic_artifact_names_fail_minimum_quality(self) -> None:
+        bundle = ImplementationBundle(
+            project_name="paper_method",
+            summary="Uses generic names despite having files.",
+            smoke_test_command="python main.py --smoke-test",
+            files=[
+                GeneratedCodeFile(
+                    path="README.md",
+                    purpose="docs",
+                    content="# Paper Method\n",
+                ),
+                GeneratedCodeFile(
+                    path="placeholder_model.py",
+                    purpose="method",
+                    content=(
+                        "class DummyModel:\n"
+                        "    def run(self, values: list[float]) -> float:\n"
+                        "        return sum(values)\n"
+                    ),
+                ),
+                GeneratedCodeFile(
+                    path="main.py",
+                    purpose="entry",
+                    content="from placeholder_model import DummyModel\nprint(DummyModel().run([1.0]))\n",
+                ),
+                GeneratedCodeFile(
+                    path="tests/test_model.py",
+                    purpose="tests",
+                    content=(
+                        "from placeholder_model import DummyModel\n\n"
+                        "def test_model_dataflow() -> None:\n"
+                        "    assert DummyModel().run([1.0, 2.0]) == 3.0\n"
+                    ),
+                ),
+            ],
+        )
+
+        quality = assess_implementation_quality(bundle)
+
+        self.assertIn("generic_artifact_names", quality["issue_codes"])
+        self.assertFalse(quality["passes_minimum_quality"])
+
     def test_quality_gate_forces_revision_when_review_accepts_thin_code(self) -> None:
         review = CodeReview(
             overall_score=4.8,

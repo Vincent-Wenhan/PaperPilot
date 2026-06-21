@@ -3,401 +3,139 @@
 [English](README.md)
 ![CI](https://github.com/Vincent-Wenhan/PaperPilot/actions/workflows/ci.yml/badge.svg)
 
-PaperPilot 2.0 是一个由产品理论指导、受安全边界约束的论文复现与 Research-to-Product 多智能体系统。用户可以上传一篇或多篇论文，并可选提供 GitHub 仓库。复现模式生成可执行的复现计划；产品化模式提取论文能力卡、分析方法关系与组合方式，再基于 JTBD、Value Proposition、PRD、MVP、MoSCoW 和评估 Rubric 生成有限范围的 mock-first Streamlit 原型。
+PaperPilot 是一个有安全边界的论文复现与 Research-to-Product 多 Agent Workbench。Reproduce Mode 用于分析论文和可选 GitHub 仓库，生成复现计划，并可生成一个小型可运行复现项目。Productize Mode 用于提取论文能力、生成 PRD/MVP、评估产品方案，并生成 mock-first 的静态 Web 产品原型。
 
-项目从 **Paper-to-Reproduce** 扩展到 **Paper-to-Product**，但不是“万能自动产品生成器”。真实模型接口无法安全确定时，系统会生成 mock-first 原型，保证课程演示流程可运行。
+系统不承诺自动完整复现实验、不承诺复现论文指标，也不会自动把研究仓库接成生产级模型服务。
 
-## 项目定位
+## 当前入口
 
-这是一个 AI 大模型课程期末 project，展示轻量、可解释的多 Agent pipeline 如何连接论文复现与有限范围的应用原型生成。系统不承诺自动完成完整训练、复现论文指标或直接交付生产系统。
-
-## 系统功能
-
-PaperPilot 集论文理解、仓库分析、复现规划和产品原型生成为一体。示例见 [`examples/`](examples/)。
-
-### 复现模式
-
-- 上传并解析论文 PDF
-- 校验并浅克隆公开 GitHub 仓库
-- 可按需生成独立的最小复现代码项目
-- 扫描 README、依赖文件、配置和候选入口
-- 生成论文摘要与工程化方法拆解
-- 重建模块数据流、目标函数、实验结论与实现蓝图
-- 基于确定性实现蓝图生成带合成数据 smoke test 的独立可运行复现项目
-- 将蓝图覆盖率纳入生成代码质量检查
-- 当论文或仓库文档中存在明确的数据集或 checkpoint HTTPS 链接时，生成默认 dry-run、需人工确认的 Python 下载脚本
-- 根据 CPU、单 GPU 或多 GPU 条件规划环境
-- 生成分层实验路线、checklist 和安全 `run.sh`
-- 对候选命令进行 safe、review、blocked 风险分流，但不自动执行
-- 命令由确定性 Runner Tool 执行，失败由 Execution & Diagnosis Agent 分析
-- 生成并下载复现计划、脚本和课程展示报告
-
-### 产品化模式
-
-- 支持一篇或多篇论文，可选共享 repo 或逐篇绑定 repo
-- 生成 Paper Capability Cards、Capability Map 和 Method Composition Plan
-- 使用 JTBD、Value Proposition、PRD、MVP 和 MoSCoW 控制产品范围
-- 生成结构化原型计划，并使用 Rubric 评估产品
-- 在 scaffold 前生成结构化 UI spec，让生成应用使用项目相关控件、状态文案和结果组件
-- 支持 image、text、video、file 四类产品模板
-- 在独立的 `generated_product/` 中生成 Streamlit 原型
-- 检查生成文件、Python 语法、mock mode、UI spec 覆盖率和运行说明
-- 在 Productize 结果页中先查看生成应用结构，再查看原始文件与调试 JSON
-
-### Mock 模式
-
-- 在 Streamlit 侧边栏开启 **Mock Mode**，或设置 `LLM_MOCK_MODE=true`，即可在无 API key 时完整演示 pipeline
-- 默认（`LLM_MOCK_MODE=false`）下，真实论文分析需要配置 API key
-- 生成的**产品原型**始终 mock-first — 无需真实模型集成即可安全演示
-
-## 系统架构
+当前主界面是 Next.js Agent Workbench + FastAPI。旧的 Streamlit 主界面已删除。
 
 ```text
-论文 PDF（单篇或多篇）+ GitHub URL（可选）
-↓
-Reproduce Mode
-├── LangGraph：解析论文
-├── [并行] Research Understanding + 仓库准备
-├── Repository Understanding Agent（汇合两路证据）
-├── Reproduction Planner Agent + 命令风险分流
-├── ImplementationBlueprint Builder + 蓝图覆盖率检查
-├── Reproduction Implementation Agent
-├── Execution & Diagnosis Agent
-└── 确定性 Report Builder
-↓
-Productize Mode
-├── [阶段1] LangGraph generate_proposals()
-│   ├── Research Synthesizer Agent 按论文 fan-out
-│   │   ├── 能力卡、能力图谱与论文关系
-│   │   └── 方法组合计划
-│   └── Product Planner Agent
-│       └── JTBD、Value Proposition、PRD、MVP、MoSCoW
-├── [审查] 用户选择并编辑方案
-├── [阶段2] LangGraph execute_proposal()
-│   ├── Prototype Builder Agent
-│   ├── Product Evaluator Agent + 有界修订路由
-│   ├── ProductUISpec Builder
-│   └── 最终一次确定性代码生成与静态检查
-↓
-generated_product/<产品名称>/
+frontend/        Next.js workbench
+backend/         FastAPI API、WebSocket、run/action/file/patch 服务
+graphs/          Reproduce / Productize LangGraph 工作流
+pipeline/        兼容旧调用方式的 pipeline 入口
+productize/      静态产品原型 scaffold 与 inspector
+tools/           PDF、仓库、命令、代码质量、文件工具
+workspace/runs/  Workbench run 级输出目录
+outputs/         兼容旧 pipeline 的本地输出目录
 ```
 
-## 多 Agent 说明
+## 安装
 
-| Agent | 职责 |
-| --- | --- |
-| Research Understanding Agent | 合并论文阅读与方法拆解，输出结构化研究理解 |
-| Repository Understanding Agent | 解释静态仓库扫描与环境证据 |
-| Reproduction Planner Agent | 规划环境、数据、实验、安全命令、风险与 fallback |
-| Reproduction Implementation Agent | 生成有限范围的可运行复现实现与 smoke test |
-| Execution & Diagnosis Agent | 解释命令结果与日志，自身不执行命令 |
-| Research Synthesizer Agent | 生成能力卡、论文关系与方法组合计划 |
-| Product Planner Agent | 使用 JTBD、Value Proposition、PRD、MVP、MoSCoW 规划产品 |
-| Prototype Builder Agent | 定义 Streamlit 流程、mock 结果和 adapter 边界 |
-| Product Evaluator Agent | 评估论文忠实度、组合合理性、安全性和演示准备度 |
-
-以上九个是系统唯一活动推理 Agent。旧碎片 Agent 仅隔离保存在 `agents/legacy/`，活动流水线不会导入或调用。代码文件写入与安全校验、仓库 clone/scan、命令执行、报告写入、产品 scaffold 和静态检查均由确定性 Tool 或 Builder 完成。
-
-## 项目结构
-
-```text
-PaperPilot/
-├── app.py
-├── main.py
-├── config.py
-├── agents/                  # 九个活动高层 Agent
-│   └── legacy/              # 不参与主流程的迁移参考实现
-├── graphs/                  # Productize 与 Reproduce LangGraph 工作流
-├── runtime/                 # 图状态、路由、checkpoint 与工具运行时
-├── guidelines/              # 产品、组合、UI 与安全规则
-├── schemas/                 # 论文、组合、产品与评估结构化模型
-├── productize/
-├── tools/
-├── prompts/
-├── uploads/
-├── workspace/
-├── outputs/
-│   ├── reproduction_plan.md
-│   ├── run.sh
-│   └── report.md
-├── generated_product/       # 运行时生成并被 gitignore（按产品名称分子目录）
-├── examples/                # 示例输出，展示流程结果
-├── requirements.txt
-└── README.md
-```
-
-## 为什么选择 Mock-first？
-
-许多研究仓库因为缺少 checkpoint、数据集过大、环境冲突或预处理步骤缺失而难以直接运行。
-
-因此 PaperPilot 采用 mock-first 的产品化策略：
-
-1. **理解**论文和可选仓库
-2. **识别**可行的产品场景
-3. **生成**清晰的接口和适配器边界
-4. **默认使用 mock** — 原型无需真实模型即可运行
-5. **后续集成** — 真实模型接入作为一个需要审查的工程步骤
-
-这使得生成的原型安全、快速可运行，适合课程演示或早期产品验证。
-
-## 安装方式
-
-项目在 WSL 与 Python 3.12 环境下开发。推荐使用独立 Conda 环境：
+推荐 Python 3.12。
 
 ```bash
-cd <path/to/PaperPilot>
-conda create -n paperpilot python=3.12 -y
-conda run -n paperpilot python -m pip install --upgrade pip
-conda run -n paperpilot python -m pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
+python -m pip check
+python -c "import fitz, langgraph, openai, yaml; print('imports ok')"
 ```
 
-检查依赖：
+前端依赖：
 
 ```bash
-conda run -n paperpilot python -m pip check
-conda run -n paperpilot python -c "import fitz, langgraph, openai, streamlit, yaml; print('imports ok')"
+cd frontend
+npm ci
 ```
 
-## 运行方式
+## 运行
+
+启动后端：
 
 ```bash
-cd <path/to/PaperPilot>
-conda run -n paperpilot streamlit run app.py
+python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-浏览器打开 Streamlit 输出的本地地址。程序入口为 `app.py`，核心编排函数为 `main.py` 中的 `run_paperpilot(...)`。
-
-## Agent Workbench 预览
-
-PaperPilot 现在也包含一个并行的 Next.js + FastAPI 工作台外壳，位于
-`frontend/` 和 `backend/`。Streamlit 应用仍然是稳定的 legacy demo；
-Workbench 是新的 Research Agent IDE 界面，用于展示 workflow graph、
-co-planning、action approval、artifacts、code、diff、runner review 和
-tool trace 面板。
-
-启动 API 门面：
+另开终端启动前端：
 
 ```bash
-cd <path/to/PaperPilot>
-conda run -n paperpilot uvicorn backend.main:app --reload --port 8000
-```
-
-启动 Workbench UI：
-
-```bash
-cd <path/to/PaperPilot>/frontend
-npm install
-npm run dev
-```
-
-打开 `http://localhost:3000`。API 未启动时，Workbench 会回退到 mock run
-数据；API 启动后，会使用 FastAPI 门面读取 artifacts/files，并提供 patch
-proposal、syntax check、reviewed command 和 action approval 接口。现有
-Streamlit pipeline 不受影响。
-
-如果 Windows 报 `WinError 10048` 或提示 `8000` 端口已占用，通常说明 API
-已经在后台运行。可以先检查：
-
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/health"
-```
-
-如果需要关闭已有 Workbench 进程：
-
-```powershell
-Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue |
-  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue |
-  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-```
-
-然后重新启动 API 和 UI：
-
-```powershell
-cd <path-to-PaperPilot>
-python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
-```
-
-```powershell
-cd <path-to-PaperPilot>\frontend
+cd frontend
 npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
-如果命令行提示符已经显示 `(base)`，不需要再运行 `conda activate base`。
-`CondaError: Run 'conda init' before 'conda activate'` 和 PaperPilot 启动无关。
+浏览器打开 `http://localhost:3000`。
 
-## Mock Mode 演示
+## LLM 配置
 
-项目默认进行真实 LLM 分析。需要演示本地流程时，可通过 Streamlit 侧边栏的 **Mock Mode** 开关显式开启 Mock Mode。
-
-Mock mode 会验证 PDF 解析、URL 校验、仓库 clone、扫描、输出文件生成和安全 Runner，但不会调用 LLM 阅读论文，论文分析结果会明确标记为占位内容。
-
-## 真实 LLM API
-
-`LLMClient` 使用 OpenAI-compatible Chat Completions 接口。凭证直接在 Streamlit **侧边栏**中配置：
-
-| 侧边栏字段 | 说明 |
-|---|---|
-| API Key | OpenAI-compatible API key（密码模式，输入时隐藏） |
-| Base URL | API 端点，默认 `https://api.openai.com/v1` |
-| Model | 模型名，默认 `gpt-4o-mini` |
-| Implementation Model | 可选，仅用于生成复现代码的更强模型 |
-| Mock Mode | 开关 — 开启时不调用 LLM |
-
-运行分析前可点击侧边栏中的 **Test LLM Connection**，检查当前 Python
-环境依赖、Base URL、API Key、模型和网络/代理链路。连接失败时系统会停止重复
-请求后续 Agent，并直接展示连接诊断，不再错误显示为 JSON 解析失败。
-
-也可继续使用环境变量（`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_MOCK_MODE`），侧边栏值优先。不要将 API key 写入代码或提交到版本库。
-
-## Reproduce Mode 使用流程
-
-1. 上传论文 PDF。
-2. 可选输入 `https://github.com/owner/repository` 格式的仓库 URL。
-3. 选择 `CPU only`、`Single GPU` 或 `Multi GPU`，可填写 GPU 型号。
-4. 选择理解论文、官方 demo、最小训练实验、主实验或 Debug 目标。
-5. 点击 `Analyze`，查看 Agent 状态与各阶段结果。
-6. 查看生成项目工作台摘要、蓝图覆盖率、复现代码 ZIP、`reproduction_plan.md`、`run.sh` 和 `report.md`。
-7. 在 Runner 区手动点击安全命令；命令失败时查看自动 Debug。
-8. 也可以在 Debug 区粘贴日志，获得独立诊断。
-
-Reproduce Graph 只解析一次论文，并行准备研究理解和仓库证据，再汇合进入规划。
-所有计划命令都会被重新判定风险并记录为 `executed=False`；图本身不会自动执行
-命令，执行仍必须由用户在 Runner UI 中显式触发。
-
-启用代码生成时，PaperPilot 会先构建 `ImplementationBlueprint`，再调用
-实现 Agent。蓝图包含计划文件、职责、必须实现的符号、数据流、入口命令、
-质量要求和禁止的占位模式。生成代码质量会合并蓝图覆盖率，因此缺失的计划
-文件或符号会直接显示在 Code / Repository 工作台中，而不是藏在源码列表里。
-
-## 产品化模式（Productize Mode）
-
-Productize Mode 会优先复用当前会话中的论文分析，也支持同时上传多篇论文。
-Repo 可以不提供、为所有论文提供一个共享 URL，或按上传顺序逐行提供一个
-URL。分析尚不存在时，系统会为每篇上传论文调用现有 `run_paperpilot()`
-分析流程，再继续产品化。
-
-1. 在侧边栏选择 **Productize Paper**。
-2. 上传一篇或多篇 PDF。
-3. 可选填写一个共享 GitHub URL，或按论文逐行填写 URL。
-4. 填写目标用户和产品目标。
-5. 选择 `Auto`、`Image`、`Text`、`Video` 或 `File`。
-6. 点击 **Generate Proposals** 生成一个或多个产品方案。
-7. 在标签页中浏览方案详情（PRD、MVP/MoSCoW、风险、产品机会）。
-8. 选择一个方案，可选编辑核心功能和必须包含范围。
-9. 点击 **Execute Proposal** 生成 Streamlit 原型。
-10. 查看能力卡、组合计划、产品机会、PRD/MVP、原型计划、App Structure、生成文件和评估结果。
-
-Productize 流水线由两个保持兼容的 LangGraph 阶段组成：
-
-- **`generate_proposals()`** — 按论文 fan-out 提取能力卡，汇总证据并为每个产品机会返回一个 `ProductProposal`。
-- **`execute_proposal()`** — 默认最多修订一次选定方案，之后只进行一次最终 scaffold 和静态检查。
-
-旧的单论文 `run_productize_pipeline()` 调用保持兼容。
-Reproduce 与 Productize 的原有结果键同样保持不变；graph trace、issue、revision
-和命令审核元数据仅作为新增字段返回。
-
-scaffold 前，Productize 会从选定产品计划和原型计划构建 `ProductUISpec`。
-该 spec 规范化页面区块、输入控件、结果组件、mock 结果 schema，以及
-empty/loading/success/error 状态文案。生成的 Streamlit 应用会在可用时按该
-结构渲染，主页面也会展示 App Structure 视图和静态检查得到的 UI spec 覆盖率。
-
-生成目录：
-
-```text
-generated_product/<产品名称>/
-├── app.py
-├── adapter.py
-├── README.md
-├── product_spec.md
-├── requirements.txt
-└── outputs/
-```
-
-运行生成产品：
+PaperPilot 使用 OpenAI-compatible Chat Completions 接口。可以通过 Workbench 设置/API 或环境变量配置：
 
 ```bash
-cd generated_product/<产品名称>
-pip install -r requirements.txt
-streamlit run app.py
+set LLM_API_KEY=...
+set LLM_BASE_URL=https://api.openai.com/v1
+set LLM_MODEL=gpt-4o-mini
+set LLM_MOCK_MODE=false
 ```
 
-生成的 `adapter.py` 默认 `mock_mode=True`。真实模型接入必须由用户人工
-检查原仓库推理接口并修改 adapter；系统不会自动导入或执行原仓库代码。
+`LLM_MOCK_MODE=true` 用于本地 mock 演示。API key 不会写入仓库配置文件。
 
-## 示例输入
+## Reproduce Mode
 
-- 示例 PDF：用户上传任意可提取文本的论文 PDF
-- 示例 GitHub URL：`https://github.com/octocat/Hello-World`
-- 示例硬件：`CPU only` 或 `Single GPU`
-- 示例目标：`run official demo` 或 `minimal training experiment`
+大致流程：
 
-示例仓库仅用于演示浅 clone 与扫描，不代表它包含机器学习训练流程。请避免使用大型深度学习仓库做课堂快速演示。
+```text
+解析论文 -> 研究理解
+       -> 仓库准备 -> 仓库理解
+       -> 复现规划 -> 可选代码生成
+       -> 代码审查 / 修订 / sandbox 检查
+       -> 执行诊断 -> 报告
+```
 
-## Runner 安全策略
+Workbench 创建的新 run 会把输出写到：
 
-Runner 只在用户点击按钮后执行轻量命令：
+```text
+workspace/runs/<run_id>/outputs/
+workspace/runs/<run_id>/outputs/code/
+```
 
-- `python --version`
-- `pip --version`
-- 已识别入口文件的 `python <entrypoint> --help`
+直接调用旧 pipeline 时仍兼容 `outputs/`。
 
-安全实现包括：
+## Productize Mode
 
-- 精确 allowlist 为主，blacklist 为辅
-- 使用 `shlex.split`，并以 list 参数调用 `subprocess.run`
-- 禁止 `shell=True`
-- 禁止管道、重定向、分号、`&&` 和 `||`
-- 拦截 `sudo`、`rm -rf`、`mkfs`、`shutdown`、`reboot`、`curl`、`wget`、`chmod 777` 和 fork bomb
-- `cwd` 仅允许项目目录或 `workspace/` 内
-- 每条命令都有 timeout
-- stdout 与 stderr 截断到最近 4000 字符
+流程：
 
-Runner 不会默认执行完整训练、demo 本体、未知 shell 脚本，也不会下载大型数据集。
+```text
+论文 -> 能力卡 -> 综合分析 -> PRD/MVP
+    -> 原型计划 -> 评估/修订 -> 静态产品原型
+```
 
-只有在论文或仓库文档中找到明确的数据集或 checkpoint HTTPS 链接时，
-生成的复现项目才会包含 `scripts/download_data.py`。该脚本默认只打印下载计划，
-必须人工检查后显式传入 `--execute` 才会访问网络，并且 PaperPilot 不会自动运行它。
+生成的产品原型是静态 Web bundle，不需要 Streamlit：
 
-## Debug 功能
+```text
+generated_product/<product_name>/
+  index.html
+  app.js
+  adapter.js
+  styles.css
+  README.md
+  product_spec.md
+  outputs/
+```
 
-确定性 Runner 命令失败时，系统将 command、cwd、return code、stdout 和 stderr 交给 Execution & Diagnosis Agent。用户也可以手动粘贴日志。该 Agent 输出直接原因、可能根因、有限范围修复建议和下一步，但不会自行执行命令。
+运行方式：
 
-## 输出文件
+```bash
+cd generated_product/<product_name>
+python -m http.server 8000
+```
 
-- `outputs/<论文名称>/reproduction_plan.md`：论文、方法、仓库、环境、实验路线、checklist 与风险
-- `outputs/<论文名称>/run.sh`：仅包含安全默认命令和注释形式的 TODO
-- `outputs/<论文名称>/report.md`：适合课程 project 展示的结构化复现报告
+也可以直接用浏览器打开 `index.html`。
 
-每篇论文的输出保存在以 PDF 文件名命名的独立子目录中。
-仓库内已提供 mock 示例输出（`outputs/` 根目录作为无论文名时的回退位置）。
+Workbench 创建的新 Productize run 会把产品原型写到：
 
-产品原型是 `generated_product/<产品名称>/` 下的运行时产物，不提交到 Git。
-主页面会在生成后展示文件内容。
+```text
+workspace/runs/<run_id>/generated_product/
+```
 
-## 项目限制
+生成的 `adapter.js` 默认 mock mode。真实模型接入必须先人工审查原仓库的推理入口、依赖、checkpoint、输入输出和错误处理。
 
-- 扫描 PDF 的 OCR 为可选能力，需要本地安装 Tesseract 和 `pytesseract`；低质量扫描件、复杂版式和密集表格仍可能解析不完整。
-- 图/表/算法块目前通过文本启发式提取标题片段，尚不能还原为结构化 LaTeX 或表格单元格。
-- LLM 输出质量取决于模型、上下文长度和论文文本质量。
-- 仅基于论文的规划无法提供仓库级实现证据。
-- 仓库分析基于静态文件扫描，不保证自动理解所有自定义入口。
-- 系统不验证完整训练能否达到原论文指标。
-- Runner 有意采用严格 allowlist，不提供任意终端能力。
-- 真实 API、私有仓库、数据集和 checkpoint 可能需要用户自行配置。
-- 产品 idea 质量取决于论文内容和静态仓库证据。
-- 多论文组合是基于证据的规划，不代表真实模型已经可以正确集成。
-- 产品模板仅覆盖 image、text、video 和通用 file-analysis。
-- 生成的 adapter 不保证无需人工工程即可接入真实研究模型。
-- mock 返回只用于展示交互流程，不代表论文模型预测结果。
-- 同步 HITL 使用内存中的 LangGraph checkpoint，绑定当前 Streamlit 会话。
+## 验证
 
-## 未来改进
-
-- 增强 PDF 理解：版式感知解析、结构化表格提取、LaTeX 公式支持
-- 增加可配置的仓库扫描深度与依赖冲突分析
-- 在现有 safe/review Runner 之外，引入人工确认后的受控 demo 执行
-- 保存多次复现会话与跨 run 实验对比
-- 接入真实模型时增加结构化输出校验
-- 增加持久化 LangGraph checkpoint，支持跨会话 HITL 恢复
-- 增加容器化发布与部署打包
+```bash
+python -m compileall main.py config.py
+python -m compileall agents tools pipeline productize schemas runtime graphs backend
+python -m pytest tests/ -q
+cd frontend && npm test && npm run build
+```

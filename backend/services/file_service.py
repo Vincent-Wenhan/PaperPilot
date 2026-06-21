@@ -19,6 +19,9 @@ VISIBLE_SUFFIXES = {
     ".yml",
     ".sh",
     ".toml",
+    ".html",
+    ".js",
+    ".css",
 }
 SKIP_PARTS = {"sandboxes", "__pycache__", ".pytest_cache"}
 
@@ -40,6 +43,7 @@ class FileService:
                 or [
                     WORKSPACE_DIR,
                     OUTPUTS_DIR,
+                    WORKSPACE_DIR / "runs",
                     PROJECT_ROOT / "generated_product",
                     PROJECT_ROOT / "examples" / "sample_outputs",
                 ]

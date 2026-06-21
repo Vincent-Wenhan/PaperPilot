@@ -5,6 +5,6 @@
 - Could have: optional enhancement.
 - Won't have: explicitly excluded from this MVP.
 
-The first prototype must be mock-first, bounded, and suitable for a short
-Streamlit demo. Do not include training, arbitrary command execution, or
+The first prototype must be mock-first, bounded, and suitable for a short local
+or browser demo. Do not include training, arbitrary command execution, or
 automatic real-model integration.

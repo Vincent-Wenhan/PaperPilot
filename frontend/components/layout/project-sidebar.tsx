@@ -11,7 +11,7 @@ import {
   Settings,
 } from "lucide-react";
 
-import type { ProjectNavItem, RunMode } from "@/lib/mock-data";
+import type { ProjectNavItem, RunMode } from "@/lib/workbench-types";
 
 export type RunFormState = {
   project_id: string;

@@ -26,7 +26,7 @@ class PipelineHITL:
     """Context object for human-in-the-loop confirmation points.
 
     Stores per-stage state and delegates the actual UI interaction to
-    a callback (``on_confirm``), so the same class works with Streamlit, CLI, or tests.
+    a callback (``on_confirm``), so the same class works with web UI, CLI, or tests.
 
     When ``None`` is passed instead of an instance, all confirmation points
     are skipped (backward-compatible).
@@ -102,7 +102,7 @@ class PipelineHITL:
 
         After the UI has shown dialogs and collected button clicks,
         call this to update all stage statuses from session state.
-        This is called by StreamlitHITL.render_pending_dialogs.
+        Web UI integrations can call this after collecting button clicks.
         """
         # No-op in base class; subclasses handle resolution
         pass

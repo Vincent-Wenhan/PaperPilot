@@ -37,5 +37,6 @@ npm run build
 - Code, diff, runner, tool-call, logs, results, and metrics panels.
 - API-backed artifact and file browsing with mock fallback.
 
-The existing Streamlit app remains the stable execution UI while the FastAPI
-facade and event stream are connected to live pipelines.
+The Next.js workbench is the active execution UI. FastAPI provides live runs,
+artifacts, files, event streaming, action approval, syntax checks, and patch
+application through reviewed actions.

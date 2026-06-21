@@ -38,6 +38,8 @@ Required project qualities:
   understandable Python modules where justified.
 - Include a safe smoke-test path using synthetic or tiny built-in data.
 - Include at least one automated test for the implemented dataflow.
+- Tests must assert behavior, shapes, numeric ranges, or serialized outputs.
+  Import-only tests and tests without assertions are not acceptable.
 - Include configuration values in a config file or explicit typed structure.
 - Prefer 3-8 focused files when the method has distinct preprocessing, model,
   objective, evaluation, or CLI responsibilities. A single Python file is only
@@ -56,6 +58,15 @@ Required project qualities:
   paths, parent-directory paths, or `.git` files.
 - Keep the dependency set minimal and compatible with the supplied hardware.
 - Prefer code that runs over broad but incomplete scaffolding.
+- Use paper-specific module, class, and function names. Avoid generic names such
+  as placeholder, dummy, unavailable, fallback_analysis, demo_object, or
+  mock_reproduction unless they describe an isolated test fixture.
+- If a deep learning model cannot be reproduced faithfully, implement the
+  smallest algorithmic surrogate that still preserves the paper's dataflow,
+  objective, and evaluation contract. Record the approximation explicitly.
+- Generated code must be internally coherent: every imported symbol must be
+  defined, every CLI path must be safe, and every README command must correspond
+  to files that exist in the bundle.
 
 ## Explicitly Forbidden
 - `pass` inside any function or method body
@@ -64,6 +75,9 @@ Required project qualities:
 - Undefined variables or unimported modules
 - Hardcoded absolute file paths
 - Empty function bodies
+- Import-only tests or assertion-free tests
+- Generic fallback artifact names such as unavailable.py
+- Mock-only model classes in the main implementation path
 
 ## Method Specification (Pre-extracted)
 {method_spec}

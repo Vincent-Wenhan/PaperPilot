@@ -4,7 +4,9 @@ import unittest
 
 from productize.product_templates import (
     build_adapter_source,
-    build_app_source,
+    build_client_source,
+    build_index_source,
+    build_static_bundle_sources,
     select_product_template,
 )
 
@@ -34,24 +36,40 @@ class ProductTemplateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "preferred_type"):
             select_product_template("", "", "", "", "audio")
 
-    def test_generated_sources_contain_template_specific_ui_and_adapter(self) -> None:
+    def test_generated_sources_contain_template_specific_static_ui_and_adapter(self) -> None:
         expected_components = {
-            "image": 'st.file_uploader("Upload an image"',
-            "text": 'st.text_area("Input text"',
-            "video": 'st.file_uploader("Upload a video"',
-            "file": 'st.file_uploader("Upload a file"',
+            "image": '"accept": "image/*"',
+            "text": '"type": "textarea"',
+            "video": '"accept": "video/*"',
+            "file": '"type": "file"',
         }
         for template_type, component in expected_components.items():
             with self.subTest(template_type=template_type):
-                app_source = build_app_source(template_type)
+                index_source = build_index_source(template_type)
+                client_source = build_client_source(template_type)
                 adapter_source = build_adapter_source(template_type, "../workspace")
-                self.assertIn(component, app_source)
-                self.assertIn("ModelAdapter", app_source)
-                self.assertIn("mock_mode=True", app_source)
+                self.assertIn('<main id="app"', index_source)
+                self.assertIn(component, client_source)
+                self.assertIn("ModelAdapter", client_source)
+                self.assertIn("mockMode = true", adapter_source)
                 self.assertIn("class ModelAdapter", adapter_source)
                 self.assertIn(f'"type": "{template_type}"', adapter_source)
-                compile(app_source, "app.py", "exec")
-                compile(adapter_source, "adapter.py", "exec")
+                self.assertNotIn("streamlit", index_source.lower())
+                self.assertNotIn("streamlit", client_source.lower())
+                self.assertNotIn("streamlit", adapter_source.lower())
+
+    def test_static_bundle_has_expected_files_without_streamlit_runtime(self) -> None:
+        bundle = build_static_bundle_sources(
+            "text",
+            product_spec="# Product\n\n## Product Name\n\nEvidence Console",
+            frontend_plan="# Frontend\n\nUse a focused review workflow.",
+        )
+
+        self.assertEqual(set(bundle), {"index.html", "app.js", "adapter.js", "styles.css"})
+        self.assertIn("Evidence Console", bundle["index.html"])
+        self.assertIn("Use a focused review workflow.", bundle["app.js"])
+        for source in bundle.values():
+            self.assertNotIn("streamlit", source.lower())
 
 
 if __name__ == "__main__":

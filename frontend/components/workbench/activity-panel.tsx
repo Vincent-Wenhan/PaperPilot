@@ -2,7 +2,7 @@
 
 import { CheckCircle2, Circle } from "lucide-react";
 import { StatusPill } from "@/components/status-pill";
-import type { AgentEvent } from "@/lib/mock-data";
+import type { AgentEvent } from "@/lib/workbench-types";
 
 type ActivityPanelProps = {
   events: AgentEvent[];

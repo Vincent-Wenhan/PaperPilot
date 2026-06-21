@@ -8,7 +8,7 @@ from tools.llm_client import LLMClient
 
 
 class FrontendBuilderAgent(BaseAgent):
-    """Describe a simple Streamlit interaction for the chosen template."""
+    """Describe a simple product interaction for the chosen template."""
 
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         super().__init__(

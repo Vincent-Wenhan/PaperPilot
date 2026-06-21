@@ -5,6 +5,7 @@ Delegates to pipeline modules for specific workflows.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable
 
 from config import MAIN_GOAL_DEBUG
@@ -28,6 +29,7 @@ def run_paperpilot(
     hitl: PipelineHITL | None = None,
     generate_code: bool = True,
     implementation_model: str = "",
+    output_dir: str | Path | None = None,
     hitl_thread_id: str | None = None,
     hitl_action: str | None = None,
     hitl_stage: str | None = None,
@@ -85,6 +87,7 @@ def run_paperpilot(
         hitl=hitl,
         generate_code=generate_code,
         implementation_model=implementation_model,
+        output_dir=output_dir,
         hitl_thread_id=hitl_thread_id,
         hitl_action=hitl_action,
         hitl_stage=hitl_stage,

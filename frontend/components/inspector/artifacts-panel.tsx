@@ -1,7 +1,7 @@
 "use client";
 
 import { StatusPill } from "@/components/status-pill";
-import type { ArtifactItem } from "@/lib/mock-data";
+import type { ArtifactItem } from "@/lib/workbench-types";
 
 type ArtifactsPanelProps = {
   artifactRows: ArtifactItem[];

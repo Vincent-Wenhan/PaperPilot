@@ -1,4 +1,4 @@
-import type { WorkflowStatus } from "@/lib/mock-data";
+import type { WorkflowStatus } from "@/lib/workbench-types";
 
 const statusLabels: Record<WorkflowStatus, string> = {
   pending: "Pending",

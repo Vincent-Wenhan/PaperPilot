@@ -13,7 +13,7 @@ import {
 import { CheckCircle2, Circle, Clock3, LoaderCircle } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import type { WorkflowStatus } from "@/lib/mock-data";
+import type { WorkflowStatus } from "@/lib/workbench-types";
 
 export type GraphNodeData = {
   id: string;

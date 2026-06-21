@@ -23,6 +23,8 @@ from backend.services.graph_service import graph_service
 from backend.services.patch_service import PatchService
 from backend.services.run_service import InMemoryRunService
 from backend.services.workbench_mock import build_workbench_snapshot
+from config import WORKSPACE_DIR
+from tools.llm_client import LLMClient
 
 
 class FakeWebSocket:
@@ -109,11 +111,74 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             self.assertIsNotNone(completed)
             self.assertEqual(completed.status, "success")
             mocked_pipeline.assert_called_once()
-            self.assertEqual(str(mocked_pipeline.call_args.args[0]), str(pdf))
+            self.assertEqual(mocked_pipeline.call_args.args[0], run.run_id)
+            self.assertEqual(str(mocked_pipeline.call_args.args[1]), str(pdf))
             self.assertNotIn("secret-key", str(service.list_events(run.run_id)))
             self.assertEqual(
                 service.get_result(run.run_id)["pipeline_status"],
                 "complete",
+            )
+
+    def test_run_service_uses_run_scoped_workspace_output_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "paper.pdf"
+            pdf.write_bytes(b"%PDF-1.4 mock paper")
+            service = InMemoryRunService()
+
+            reproduce_request = RunCreateRequest(
+                mode="reproduce",
+                project_id="project_agents",
+                task="Run scoped reproduce",
+                pdf_path=str(pdf),
+                mock_mode=True,
+                run_pipeline=False,
+            )
+            reproduce_run = service.create_run(reproduce_request)
+            with patch("main.run_paperpilot") as run_paperpilot:
+                run_paperpilot.return_value = {"pipeline_status": "complete", "errors": []}
+                service._execute_reproduce(
+                    reproduce_run.run_id,
+                    pdf,
+                    reproduce_request,
+                    LLMClient(mock_mode=True),
+                    lambda stage: None,
+                )
+            self.assertEqual(
+                run_paperpilot.call_args.kwargs["output_dir"],
+                WORKSPACE_DIR / "runs" / reproduce_run.run_id / "outputs",
+            )
+
+            product_request = RunCreateRequest(
+                mode="productize",
+                project_id="project_agents",
+                task="Run scoped productize",
+                pdf_path=str(pdf),
+                mock_mode=True,
+                run_pipeline=False,
+            )
+            product_run = service.create_run(product_request)
+            with (
+                patch("main.run_paperpilot") as analyze,
+                patch("pipeline.productize_pipeline.run_productize_pipeline") as productize,
+            ):
+                analyze.return_value = {
+                    "paper_info": "paper",
+                    "method_info": "method",
+                    "repo_info": "",
+                    "repo_path": "",
+                    "errors": [],
+                }
+                productize.return_value = {"pipeline_status": "complete", "errors": []}
+                service._execute_productize(
+                    product_run.run_id,
+                    pdf,
+                    product_request,
+                    LLMClient(mock_mode=True),
+                    lambda stage: None,
+                )
+            self.assertEqual(
+                productize.call_args.kwargs["output_dir"],
+                WORKSPACE_DIR / "runs" / product_run.run_id / "generated_product",
             )
 
     def test_pipeline_output_creates_real_command_action(self) -> None:

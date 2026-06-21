@@ -384,6 +384,7 @@ def run_reproduce_pipeline(
     hitl: PipelineHITL | None = None,
     generate_code: bool = True,
     implementation_model: str = "",
+    output_dir: str | Path | None = None,
     hitl_thread_id: str | None = None,
     hitl_action: str | None = None,
     hitl_stage: str | None = None,
@@ -393,7 +394,7 @@ def run_reproduce_pipeline(
     result = _initial_result()
     init_stage_sources(result)
     paper_name = safe_output_name(paper_name)
-    output_dir = resolve_output_dir({"paper_name": paper_name})
+    output_dir = Path(output_dir).expanduser() if output_dir else resolve_output_dir({"paper_name": paper_name})
     result["paper_name"] = paper_name
     result["pdf_path"] = pdf_path
     result["hardware"] = hardware

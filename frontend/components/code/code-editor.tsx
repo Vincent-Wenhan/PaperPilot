@@ -4,7 +4,7 @@ import Editor, { type Monaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import { useEffect, useRef, useState } from "react";
 
-import type { CodeFile } from "@/lib/mock-data";
+import type { CodeFile } from "@/lib/workbench-types";
 
 const LANGUAGE_MAP: Record<string, string> = {
   py: "python",

@@ -1,6 +1,6 @@
 "use client";
 
-import type { CodeFile } from "@/lib/mock-data";
+import type { CodeFile } from "@/lib/workbench-types";
 import type { ApiFileNode } from "@/lib/api";
 import { CodeEditor } from "@/components/code/code-editor";
 import { FileTree, type FileTreeNode } from "@/components/code/file-tree";

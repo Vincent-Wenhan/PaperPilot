@@ -48,14 +48,14 @@ import {
   type ApiRun,
   type ApiRunResult,
 } from "@/lib/api";
-import {
-  planSteps,
-  type AgentEvent,
-  type PlanStep,
-  type ProjectNavItem,
-  type RunMode,
-  type WorkflowStatus,
-} from "@/lib/mock-data";
+import { planSteps } from "@/lib/mock-data";
+import type {
+  AgentEvent,
+  PlanStep,
+  ProjectNavItem,
+  RunMode,
+  WorkflowStatus,
+} from "@/lib/workbench-types";
 
 const defaultRunForm: RunFormState = {
   project_id: "paperpilot_workspace",

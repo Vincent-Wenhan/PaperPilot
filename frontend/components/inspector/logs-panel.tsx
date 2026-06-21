@@ -1,6 +1,6 @@
 "use client";
 
-import type { AgentEvent } from "@/lib/mock-data";
+import type { AgentEvent } from "@/lib/workbench-types";
 
 type LogsPanelProps = {
   events: AgentEvent[];

@@ -6,6 +6,46 @@ export type WorkflowStatus =
   | "failed"
   | "revised";
 
+export type RunMode = "reproduce" | "productize";
+
+export type ProjectNavItem = {
+  id: string;
+  label: string;
+  meta: string;
+  status: WorkflowStatus;
+};
+
+export type PlanStep = {
+  id: string;
+  label: string;
+  enabled: boolean;
+  status: WorkflowStatus;
+};
+
+export type AgentEvent = {
+  id: string;
+  time: string;
+  agent: string;
+  eventType: string;
+  message: string;
+  status: WorkflowStatus;
+};
+
+export type ArtifactItem = {
+  id: string;
+  name: string;
+  kind: string;
+  path: string;
+  status: WorkflowStatus;
+};
+
+export type CodeFile = {
+  id: string;
+  path: string;
+  language: string;
+  content: string;
+};
+
 export type RunnerActionView = {
   id: string;
   agent: string;

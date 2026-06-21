@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,24 +8,15 @@ from productize.product_scaffold import scaffold_product
 from productize.product_tester import inspect_generated_product
 
 
-def _load_adapter(path: Path):
-    spec = importlib.util.spec_from_file_location("generated_adapter", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Unable to load generated adapter.")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 class ProductScaffoldTests(unittest.TestCase):
     def test_scaffold_generates_complete_mock_bundle_for_each_template(self) -> None:
         required = {
-            "app.py",
-            "adapter.py",
-            "run_product.py",
+            "index.html",
+            "app.js",
+            "adapter.js",
+            "styles.css",
             "README.md",
             "product_spec.md",
-            "requirements.txt",
             "outputs",
         }
         for template_type in ("image", "text", "video", "file"):
@@ -84,19 +74,6 @@ class ProductScaffoldTests(unittest.TestCase):
                         {path.name for path in output_dir.iterdir()},
                         required,
                     )
-                    adapter = _load_adapter(output_dir / "adapter.py")
-                    model = adapter.ModelAdapter()
-                    self.assertTrue(model.setup()["ready"])
-                    self.assertIsNone(model.load_model())
-                    demo_result = model.predict("demo")
-                    changed_result = model.predict("different input")
-                    self.assertEqual(demo_result["type"], template_type)
-                    self.assertIn("input_summary", demo_result)
-                    self.assertIn("input_signature", demo_result)
-                    self.assertNotEqual(
-                        demo_result["input_signature"],
-                        changed_result["input_signature"],
-                    )
 
                     inspection = inspect_generated_product(output_dir)
                     self.assertEqual(inspection["missing_files"], [])
@@ -106,19 +83,20 @@ class ProductScaffoldTests(unittest.TestCase):
                     self.assertTrue(inspection["run_launcher_ok"])
                     self.assertTrue(inspection["has_rich_layout"])
 
-                    app_source = (output_dir / "app.py").read_text(encoding="utf-8")
-                    self.assertIn("Evidence Explorer", app_source)
-                    self.assertIn("st.sidebar", app_source)
-                    self.assertIn("st.tabs", app_source)
+                    index_source = (output_dir / "index.html").read_text(encoding="utf-8")
+                    app_source = (output_dir / "app.js").read_text(encoding="utf-8")
+                    self.assertIn("Evidence Explorer", index_source)
                     self.assertIn("Rank evidence snippets", app_source)
                     self.assertIn("Course module selector", app_source)
                     self.assertIn("Misconception sensitivity threshold", app_source)
                     self.assertIn("Ranked misconception summary", app_source)
                     self.assertIn("next_action", app_source)
+                    self.assertNotIn("streamlit", app_source.lower())
 
-                    adapter_source = (output_dir / "adapter.py").read_text(
+                    adapter_source = (output_dir / "adapter.js").read_text(
                         encoding="utf-8"
                     )
+                    self.assertIn("class ModelAdapter", adapter_source)
                     self.assertIn("Assign a targeted mini lesson", adapter_source)
 
     def test_scaffold_backs_up_existing_directory(self) -> None:
@@ -205,16 +183,14 @@ class ProductScaffoldTests(unittest.TestCase):
                 ui_spec=ui_spec.model_dump(mode="json"),
             )
 
-            app_source = (output_dir / "app.py").read_text(encoding="utf-8")
+            app_source = (output_dir / "app.js").read_text(encoding="utf-8")
             self.assertIn("Evidence Console", app_source)
             self.assertIn("Review mode", app_source)
             self.assertIn("Evidence summary", app_source)
             self.assertIn("Paste evidence to start.", app_source)
-            self.assertIn("context_values['review_mode']", app_source)
-            self.assertIn("context_values['review_mode_2']", app_source)
-            self.assertIn("key='ui_control_review_mode'", app_source)
-            self.assertIn("key='ui_control_review_mode_2'", app_source)
-            self.assertIn("st.slider('Strictness threshold', 0.0, 1.0, 1.0", app_source)
+            self.assertIn('"controlId": "review_mode"', app_source)
+            self.assertIn('"controlId": "review_mode_2"', app_source)
+            self.assertIn('"type": "range"', app_source)
             inspection = inspect_generated_product(output_dir)
             self.assertTrue(inspection["has_rich_layout"])
             self.assertTrue(inspection["run_launcher_ok"])
@@ -225,39 +201,40 @@ class ProductScaffoldTests(unittest.TestCase):
     def test_inspector_reports_missing_and_invalid_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir)
-            (output_dir / "app.py").write_text("invalid python (", encoding="utf-8")
+            (output_dir / "app.js").write_text("function invalid (", encoding="utf-8")
             inspection = inspect_generated_product(output_dir)
-            self.assertIn("adapter.py", inspection["missing_files"])
+            self.assertIn("adapter.js", inspection["missing_files"])
             self.assertFalse(inspection["syntax_ok"])
             self.assertTrue(inspection["compile_errors"])
             self.assertFalse(inspection["has_rich_layout"])
 
-    def test_inspector_does_not_write_bytecode_cache(self) -> None:
+    def test_inspector_does_not_write_bytecode_cache_or_require_python_launcher(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir)
             (output_dir / "outputs").mkdir()
-            (output_dir / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
-            (output_dir / "adapter.py").write_text(
-                "class ModelAdapter:\n"
-                "    def __init__(self, mock_mode: bool = True):\n"
-                "        self.mock_mode = mock_mode\n"
-                "    def predict(self):\n"
-                "        if self.mock_mode:\n"
-                "            return None\n",
+            (output_dir / "index.html").write_text(
+                '<main id="app"></main><script type="module" src="./app.js"></script>\n',
                 encoding="utf-8",
             )
-            (output_dir / "run_product.py").write_text(
-                "print('launch')\n",
+            (output_dir / "app.js").write_text(
+                "const UI_SPEC_MARKERS = { structured_controls: true, result_components: true, state_copy: true };\n"
+                "const tabs = ['Summary', 'Evidence & Limits', 'Export'];\n"
+                "console.log(UI_SPEC_MARKERS, tabs);\n",
+                encoding="utf-8",
+            )
+            (output_dir / "adapter.js").write_text(
+                "class ModelAdapter { constructor({ mockMode = true } = {}) { this.mockMode = mockMode; } predict() { if (this.mockMode) return {}; } }\n",
+                encoding="utf-8",
+            )
+            (output_dir / "styles.css").write_text(
+                ".workspace-grid{}\n.panel{}\n.json-block{}\n",
                 encoding="utf-8",
             )
             (output_dir / "README.md").write_text(
-                "Run with `python -m pip install -r requirements.txt` "
-                "then `python run_product.py`. The launcher runs "
-                "`python -m streamlit run app.py`.\n",
+                "Open `index.html` directly or run `python -m http.server 8000`.\n",
                 encoding="utf-8",
             )
             (output_dir / "product_spec.md").write_text("# Spec\n", encoding="utf-8")
-            (output_dir / "requirements.txt").write_text("streamlit\n", encoding="utf-8")
 
             inspection = inspect_generated_product(output_dir)
 

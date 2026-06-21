@@ -2,7 +2,7 @@
 
 import { CheckCircle, AlertTriangle, XCircle, Info } from "lucide-react";
 import { StatusPill } from "@/components/status-pill";
-import type { WorkflowStatus } from "@/lib/mock-data";
+import type { WorkflowStatus } from "@/lib/workbench-types";
 
 export type EvidenceItem = {
   path: string;

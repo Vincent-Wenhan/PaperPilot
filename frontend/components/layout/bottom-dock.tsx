@@ -4,7 +4,7 @@ import { Radio, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { LogsPanel } from "@/components/inspector/logs-panel";
-import type { AgentEvent } from "@/lib/mock-data";
+import type { AgentEvent } from "@/lib/workbench-types";
 
 type BottomDockTab = "logs" | "terminal" | "results";
 

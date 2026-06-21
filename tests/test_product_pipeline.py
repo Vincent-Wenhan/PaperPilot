@@ -62,7 +62,9 @@ class ProductPipelineTests(unittest.TestCase):
             self.assertTrue(result["scaffold_result"]["success"])
             self.assertTrue(result["inspection"]["syntax_ok"])
             self.assertEqual(result["inspection"]["missing_files"], [])
-            self.assertTrue((output_dir / "app.py").is_file())
+            self.assertTrue((output_dir / "index.html").is_file())
+            self.assertTrue((output_dir / "app.js").is_file())
+            self.assertFalse((output_dir / "requirements.txt").exists())
             self.assertEqual(len(result["capability_cards"]), 1)
             self.assertEqual(result["evaluation"]["demo_readiness"], "ready_with_mock")
 
@@ -174,7 +176,7 @@ class ProductPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(result["evaluation"]["overall_score"], 4)
             self.assertIn(
                 "/tmp/vision",
-                (output_dir / "adapter.py").read_text(encoding="utf-8"),
+                (output_dir / "adapter.js").read_text(encoding="utf-8"),
             )
 
 

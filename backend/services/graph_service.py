@@ -165,16 +165,16 @@ class GraphService:
         if not node_events:
             return "pending"
         has_running = False
-        latest_status = "pending"
+        latest_status: WorkflowStatus = "pending"
         for evt in node_events:
             s = getattr(evt, "status", "pending")
             if s == "running":
                 has_running = True
             latest_status = s
-        if has_running:
-            return "running"
         if latest_status in ("success", "failed", "waiting_review", "revised"):
             return latest_status
+        if has_running:
+            return "running"
         return "pending"
 
     @staticmethod
@@ -186,6 +186,10 @@ class GraphService:
         """
         raw_node = str(getattr(event, "node", "") or "")
         event_type = str(getattr(event, "event_type", "") or "")
+        payload = getattr(event, "payload", {}) or {}
+        pipeline_status = ""
+        if isinstance(payload, dict):
+            pipeline_status = str(payload.get("pipeline_status", "") or "")
 
         # Structured node mapping: if event.node matches a known node id, use it directly
         known_nodes = {nid for nid, _label, _agent in NODE_MAP.get(run_mode, NODE_MAP["reproduce"])["nodes"]}
@@ -197,6 +201,10 @@ class GraphService:
             return "parse"
         if raw_node == "planner":
             return "planning" if run_mode == "reproduce" else "prd"
+        if run_mode == "productize" and event_type == "pipeline_finished" and pipeline_status == "proposal_review":
+            return "mvp"
+        if run_mode == "productize" and event_type == "proposal_executed":
+            return "scaffold"
         if event_type in {"pipeline_finished", "pipeline_failed", "review_actions_resolved"}:
             return "outputs" if run_mode == "reproduce" else "scaffold"
 
@@ -204,6 +212,10 @@ class GraphService:
         message = str(getattr(event, "message", "") or "").lower()
 
         if run_mode == "productize":
+            if "extracting capability" in message:
+                return "capability_cards"
+            if "composing paper capabilities" in message:
+                return "capability_map"
             if "capability card" in message:
                 return "capability_cards"
             if "capability map" in message:
@@ -265,6 +277,7 @@ class GraphService:
                 "pipeline_finished",
                 "pipeline_failed",
                 "review_actions_resolved",
+                "proposal_executed",
             }
         ]
         if finished_events:

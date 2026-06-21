@@ -1140,7 +1140,7 @@ export function enrichGraphFromEvents(
   let terminal: WorkflowStatus | null = null;
 
   for (const event of events) {
-    const nodeId = graphNodeFromEvent(event, mode);
+    const nodeId = graphNodeFromEvent(event, mode, indexById);
     const index = nodeId ? indexById.get(nodeId) : undefined;
     if (index === undefined) {
       continue;
@@ -1150,9 +1150,9 @@ export function enrichGraphFromEvents(
       terminal = event.status;
       next[index].status = event.status;
     } else if (event.status === "running" || event.status === "waiting_review") {
-      next[index].status = event.status;
+      next[index].status = mergeWorkflowStatus(next[index].status, event.status);
     } else if (event.status === "success" || event.status === "failed" || event.status === "revised") {
-      next[index].status = event.status;
+      next[index].status = mergeWorkflowStatus(next[index].status, event.status);
     }
   }
 
@@ -1181,7 +1181,29 @@ export function enrichGraphFromEvents(
   return next;
 }
 
-function graphNodeFromEvent(event: ApiEvent, mode: RunMode): string {
+function mergeWorkflowStatus(current: WorkflowStatus, incoming: WorkflowStatus): WorkflowStatus {
+  if (incoming === "failed" || incoming === "success" || incoming === "revised") {
+    return incoming;
+  }
+  if (incoming === "waiting_review") {
+    return current === "failed" || current === "success" || current === "revised"
+      ? current
+      : incoming;
+  }
+  if (incoming === "running") {
+    return current === "pending" ? incoming : current;
+  }
+  return current;
+}
+
+function graphNodeFromEvent(
+  event: ApiEvent,
+  mode: RunMode,
+  knownNodeIds?: Map<string, number>,
+): string {
+  if (knownNodeIds?.has(event.node)) {
+    return event.node;
+  }
   if (event.node === "run_intake" || event.node === "input_review") {
     return "parse";
   }
@@ -1191,12 +1213,24 @@ function graphNodeFromEvent(event: ApiEvent, mode: RunMode): string {
   if (event.node === "runner_execution" || event.node === "runner_review") {
     return mode === "reproduce" ? "command_routing" : "scaffold";
   }
+  if (
+    mode === "productize" &&
+    event.event_type === "pipeline_finished" &&
+    event.payload?.pipeline_status === "proposal_review"
+  ) {
+    return "mvp";
+  }
+  if (mode === "productize" && event.event_type === "proposal_executed") {
+    return "scaffold";
+  }
   if (TERMINAL_EVENT_TYPES.has(event.event_type)) {
     return mode === "reproduce" ? "outputs" : "scaffold";
   }
 
   const message = event.message.toLowerCase();
   if (mode === "productize") {
+    if (message.includes("extracting capability")) return "capability_cards";
+    if (message.includes("composing paper capabilities")) return "capability_map";
     if (message.includes("capability card")) return "capability_cards";
     if (message.includes("capability map")) return "capability_map";
     if (message.includes("composition")) return "method_composition";

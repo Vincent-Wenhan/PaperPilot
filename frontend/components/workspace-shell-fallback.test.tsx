@@ -295,6 +295,39 @@ describe("workspace demo fallback", () => {
 
     expect(enriched.find((node) => node.id === "outputs")?.status).toBe("success");
   });
+
+  it("keeps productize proposal review on planning nodes until a proposal is executed", () => {
+    const graph = [
+      graphNode("parse", "success"),
+      graphNode("capability_cards", "success"),
+      graphNode("capability_map", "success"),
+      graphNode("method_composition", "success"),
+      graphNode("jtbd", "success"),
+      graphNode("prd", "waiting_review"),
+      graphNode("mvp", "pending"),
+      graphNode("prototype", "pending"),
+      graphNode("evaluation", "pending"),
+      graphNode("revision", "pending"),
+      graphNode("scaffold", "pending"),
+    ];
+    const events = [
+      apiEvent("evt_parse", "parse", "node_started", "running"),
+      apiEvent("evt_prd", "prd", "node_started", "running"),
+      {
+        ...apiEvent("evt_review", "agent_runtime", "pipeline_finished", "waiting_review"),
+        payload: { pipeline_status: "proposal_review" },
+      },
+    ];
+
+    const enriched = enrichGraphFromEvents(graph as never, events as never, "productize");
+
+    expect(enriched.find((node) => node.id === "prd")?.status).toBe("success");
+    expect(enriched.find((node) => node.id === "mvp")?.status).toBe("waiting_review");
+    expect(enriched.find((node) => node.id === "prototype")?.status).toBe("pending");
+    expect(enriched.find((node) => node.id === "evaluation")?.status).toBe("pending");
+    expect(enriched.find((node) => node.id === "revision")?.status).toBe("pending");
+    expect(enriched.find((node) => node.id === "scaffold")?.status).toBe("pending");
+  });
 });
 
 function jsonResponse(body: unknown) {

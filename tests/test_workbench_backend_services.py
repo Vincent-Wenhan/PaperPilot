@@ -750,6 +750,124 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             "planning",
         )
 
+    def test_productize_proposal_review_graph_stops_before_execution_nodes(self) -> None:
+        events = [
+            WorkbenchEvent(
+                event_id="evt_intake",
+                run_id="run_productize_graph",
+                node="run_intake",
+                agent="Workbench",
+                event_type="run_created",
+                status="success",
+                message="Created productize run.",
+                created_at="2026-01-01T00:00:00Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_parse",
+                run_id="run_productize_graph",
+                node="parse",
+                agent="PaperPilot Agent",
+                event_type="node_started",
+                status="running",
+                message="Generating Productize proposals for review",
+                created_at="2026-01-01T00:00:01Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_prd",
+                run_id="run_productize_graph",
+                node="prd",
+                agent="PaperPilot Agent",
+                event_type="node_started",
+                status="running",
+                message="Product Planner Agent building PRD and MVP",
+                created_at="2026-01-01T00:00:02Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_review",
+                run_id="run_productize_graph",
+                node="agent_runtime",
+                agent="Workbench Runner",
+                event_type="pipeline_finished",
+                status="waiting_review",
+                message="productize agent pipeline completed with review items.",
+                payload={"pipeline_status": "proposal_review"},
+                created_at="2026-01-01T00:00:03Z",
+            ),
+        ]
+
+        graph = graph_service.build_graph("productize", events)
+        statuses = {node["id"]: node["status"] for node in graph}
+
+        self.assertEqual(statuses["prd"], "success")
+        self.assertEqual(statuses["mvp"], "waiting_review")
+        self.assertEqual(statuses["prototype"], "pending")
+        self.assertEqual(statuses["evaluation"], "pending")
+        self.assertEqual(statuses["revision"], "pending")
+        self.assertEqual(statuses["scaffold"], "pending")
+
+    def test_productize_executed_proposal_graph_reaches_scaffold(self) -> None:
+        events = [
+            WorkbenchEvent(
+                event_id="evt_parse",
+                run_id="run_productize_executed_graph",
+                node="parse",
+                agent="PaperPilot Agent",
+                event_type="node_started",
+                status="running",
+                message="Generating Productize proposals for review",
+                created_at="2026-01-01T00:00:01Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_review",
+                run_id="run_productize_executed_graph",
+                node="agent_runtime",
+                agent="Workbench Runner",
+                event_type="pipeline_finished",
+                status="waiting_review",
+                message="productize agent pipeline completed with review items.",
+                payload={"pipeline_status": "proposal_review"},
+                created_at="2026-01-01T00:00:02Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_prototype",
+                run_id="run_productize_executed_graph",
+                node="prototype",
+                agent="PaperPilot Agent",
+                event_type="node_started",
+                status="running",
+                message="Prototype Builder Agent planning interface and adapter",
+                created_at="2026-01-01T00:00:03Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_eval",
+                run_id="run_productize_executed_graph",
+                node="evaluation",
+                agent="PaperPilot Agent",
+                event_type="node_started",
+                status="running",
+                message="Product Evaluator Agent scoring prototype",
+                created_at="2026-01-01T00:00:04Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_executed",
+                run_id="run_productize_executed_graph",
+                node="agent_runtime",
+                agent="Workbench Runner",
+                event_type="proposal_executed",
+                status="success",
+                message="Executed product proposal: Demo.",
+                payload={"pipeline_status": "complete"},
+                created_at="2026-01-01T00:00:05Z",
+            ),
+        ]
+
+        graph = graph_service.build_graph("productize", events)
+        statuses = {node["id"]: node["status"] for node in graph}
+
+        self.assertEqual(statuses["prototype"], "success")
+        self.assertEqual(statuses["evaluation"], "success")
+        self.assertEqual(statuses["scaffold"], "success")
+
     def test_artifact_and_file_services_are_read_only_and_root_limited(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

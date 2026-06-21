@@ -135,7 +135,12 @@ export function InspectorPanel({
         if (cancelled) return;
         setArtifactRows(apiArtifacts.map(artifactFromApi));
         setApiFiles(files);
-        if (files[0]?.path) setActiveFileId(files[0].path);
+        setActiveFileId((current) => {
+          if (current && files.some((file) => file.path === current)) {
+            return current;
+          }
+          return preferredCodeFile(files)?.path ?? "";
+        });
       })
       .catch(() => {
         if (cancelled || preview) return;
@@ -167,7 +172,10 @@ export function InspectorPanel({
   }, [preview, runId]);
 
   useEffect(() => {
-    if (!activeApiFile) return;
+    if (!activeApiFile) {
+      if (!preview) setApiFileContent("");
+      return;
+    }
     let cancelled = false;
     fetchFileContent(runId, activeApiFile.path)
       .then((file) => {
@@ -177,7 +185,7 @@ export function InspectorPanel({
         if (!cancelled) setApiFileContent("");
       });
     return () => { cancelled = true; };
-  }, [activeApiFile, runId]);
+  }, [activeApiFile, preview, runId]);
 
   const fileTabs = apiFiles.length
     ? apiFiles.map((file) => ({ id: file.path, label: file.name }))
@@ -351,4 +359,13 @@ function runnerMessageFromAction(action: ApiAction): string {
   }
   const stderr = String(action.execution_result?.stderr ?? "");
   return stderr || "Execution completed with a failure result.";
+}
+
+function preferredCodeFile(files: ApiFileNode[]): ApiFileNode | undefined {
+  return (
+    files.find((file) => file.name.toLowerCase() === "readme.md") ??
+    files.find((file) => file.name.toLowerCase() === "main.py") ??
+    files.find((file) => file.name.toLowerCase() === "code_agent_manifest.json") ??
+    files[0]
+  );
 }

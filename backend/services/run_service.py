@@ -429,7 +429,18 @@ class InMemoryRunService:
         return None
 
     def approve_action(self, action_id: str) -> ActionRequest | None:
-        return self._update_action_status(action_id, "approved")
+        action = self._update_action_status(action_id, "approved")
+        if action is not None:
+            self._append_event(
+                action.run_id,
+                node="runner_review",
+                agent="Workbench",
+                event_type="action_approved",
+                status="success",
+                message=f"Approved action {action.action_id}.",
+                payload={"action_id": action.action_id, "tool": action.tool},
+            )
+        return action
 
     def reject_action(self, action_id: str) -> ActionRequest | None:
         action = self._update_action_status(action_id, "rejected")
@@ -499,12 +510,13 @@ class InMemoryRunService:
                 return self._execution_response_from_action(action)
             if action.status == "rejected":
                 raise ValueError("Rejected actions cannot execute.")
-            if action.status not in {"pending", "edited"}:
-                raise ValueError("Only pending or edited actions can execute.")
+            if action.status not in {"pending", "edited", "approved"}:
+                raise ValueError("Only pending, edited, or approved actions can execute.")
             if action.tool == "run_command" and not self._action_command(action):
                 raise ValueError("Command action is missing a command.")
             if action.tool == "apply_patch" and not action.patch_id:
                 raise ValueError("Patch action is missing a patch id.")
+            was_approved = action.status == "approved"
             updated = action.model_copy(
                 update={
                     "status": "approved",
@@ -515,15 +527,16 @@ class InMemoryRunService:
             self._actions[updated.run_id][index] = updated
             self._persist_state_locked()
 
-        self._append_event(
-            updated.run_id,
-            node="runner_review",
-            agent="Workbench",
-            event_type="action_approved",
-            status="success",
-            message=f"Approved action {updated.action_id}.",
-            payload={"action_id": updated.action_id, "tool": updated.tool},
-        )
+        if not was_approved:
+            self._append_event(
+                updated.run_id,
+                node="runner_review",
+                agent="Workbench",
+                event_type="action_approved",
+                status="success",
+                message=f"Approved action {updated.action_id}.",
+                payload={"action_id": updated.action_id, "tool": updated.tool},
+            )
         self._append_event(
             updated.run_id,
             node="runner_execution",

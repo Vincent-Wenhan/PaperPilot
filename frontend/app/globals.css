@@ -512,10 +512,71 @@ h3 {
   min-width: 0;
 }
 
+.workspace-section-panel {
+  height: 100%;
+  overflow: auto;
+}
+
 .panel-heading {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.detail-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.detail-row {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 11px;
+  background: #fff;
+}
+
+.detail-row span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.detail-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.secondary-action {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 0 12px;
+  background: #fff;
+  color: #354156;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.secondary-action:hover {
+  border-color: #c4d2ea;
+  background: #f7f9fd;
 }
 
 .plan-list {

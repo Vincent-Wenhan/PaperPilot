@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,6 +25,18 @@ describe("workspace demo fallback", () => {
     expect(await screen.findByText(/No backend run yet/)).toBeVisible();
     expect(screen.getByText(/No events yet/)).toBeVisible();
     expect(screen.queryByRole("complementary", { name: "Approval Required" })).not.toBeInTheDocument();
+  });
+
+  it("switches the center workspace when sidebar navigation is clicked", async () => {
+    render(<WorkspaceShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Repos" }));
+    const repoPanel = await screen.findByRole("region", { name: "Repository Input" });
+    expect(repoPanel).toBeVisible();
+    expect(within(repoPanel).getByRole("heading", { name: "Repository Input" })).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open Workflow" }));
+    expect(await screen.findByLabelText("Workflow graph panel")).toBeVisible();
   });
 
   it("approves real actions through the execute endpoint and refreshes state", async () => {

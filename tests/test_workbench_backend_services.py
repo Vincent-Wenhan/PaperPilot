@@ -193,6 +193,26 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
         ]
         self.assertEqual(len(success_events), 1)
 
+        approved_run = service.create_run(
+            RunCreateRequest(mode="reproduce", pdf_path=__file__)
+        )
+        approved_action = service._command_action_from_result(
+            approved_run.run_id,
+            {
+                "implementation_bundle": {
+                    "smoke_test_command": "python --version",
+                },
+            },
+            RunCreateRequest(mode="reproduce", pdf_path=__file__),
+        )
+        self.assertIsNotNone(approved_action)
+        service._actions[approved_run.run_id] = [approved_action]
+        approved = service.approve_action(approved_action.action_id)
+        self.assertEqual(approved.status, "approved")
+        executed_after_approval = service.execute_action(approved_action.action_id)
+        self.assertIsNotNone(executed_after_approval)
+        self.assertEqual(executed_after_approval.execution_status, "succeeded")
+
         rejected_run = service.create_run(
             RunCreateRequest(mode="reproduce", pdf_path=__file__)
         )
@@ -343,6 +363,47 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
 
             with self.assertRaises(PermissionError):
                 files.read_content("outputs/report.md")
+
+    def test_file_service_scopes_files_to_current_run_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            outputs = root / "outputs"
+            current = workspace / "generated_reproduction_current"
+            old = workspace / "generated_reproduction_old"
+            code_output = outputs / "paper" / "code"
+            current.mkdir(parents=True)
+            old.mkdir(parents=True)
+            code_output.mkdir(parents=True)
+            (current / "main.py").write_text("print('current')\n", encoding="utf-8")
+            (current / "README.md").write_text("# Current\n", encoding="utf-8")
+            (old / "main.py").write_text("print('old')\n", encoding="utf-8")
+            (code_output / "report.md").write_text("# Code report\n", encoding="utf-8")
+
+            files = FileService(
+                project_root=root,
+                file_roots=[workspace, outputs],
+                run_root_resolver=lambda run_id: [current, code_output]
+                if run_id == "run_current"
+                else [],
+            )
+
+            listed = files.list_files("run_current")
+            listed_paths = {item.path for item in listed}
+            self.assertIn("workspace/generated_reproduction_current/main.py", listed_paths)
+            self.assertIn("outputs/paper/code/report.md", listed_paths)
+            self.assertNotIn("workspace/generated_reproduction_old/main.py", listed_paths)
+            content = files.read_content(
+                "workspace/generated_reproduction_current/main.py",
+                run_id="run_current",
+            )
+            self.assertIn("current", content.content)
+
+            with self.assertRaises(PermissionError):
+                files.read_content(
+                    "workspace/generated_reproduction_old/main.py",
+                    run_id="run_current",
+                )
 
     def test_patch_service_only_updates_generated_roots(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

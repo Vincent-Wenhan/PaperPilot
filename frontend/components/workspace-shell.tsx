@@ -7,7 +7,10 @@ import { InspectorPanel } from "@/components/inspector-panel";
 import { TopBar, type TopBarRunState } from "@/components/layout/top-bar";
 import { ProjectSidebar } from "@/components/layout/project-sidebar";
 import type { RunFormState } from "@/components/layout/project-sidebar";
-import { CenterWorkspace } from "@/components/layout/center-workspace";
+import {
+  CenterWorkspace,
+  type WorkspaceSectionContext,
+} from "@/components/layout/center-workspace";
 import { BottomDock } from "@/components/layout/bottom-dock";
 import {
   ActionApprovalDrawer,
@@ -115,7 +118,6 @@ export function WorkspaceShell() {
   const productGoal = apiRun?.inputs?.product_goal ?? runForm.product_goal;
   const targetUser = apiRun?.inputs?.target_user ?? runForm.target_user;
   const currentModel = apiRun?.inputs?.llm_model ?? runForm.model;
-
   const topBarRun: TopBarRunState = {
     projectName: currentProject,
     runId: apiRun?.run_id,
@@ -163,6 +165,27 @@ export function WorkspaceShell() {
       executionStatus: action.execution_status,
     }));
   const displayedApprovalActions: PendingAction[] = pendingApprovalActions;
+  const sectionContext: WorkspaceSectionContext = {
+    projectId: currentProject,
+    task: currentTask,
+    paperInput,
+    repoInput,
+    mode: currentMode,
+    model: currentModel,
+    baseUrl: apiRun?.inputs?.llm_base_url ?? runForm.base_url,
+    goal: apiRun?.inputs?.goal ?? runForm.goal,
+    hardware: apiRun?.inputs?.hardware ?? runForm.hardware,
+    gpuInfo: apiRun?.inputs?.gpu_info ?? runForm.gpu_info,
+    mockMode: (apiRun?.inputs?.mock_mode ?? String(runForm.mock_mode)).toLowerCase() === "true",
+    runId: apiRun?.run_id,
+    runStatus: apiRun?.status ?? "pending",
+    pendingActions: pendingApprovalActions.length,
+    eventCount: timelineEvents.length,
+    generatedFiles: Number(runResult?.generated_files ?? 0),
+    pipelineStatus: String(runResult?.pipeline_status ?? apiRun?.result_summary?.pipeline_status ?? ""),
+    productGoal,
+    targetUser,
+  };
 
   // Load persisted LLM config on mount
   useEffect(() => {
@@ -422,9 +445,11 @@ export function WorkspaceShell() {
     if (id === "project" || id === "run") {
       setActiveWorkbenchTab("workflow");
       setNotice(
-        apiRun
-          ? `Showing workflow for ${apiRun.run_id}.`
-          : "No backend run yet. Use New Run to submit a paper and repository.",
+        id === "run"
+          ? apiRun
+            ? `Showing workflow for ${apiRun.run_id}.`
+            : "No backend run yet. Use New Run to submit a paper and repository."
+          : `Showing project overview for ${currentProject}.`,
       );
       return;
     }
@@ -438,19 +463,21 @@ export function WorkspaceShell() {
       return;
     }
     if (id === "paper") {
-      setNewRunDrawerOpen(true);
-      setNotice("Paper input is configured in the New Run drawer.");
+      setNotice("Showing paper input for the active workspace.");
       return;
     }
     if (id === "repo") {
-      setNewRunDrawerOpen(true);
-      setNotice("Repository input is configured in the New Run drawer.");
+      setNotice("Showing repository input for the active workspace.");
       return;
     }
     if (id === "settings") {
-      setNewRunDrawerOpen(true);
-      setNotice("Agent runtime and LLM settings are configured in the New Run drawer.");
+      setNotice("Showing local runtime settings.");
     }
+  }
+
+  function showWorkflow() {
+    setSelectedNavId("run");
+    setActiveWorkbenchTab("workflow");
   }
 
   async function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -715,10 +742,14 @@ export function WorkspaceShell() {
           hasRun={Boolean(apiRun)}
           graphNodes={graphNodes}
           activeTab={activeWorkbenchTab}
+          activeNavId={selectedNavId}
+          sectionContext={sectionContext}
           onTabChange={setActiveWorkbenchTab}
           onTogglePlanStep={togglePlanStep}
           onApprovePlan={approvePlan}
           onContinueRun={continueRun}
+          onOpenRunDrawer={() => setNewRunDrawerOpen(true)}
+          onShowWorkflow={showWorkflow}
           evaluationIssues={evaluationIssues}
         />
 

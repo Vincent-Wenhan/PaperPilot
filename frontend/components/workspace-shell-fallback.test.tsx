@@ -201,6 +201,83 @@ describe("workspace demo fallback", () => {
     expect(window.sessionStorage.getItem("paperpilot.activeRunId")).toBeNull();
   });
 
+  it("appends productize PDF uploads and submits all selected paths", async () => {
+    let createdRunBody: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/llm/config")) {
+        return jsonResponse({ api_key: "", base_url: "", model: "gpt-4o-mini", implementation_model: "" });
+      }
+      if (url.endsWith("/api/upload/pdf") && init?.method === "POST") {
+        const callCount = fetchMock.mock.calls.filter(([calledUrl]) =>
+          String(calledUrl).endsWith("/api/upload/pdf"),
+        ).length;
+        return jsonResponse({ pdf_path: `uploads/paper-${callCount}.pdf` });
+      }
+      if (url.endsWith("/api/runs") && init?.method === "POST") {
+        createdRunBody = JSON.parse(String(init.body));
+        return jsonResponse({
+          run_id: "run_productize",
+          project_id: "paperpilot_workspace",
+          mode: "productize",
+          status: "waiting_review",
+          task: "Productize the submitted research into a mock-first MVP.",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          summary: "Productize proposals ready.",
+          inputs: {
+            pdf_path: "uploads/paper-1.pdf",
+            pdf_paths: "uploads/paper-1.pdf\nuploads/paper-2.pdf",
+            llm_model: "gpt-4o-mini",
+          },
+          result_summary: { pipeline_status: "proposal_review" },
+          plan: ["Generate product proposals"],
+        });
+      }
+      if (
+        url.endsWith("/api/runs/run_productize/events") ||
+        url.endsWith("/api/runs/run_productize/graph") ||
+        url.endsWith("/api/runs/run_productize/actions") ||
+        url.endsWith("/api/commands/run_productize/result")
+      ) {
+        return jsonResponse([]);
+      }
+      if (url.endsWith("/api/runs/run_productize/result")) {
+        return jsonResponse({ pipeline_status: "proposal_review", productize_proposals: [] });
+      }
+      return jsonResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(<WorkspaceShell />);
+    const user = userEvent.setup();
+
+    await user.selectOptions(
+      await screen.findByLabelText("Workbench mode"),
+      "productize",
+    );
+    await user.click(screen.getByRole("button", { name: "New Run" }));
+    expect(await screen.findByRole("heading", { name: "New Run" })).toBeVisible();
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(fileInput).not.toBeNull();
+    expect(fileInput.multiple).toBe(true);
+
+    await user.upload(fileInput, new File(["one"], "one.pdf", { type: "application/pdf" }));
+    await screen.findByRole("button", { name: /one.pdf/ });
+    await user.upload(fileInput, new File(["two"], "two.pdf", { type: "application/pdf" }));
+    await screen.findByText(/2 PDFs selected/);
+
+    await user.click(screen.getByRole("button", { name: "Run Agents" }));
+
+    await waitFor(() => {
+      expect(createdRunBody?.pdf_paths).toEqual([
+        "uploads/paper-1.pdf",
+        "uploads/paper-2.pdf",
+      ]);
+    });
+  });
+
   it("keeps outputs successful after reviewed actions resolve", () => {
     const graph = [
       graphNode("parse", "success"),

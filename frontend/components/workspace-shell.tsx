@@ -536,15 +536,29 @@ export function WorkspaceShell() {
     );
     try {
       const uploaded = await Promise.all(files.map((file) => uploadPdf(file)));
-      const pdfPaths = uploaded.map((item) => item.pdf_path);
-      setRunForm((current) => ({
-        ...current,
-        pdf_path: pdfPaths[0] ?? "",
-        pdf_paths: runForm.mode === "productize" ? pdfPaths : [],
-      }));
+      const pdfPaths = uploaded.map((item) => item.pdf_path).filter(Boolean);
+      const displayedPdfPaths =
+        runForm.mode === "productize"
+          ? appendUniquePaths(runForm.pdf_paths, pdfPaths)
+          : pdfPaths;
+      setRunForm((current) => {
+        if (current.mode !== "productize") {
+          return {
+            ...current,
+            pdf_path: pdfPaths[0] ?? "",
+            pdf_paths: [],
+          };
+        }
+        const nextPdfPaths = appendUniquePaths(current.pdf_paths, pdfPaths);
+        return {
+          ...current,
+          pdf_path: nextPdfPaths[0] ?? "",
+          pdf_paths: nextPdfPaths,
+        };
+      });
       setUploadedFileName(
-        files.length > 1
-          ? `${files.length} PDFs selected`
+        runForm.mode === "productize" && displayedPdfPaths.length > 1
+          ? `${displayedPdfPaths.length} PDFs selected`
           : files[0].name,
       );
       setNotice(
@@ -958,6 +972,10 @@ function compactLabel(value: string) {
     return trimmed;
   }
   return `${trimmed.slice(0, 33)}...`;
+}
+
+function appendUniquePaths(existing: string[], additions: string[]): string[] {
+  return Array.from(new Set([...existing, ...additions].filter(Boolean)));
 }
 
 function planFromRun(run: ApiRun): PlanStep[] {

@@ -1,11 +1,15 @@
 "use client";
 
 import { Check } from "lucide-react";
-import type { ApprovalRequest, RunnerReview, WorkflowStatus } from "@/lib/mock-data";
+import type {
+  RunnerActionView,
+  RunnerReviewView,
+  WorkflowStatus,
+} from "@/lib/workbench-types";
 
 type RunnerPanelProps = {
-  approvalRequest: ApprovalRequest;
-  runnerReview: RunnerReview;
+  approvalRequest: RunnerActionView;
+  runnerReview: RunnerReviewView;
   runnerStatus: WorkflowStatus;
   runnerMessage: string;
   onApprove?: () => void;

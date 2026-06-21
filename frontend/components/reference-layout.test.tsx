@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InspectorPanel } from "@/components/inspector-panel";
 import { ActionApprovalDrawer } from "@/components/approval/action-approval-drawer";
 import { BottomDock } from "@/components/layout/bottom-dock";
+import { CenterWorkspace } from "@/components/layout/center-workspace";
 import { ProjectSidebar } from "@/components/layout/project-sidebar";
 import { TopBar } from "@/components/layout/top-bar";
 import { agentEvents, projectNavItems } from "@/lib/mock-data";
@@ -208,6 +209,65 @@ describe("reference workbench layout", () => {
 
     expect(onEdit).toHaveBeenCalledWith("action_1", "python main.py --help");
     expect(onApprove).not.toHaveBeenCalled();
+  });
+
+  it("routes productize issue actions to callbacks", async () => {
+    const onRequestRevision = vi.fn();
+    render(
+      <CenterWorkspace
+        mode="productize"
+        notice=""
+        planState={[]}
+        timelineEvents={[]}
+        runStatus="success"
+        hasRun
+        graphNodes={[]}
+        activeTab="evaluation"
+        activeNavId="run"
+        sectionContext={{
+          projectId: "project",
+          task: "Productize",
+          paperInput: "paper.pdf",
+          repoInput: "",
+          mode: "productize",
+          model: "gpt-4o-mini",
+          baseUrl: "",
+          goal: "",
+          hardware: "CPU only",
+          gpuInfo: "",
+          mockMode: false,
+          runId: "run_product",
+          runStatus: "success",
+          pendingActions: 0,
+          eventCount: 0,
+          generatedFiles: 0,
+          pipelineStatus: "complete",
+          productGoal: "Improve evaluation",
+          targetUser: "Researcher",
+        }}
+        onTabChange={vi.fn()}
+        onTogglePlanStep={vi.fn()}
+        onApprovePlan={vi.fn()}
+        onContinueRun={vi.fn()}
+        onOpenRunDrawer={vi.fn()}
+        onShowWorkflow={vi.fn()}
+        onRequestRevision={onRequestRevision}
+        evaluationIssues={[
+          {
+            id: "eval-suggestion-1",
+            message: "Clarify MVP scope.",
+            severity: "medium",
+            target: "Product Planner",
+            suggestion: "",
+            status: "open",
+          },
+        ]}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Revise PRD" }));
+
+    expect(onRequestRevision).toHaveBeenCalledWith("eval-suggestion-1", "revise_prd");
   });
 });
 

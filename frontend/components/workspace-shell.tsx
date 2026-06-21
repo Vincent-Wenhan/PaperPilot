@@ -36,6 +36,7 @@ import {
   fetchRunGraph,
   fetchRunResult,
   rejectAction,
+  requestRevision,
   saveLlmConfig,
   testLlmConnection,
   uploadPdf,
@@ -43,6 +44,7 @@ import {
   type ApiCommandRunResult,
   type ApiEvent,
   type ApiGraphNode,
+  type ApiRevisionAction,
   type ApiRun,
   type ApiRunResult,
 } from "@/lib/api";
@@ -707,6 +709,23 @@ export function WorkspaceShell() {
     }
   }
 
+  async function handleRequestRevision(issueId: string, action: ApiRevisionAction) {
+    if (!apiRun) {
+      setNotice("Create or restore a productize run before requesting a revision.");
+      return;
+    }
+    try {
+      const result = await requestRevision(apiRun.run_id, {
+        issue_id: issueId,
+        action,
+      });
+      setNotice(result.message);
+      await refreshCurrentRun(apiRun.run_id, { quiet: true });
+    } catch (error) {
+      setNotice(`Revision request failed: ${describeActionError(error)}`);
+    }
+  }
+
   async function refreshCurrentRun(runId: string, options: { quiet?: boolean } = {}) {
     if (!options.quiet) {
       setNotice("Refreshing backend run state...");
@@ -781,6 +800,7 @@ export function WorkspaceShell() {
           onContinueRun={continueRun}
           onOpenRunDrawer={() => setNewRunDrawerOpen(true)}
           onShowWorkflow={showWorkflow}
+          onRequestRevision={(issueId, action) => void handleRequestRevision(issueId, action)}
           evaluationIssues={evaluationIssues}
         />
 

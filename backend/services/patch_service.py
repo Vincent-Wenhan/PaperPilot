@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import compileall
 import difflib
+import py_compile
 from copy import deepcopy
 from pathlib import Path
 from uuid import uuid4
@@ -105,6 +105,10 @@ class PatchService:
             path=patch.path,
             applied=True,
             message=message,
+            syntax_ok=check_ok,
+            syntax_failures=[] if check_ok else [
+                {"path": patch.path, "error": check_msg}
+            ],
         )
 
     def get_patch(self, patch_id: str) -> PatchProposal | None:
@@ -115,9 +119,11 @@ class PatchService:
         if resolved.suffix != ".py":
             return True, ""
         try:
-            compileall.compile_file(str(resolved), ddir=str(resolved.parent), force=True, quiet=1)
+            py_compile.compile(str(resolved), doraise=True)
             return True, ""
-        except Exception as exc:
+        except py_compile.PyCompileError as exc:
+            return False, exc.msg
+        except (OSError, SyntaxError) as exc:
             return False, str(exc)
 
 

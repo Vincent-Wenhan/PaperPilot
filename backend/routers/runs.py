@@ -6,7 +6,15 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from backend.schemas import RunCreateRequest, RunRecord, WorkbenchEvent, WorkbenchSnapshot, ActionRequest
+from backend.schemas import (
+    ActionRequest,
+    RevisionRequest,
+    RevisionResult,
+    RunCreateRequest,
+    RunRecord,
+    WorkbenchEvent,
+    WorkbenchSnapshot,
+)
 from backend.services.event_service import event_service
 from backend.services.graph_service import graph_service
 from backend.services.run_service import run_service
@@ -60,6 +68,21 @@ def get_run_result(run_id: str) -> dict[str, Any]:
     if result is None:
         raise HTTPException(status_code=404, detail="Run result not available")
     return result
+
+
+@router.post("/runs/{run_id}/revision", response_model=RevisionResult)
+def request_run_revision(run_id: str, request: RevisionRequest) -> RevisionResult:
+    try:
+        return run_service.request_revision(
+            run_id,
+            issue_id=request.issue_id,
+            action=request.action,
+            instruction=request.instruction,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "Run not found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.get("/runs/{run_id}/graph")

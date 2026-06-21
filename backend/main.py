@@ -8,7 +8,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routers import actions, artifacts, checks, commands, files, llm, patches, runs, uploads
-from backend.services.run_service import run_service
+from backend.schemas import WorkbenchEvent
+from backend.services.event_service import event_service
 
 app = FastAPI(
     title="PaperPilot Workbench API",
@@ -46,17 +47,26 @@ def health() -> dict[str, str]:
 @app.websocket("/ws/runs/{run_id}")
 async def run_event_stream(websocket: WebSocket, run_id: str) -> None:
     await websocket.accept()
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[WorkbenchEvent] = asyncio.Queue()
+    seen_event_ids: set[str] = set()
+
+    def on_event(event: WorkbenchEvent) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, event)
+
+    event_service.subscribe(run_id, on_event)
     try:
-        for event in run_service.list_events(run_id):
+        for event in event_service.list_events(run_id):
+            seen_event_ids.add(event.event_id)
             await websocket.send_json(event.model_dump(mode="json"))
-            await asyncio.sleep(0.15)
-        await websocket.send_json(
-            {
-                "run_id": run_id,
-                "event_type": "stream_idle",
-                "status": "pending",
-                "message": "No additional events are available.",
-            }
-        )
+
+        while True:
+            event = await queue.get()
+            if event.event_id in seen_event_ids:
+                continue
+            seen_event_ids.add(event.event_id)
+            await websocket.send_json(event.model_dump(mode="json"))
     except WebSocketDisconnect:
         return
+    finally:
+        event_service.unsubscribe(run_id, on_event)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,10 +8,12 @@ from unittest.mock import patch
 
 from backend.schemas import (
     ActionEditRequest,
+    ActionRequest,
     CommandReviewRequest,
     PatchProposeRequest,
     RunCreateRequest,
     SyntaxCheckRequest,
+    WorkbenchEvent,
 )
 from backend.services.artifact_service import ArtifactService
 from backend.services.check_service import CheckService
@@ -20,6 +23,17 @@ from backend.services.graph_service import graph_service
 from backend.services.patch_service import PatchService
 from backend.services.run_service import InMemoryRunService
 from backend.services.workbench_mock import build_workbench_snapshot
+
+
+class FakeWebSocket:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, object]] = []
+
+    async def accept(self) -> None:
+        return None
+
+    async def send_json(self, payload: dict[str, object]) -> None:
+        self.sent.append(payload)
 
 
 class WorkbenchBackendServiceTests(unittest.TestCase):
@@ -327,6 +341,170 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             self.assertIsNotNone(executed)
             self.assertEqual(executed.execution_status, "succeeded")
             self.assertEqual(target.read_text(encoding="utf-8"), "print('new')\n")
+            self.assertIsNotNone(executed.patch_result)
+            self.assertTrue(executed.patch_result.syntax_ok)
+            event_types = [event.event_type for event in service.list_events(run.run_id)]
+            self.assertIn("patch_applied", event_types)
+            self.assertIn("syntax_check_passed", event_types)
+
+    def test_patch_service_reports_structured_syntax_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            target = workspace / "broken.py"
+            target.write_text("print('old')\n", encoding="utf-8")
+
+            service = PatchService(project_root=root, patch_roots=[workspace])
+            proposal = service.propose_patch(
+                "run_patch",
+                PatchProposeRequest(
+                    path="workspace/broken.py",
+                    new_content="def broken(:\n",
+                    reason="test syntax failure",
+                ),
+            )
+
+            result = service.apply_patch(proposal.patch_id)
+
+            self.assertIsNotNone(result)
+            self.assertTrue(result.applied)
+            self.assertFalse(result.syntax_ok)
+            self.assertEqual(result.syntax_failures[0]["path"], "workspace/broken.py")
+            self.assertIn("Syntax", result.syntax_failures[0]["error"])
+            self.assertEqual(target.read_text(encoding="utf-8"), "def broken(:\n")
+
+    def test_patch_apply_route_requests_action_without_writing_file(self) -> None:
+        from backend.routers import patches as patch_router
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            target = workspace / "main.py"
+            target.write_text("print('old')\n", encoding="utf-8")
+
+            patch_store = PatchService(project_root=root, patch_roots=[workspace])
+            proposal = patch_store.propose_patch(
+                "run_patch",
+                PatchProposeRequest(
+                    path="workspace/main.py",
+                    new_content="print('new')\n",
+                    reason="test request action",
+                ),
+            )
+            created_actions: list[ActionRequest] = []
+
+            def create_patch_action(run_id: str, patch_id: str) -> ActionRequest:
+                action = ActionRequest(
+                    action_id="act_patch",
+                    run_id=run_id,
+                    agent="Prototype Builder Agent",
+                    tool="apply_patch",
+                    patch_id=patch_id,
+                    path=proposal.path,
+                    risk="medium",
+                    reason="Apply generated patch proposal.",
+                )
+                created_actions.append(action)
+                return action
+
+            with patch.object(patch_router, "patch_service", patch_store), patch.object(
+                patch_router.run_service,
+                "create_patch_action",
+                side_effect=create_patch_action,
+            ):
+                action = patch_router.request_apply_patch("run_patch", proposal.patch_id)
+
+            self.assertEqual(action.action_id, "act_patch")
+            self.assertEqual(action.patch_id, proposal.patch_id)
+            self.assertEqual(len(created_actions), 1)
+            self.assertEqual(target.read_text(encoding="utf-8"), "print('old')\n")
+
+    def test_websocket_stream_pushes_events_emitted_after_connect(self) -> None:
+        from backend.main import run_event_stream
+        from backend.services.event_service import event_service
+
+        async def scenario() -> None:
+            run_id = "run_ws_live_test"
+            websocket = FakeWebSocket()
+            with patch("backend.main.event_service.list_events", return_value=[]):
+                task = asyncio.create_task(run_event_stream(websocket, run_id))
+                for _ in range(50):
+                    if event_service._subscribers.get(run_id):
+                        break
+                    await asyncio.sleep(0.01)
+                event_service.emit(
+                    WorkbenchEvent(
+                        event_id="evt_live",
+                        run_id=run_id,
+                        node="planner",
+                        agent="Planning Agent",
+                        event_type="node_started",
+                        status="running",
+                        message="Live event",
+                        created_at="2026-01-01T00:00:00Z",
+                    )
+                )
+                for _ in range(50):
+                    if websocket.sent:
+                        break
+                    await asyncio.sleep(0.01)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+
+            self.assertEqual(websocket.sent[0]["event_id"], "evt_live")
+            self.assertEqual(websocket.sent[0]["event_type"], "node_started")
+
+        asyncio.run(scenario())
+
+    def test_productize_revision_request_records_event_and_history(self) -> None:
+        service = InMemoryRunService()
+        run = service.create_run(
+            RunCreateRequest(
+                mode="productize",
+                pdf_path=__file__,
+                product_goal="Improve evaluator feedback",
+            )
+        )
+        service._store_result(
+            run.run_id,
+            {
+                "pipeline_status": "complete",
+                "revision_history": [],
+            },
+        )
+
+        result = service.request_revision(
+            run.run_id,
+            issue_id="eval-suggestion-1",
+            action="revise_prd",
+            instruction="Clarify MVP scope",
+        )
+
+        self.assertEqual(result.run_id, run.run_id)
+        self.assertEqual(result.action, "revise_prd")
+        stored = service.get_result(run.run_id)
+        self.assertEqual(stored["revision_history"][0]["issue_id"], "eval-suggestion-1")
+        event_types = [event.event_type for event in service.list_events(run.run_id)]
+        self.assertIn("revision_requested", event_types)
+
+    def test_progress_stage_maps_to_structured_graph_node(self) -> None:
+        self.assertEqual(
+            InMemoryRunService._graph_node_for_progress_stage(
+                "Product Planner Agent generated PRD and MVP scope.",
+                "productize",
+            ),
+            "prd",
+        )
+        self.assertEqual(
+            InMemoryRunService._graph_node_for_progress_stage(
+                "Reproduction Planner Agent generated command plan.",
+                "reproduce",
+            ),
+            "planning",
+        )
 
     def test_artifact_and_file_services_are_read_only_and_root_limited(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

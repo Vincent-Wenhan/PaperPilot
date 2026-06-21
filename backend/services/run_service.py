@@ -14,6 +14,8 @@ from backend.schemas import (
     ActionEditRequest,
     ActionExecutionResult,
     ActionRequest,
+    RevisionAction,
+    RevisionResult,
     CommandRunResult,
     CommandRunRequest,
     PatchApplyResult,
@@ -420,10 +422,118 @@ class InMemoryRunService:
         with self._lock:
             return deepcopy(self._actions.get(run_id, []))
 
+    def create_patch_action(self, run_id: str, patch_id: str) -> ActionRequest:
+        patch = patch_service.get_patch(patch_id)
+        if patch is None or patch.run_id != run_id:
+            raise ValueError("Patch not found")
+
+        with self._lock:
+            for action in self._actions.get(run_id, []):
+                if (
+                    action.tool == "apply_patch"
+                    and action.patch_id == patch_id
+                    and action.execution_status in {"not_started", "running"}
+                    and action.status != "rejected"
+                ):
+                    return deepcopy(action)
+
+            action = ActionRequest(
+                action_id=f"act_{uuid4().hex[:12]}",
+                run_id=run_id,
+                agent="Prototype Builder Agent",
+                tool="apply_patch",
+                patch_id=patch.patch_id,
+                path=patch.path,
+                risk="medium",
+                reason=patch.reason or "Apply generated patch proposal.",
+            )
+            self._actions.setdefault(run_id, []).append(action)
+            self._persist_state_locked()
+            result = deepcopy(action)
+
+        self._append_event(
+            run_id,
+            node="runner_review",
+            agent=result.agent,
+            event_type="human_review_required",
+            status="waiting_review",
+            message=f"Patch {patch.patch_id} requires review before apply.",
+            payload=result.model_dump(mode="json"),
+        )
+        return result
+
     def get_result(self, run_id: str) -> dict[str, Any] | None:
         with self._lock:
             result = self._results.get(run_id)
         return deepcopy(result) if result is not None else None
+
+    def request_revision(
+        self,
+        run_id: str,
+        *,
+        issue_id: str,
+        action: RevisionAction,
+        instruction: str = "",
+    ) -> RevisionResult:
+        run = self.get_run(run_id)
+        if run is None:
+            raise ValueError("Run not found")
+        if run.mode != "productize":
+            raise ValueError("Revision requests are only supported for productize runs.")
+
+        route_by_action = {
+            "revise_prd": "Product Planner Agent",
+            "reduce_mvp_scope": "Product Planner Agent",
+            "revise_prototype": "Prototype Builder Agent",
+            "accept_with_warning": "Product Evaluator Agent",
+        }
+        record = {
+            "revision": 0,
+            "issue_id": issue_id,
+            "action": action,
+            "agent": route_by_action[action],
+            "instruction": instruction,
+            "created_at": utc_now(),
+        }
+        with self._lock:
+            result = deepcopy(self._results.get(run_id) or {})
+            history = list(result.get("revision_history") or [])
+            record["revision"] = len(history) + 1
+            history.append(record)
+            result["revision_history"] = history
+            result["last_revision_action"] = action
+            self._results[run_id] = result
+            self._runs[run_id] = run.model_copy(
+                update={
+                    "status": "revised",
+                    "summary": f"Productize revision requested: {action}.",
+                    "updated_at": utc_now(),
+                    "result_summary": {
+                        **deepcopy(run.result_summary),
+                        "revision_history": history,
+                        "last_revision_action": action,
+                    },
+                }
+            )
+            self._persist_state_locked()
+
+        message = f"Queued {action} for issue {issue_id}."
+        self._append_event(
+            run_id,
+            node="revision",
+            agent=route_by_action[action],
+            event_type="revision_requested",
+            status="revised",
+            message=message,
+            payload=record,
+        )
+        return RevisionResult(
+            run_id=run_id,
+            issue_id=issue_id,
+            action=action,
+            message=message,
+            revision_history=history,
+        )
 
     def get_action(self, action_id: str) -> ActionRequest | None:
         with self._lock:
@@ -642,18 +752,62 @@ class InMemoryRunService:
         )
 
         def progress(stage: str) -> None:
+            node = self._graph_node_for_progress_stage(stage, request.mode)
             self._append_event(
                 run_id,
-                node="agent_progress",
+                node=node,
                 agent="PaperPilot Agent",
-                event_type="agent_progress",
+                event_type="node_started",
                 status="running",
                 message=stage,
+                payload={"graph": request.mode, "node": node},
             )
 
         if request.mode == "productize":
             return self._execute_productize(pdf_path, request, client, progress)
         return self._execute_reproduce(pdf_path, request, client, progress)
+
+    @staticmethod
+    def _graph_node_for_progress_stage(stage: str, mode: str) -> str:
+        message = stage.lower()
+        if mode == "productize":
+            if "capability card" in message:
+                return "capability_cards"
+            if "capability map" in message:
+                return "capability_map"
+            if "composition" in message:
+                return "method_composition"
+            if "jtbd" in message:
+                return "jtbd"
+            if "prd" in message or "product planner" in message:
+                return "prd"
+            if "mvp" in message or "moscow" in message:
+                return "mvp"
+            if "prototype" in message:
+                return "prototype"
+            if "evaluation" in message or "evaluator" in message:
+                return "evaluation"
+            if "revision" in message:
+                return "revision"
+            if "scaffold" in message:
+                return "scaffold"
+            return "parse"
+
+        if "research understanding" in message:
+            return "research_evidence"
+        if "repository" in message:
+            return "repo_evidence"
+        if "reproduction planner" in message or "command plan" in message:
+            return "planning"
+        if "implementation" in message or "generating code" in message:
+            return "implementation"
+        if "review" in message:
+            return "review"
+        if "diagnosis" in message or "execution" in message:
+            return "diagnosis"
+        if "report" in message or "output" in message:
+            return "outputs"
+        return "parse"
 
     @staticmethod
     def _execute_reproduce(
@@ -791,6 +945,39 @@ class InMemoryRunService:
                 result={"patch_id": action.patch_id, "applied": False},
             )
 
+        syntax_event_type = (
+            "syntax_check_passed"
+            if result.syntax_ok
+            else "syntax_check_failed"
+        )
+        syntax_status = "success" if result.syntax_ok else "failed"
+        self._append_event(
+            action.run_id,
+            node="patch_apply",
+            agent="Workbench Runner",
+            event_type="patch_applied",
+            status="success",
+            message=f"Applied patch {result.patch_id} to {result.path}.",
+            payload=result.model_dump(mode="json"),
+        )
+        self._append_event(
+            action.run_id,
+            node="patch_apply",
+            agent="Workbench Runner",
+            event_type=syntax_event_type,
+            status=syntax_status,
+            message=(
+                f"Syntax check passed for {result.path}."
+                if result.syntax_ok
+                else f"Syntax check failed for {result.path}."
+            ),
+            payload={
+                "patch_id": result.patch_id,
+                "path": result.path,
+                "syntax_ok": result.syntax_ok,
+                "syntax_failures": result.syntax_failures,
+            },
+        )
         return self._record_action_execution(
             action.action_id,
             execution_status="succeeded" if result.applied else "failed",

@@ -68,7 +68,7 @@ export type RunnerReview = {
 export type ApprovalRequest = {
   id: string;
   agent: string;
-  tool: string;
+  tool: "run_command" | "apply_patch";
   command: string;
   risk: "low" | "medium" | "high" | "blocked";
   reason: string;

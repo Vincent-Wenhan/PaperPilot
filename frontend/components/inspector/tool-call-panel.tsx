@@ -1,10 +1,10 @@
 "use client";
 
 import { StatusPill } from "@/components/status-pill";
-import type { ToolCall } from "@/lib/mock-data";
+import type { WorkbenchToolCallEvent } from "@/lib/workbench-types";
 
 type ToolCallPanelProps = {
-  toolCalls: ToolCall[];
+  toolCalls: WorkbenchToolCallEvent[];
 };
 
 export function ToolCallPanel({ toolCalls }: ToolCallPanelProps) {

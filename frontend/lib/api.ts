@@ -118,6 +118,27 @@ export type ApiActionExecutionResult = {
   blocked_reason: string | null;
 };
 
+export type ApiRevisionAction =
+  | "revise_prd"
+  | "reduce_mvp_scope"
+  | "revise_prototype"
+  | "accept_with_warning";
+
+export type ApiRevisionRequest = {
+  issue_id: string;
+  action: ApiRevisionAction;
+  instruction?: string;
+};
+
+export type ApiRevisionResult = {
+  run_id: string;
+  issue_id: string;
+  action: ApiRevisionAction;
+  status: WorkflowStatus;
+  message: string;
+  revision_history: Array<Record<string, unknown>>;
+};
+
 export class ApiRequestError extends Error {
   status: number;
   detail: unknown;
@@ -378,6 +399,18 @@ export async function executeAction(actionId: string) {
     throw await apiError(response, `Action execution failed with ${response.status}`);
   }
   return response.json() as Promise<ApiActionExecutionResult>;
+}
+
+export async function requestRevision(runId: string, request: ApiRevisionRequest) {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}/revision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw await apiError(response, `Revision request failed with ${response.status}`);
+  }
+  return response.json() as Promise<ApiRevisionResult>;
 }
 
 export async function rejectAction(actionId: string) {

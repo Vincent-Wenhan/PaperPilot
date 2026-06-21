@@ -3,6 +3,7 @@
 import type { AgentEvent, PlanStep, RunMode, WorkflowStatus } from "@/lib/mock-data";
 import type { EvaluationIssue } from "@/components/productize/evaluation-issues";
 import { IssueCard } from "@/components/productize/evaluation-issues";
+import type { ApiRevisionAction } from "@/lib/api";
 import { WorkflowGraph, type GraphNodeData } from "@/components/workflow-graph";
 import { WorkbenchTabs, type WorkbenchTabId } from "@/components/workbench/workbench-tabs";
 import { ActivityPanel } from "@/components/workbench/activity-panel";
@@ -47,6 +48,7 @@ type CenterWorkspaceProps = {
   onContinueRun: () => void;
   onOpenRunDrawer: () => void;
   onShowWorkflow: () => void;
+  onRequestRevision?: (issueId: string, action: ApiRevisionAction) => void;
   evaluationIssues?: EvaluationIssue[];
 };
 
@@ -67,6 +69,7 @@ export function CenterWorkspace({
   onContinueRun,
   onOpenRunDrawer,
   onShowWorkflow,
+  onRequestRevision,
   evaluationIssues,
 }: CenterWorkspaceProps) {
   void planState;
@@ -120,6 +123,26 @@ export function CenterWorkspace({
                     <IssueCard
                       key={issue.id}
                       issue={issue}
+                      onReduceScope={
+                        onRequestRevision
+                          ? (id) => onRequestRevision(id, "reduce_mvp_scope")
+                          : undefined
+                      }
+                      onRevisePrd={
+                        onRequestRevision
+                          ? (id) => onRequestRevision(id, "revise_prd")
+                          : undefined
+                      }
+                      onRevisePrototype={
+                        onRequestRevision
+                          ? (id) => onRequestRevision(id, "revise_prototype")
+                          : undefined
+                      }
+                      onAcceptWarning={
+                        onRequestRevision
+                          ? (id) => onRequestRevision(id, "accept_with_warning")
+                          : undefined
+                      }
                     />
                   ))}
                 </div>

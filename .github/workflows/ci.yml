@@ -25,22 +25,11 @@ jobs:
 
       - name: Check Python syntax
         run: |
-          python -m py_compile app.py main.py config.py
-          python -m py_compile agents/*.py
-          python -m py_compile agents/legacy/*.py
-          python -m py_compile tools/*.py
-          python -m py_compile pipeline/*.py
-          python -m py_compile productize/*.py
-          python -m py_compile schemas/*.py
-          python -m py_compile runtime/*.py
-          python -m py_compile graphs/*.py
-          python -m py_compile graphs/subgraphs/*.py
-          python -m py_compile backend/*.py
-          python -m py_compile backend/**/*.py
+          python -m compileall app.py main.py config.py
+          python -m compileall agents tools pipeline productize schemas runtime graphs backend ui
 
       - name: Run tests
-        run: |
-          pytest tests/ -v --tb=long 2>&1 | tee /tmp/pytest-results.log
+        run: pytest tests/ -v --tb=long
 
   frontend:
     runs-on: ubuntu-latest

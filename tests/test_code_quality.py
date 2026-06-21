@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from pipeline.reproduce_pipeline import _merge_quality_into_review
 from schemas.code_review_schema import CodeReview
@@ -9,6 +10,15 @@ from tools.code_quality import assess_implementation_quality
 
 
 class CodeQualityTests(unittest.TestCase):
+    def test_workbench_runtime_panels_do_not_import_mock_types(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        for relative_path in [
+            "frontend/components/inspector/runner-panel.tsx",
+            "frontend/components/inspector/tool-call-panel.tsx",
+        ]:
+            source = (root / relative_path).read_text(encoding="utf-8")
+            self.assertNotIn("@/lib/mock-data", source, relative_path)
+
     def test_flags_placeholder_only_bundle(self) -> None:
         bundle = ImplementationBundle(
             project_name="placeholder",

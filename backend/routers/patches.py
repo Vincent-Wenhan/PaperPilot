@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from backend.schemas import PatchApplyResult, PatchProposal, PatchProposeRequest
+from backend.schemas import ActionRequest, PatchProposal, PatchProposeRequest
 from backend.services.patch_service import patch_service
 from backend.services.run_service import run_service
 
@@ -26,20 +26,18 @@ def propose_patch(run_id: str, request: PatchProposeRequest) -> PatchProposal:
 
 @router.get("/{run_id}/{patch_id}", response_model=PatchProposal)
 def get_patch(run_id: str, patch_id: str) -> PatchProposal:
-    del run_id
     patch = patch_service.get_patch(patch_id)
-    if patch is None:
+    if patch is None or patch.run_id != run_id:
         raise HTTPException(status_code=404, detail="Patch not found")
     return patch
 
 
-@router.post("/{run_id}/apply/{patch_id}", response_model=PatchApplyResult)
-def apply_patch(run_id: str, patch_id: str) -> PatchApplyResult:
-    del run_id
-    try:
-        result = patch_service.apply_patch(patch_id)
-    except (FileNotFoundError, PermissionError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if result is None:
+@router.post("/{run_id}/apply/{patch_id}", response_model=ActionRequest)
+def request_apply_patch(run_id: str, patch_id: str) -> ActionRequest:
+    patch = patch_service.get_patch(patch_id)
+    if patch is None or patch.run_id != run_id:
         raise HTTPException(status_code=404, detail="Patch not found")
-    return result
+    try:
+        return run_service.create_patch_action(run_id, patch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

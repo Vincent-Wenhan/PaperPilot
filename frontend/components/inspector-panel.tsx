@@ -18,8 +18,8 @@ import {
   patchPreview,
   runnerReview,
   toolCalls as mockToolCalls,
-  type ToolCall,
 } from "@/lib/mock-data";
+import type { WorkbenchToolCallEvent } from "@/lib/workbench-types";
 import { StatusPill } from "@/components/status-pill";
 import {
   artifactFromApi,
@@ -68,7 +68,7 @@ export function InspectorPanel({
   const [apiFileContent, setApiFileContent] = useState("");
   const [apiPatches, setApiPatches] = useState<ApiPatch[]>([]);
   const [apiActions, setApiActions] = useState<ApiAction[]>([]);
-  const [derivedToolCalls, setDerivedToolCalls] = useState<ToolCall[]>([]);
+  const [derivedToolCalls, setDerivedToolCalls] = useState<WorkbenchToolCallEvent[]>([]);
   const [patchStatus, setPatchStatus] = useState<
     "waiting_review" | "success" | "failed" | "revised"
   >("waiting_review");
@@ -95,7 +95,7 @@ export function InspectorPanel({
 
   // Derive tool calls from events
   useEffect(() => {
-    const calls: ToolCall[] = events
+    const calls: WorkbenchToolCallEvent[] = events
       .filter((e) => e.eventType === "tool_call" || e.eventType === "tool_result")
       .map((e) => ({
         id: e.id,
@@ -104,8 +104,7 @@ export function InspectorPanel({
         status: e.status,
       }));
     // Merge paired tool_call/tool_result events
-    const merged: ToolCall[] = [];
-    const byPrefix = new Map<string, ToolCall>();
+    const byPrefix = new Map<string, WorkbenchToolCallEvent>();
     for (const call of calls) {
       const base = call.id.replace(/_(call|result)$/, "");
       if (byPrefix.has(base)) {

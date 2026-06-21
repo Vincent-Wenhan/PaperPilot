@@ -27,6 +27,12 @@ ActionExecutionStatus = Literal[
     "blocked",
 ]
 ActionTool = Literal["run_command", "apply_patch"]
+RevisionAction = Literal[
+    "revise_prd",
+    "reduce_mvp_scope",
+    "revise_prototype",
+    "accept_with_warning",
+]
 
 
 class RunCreateRequest(BaseModel):
@@ -119,6 +125,21 @@ class ActionEditRequest(BaseModel):
     reason: str = ""
 
 
+class RevisionRequest(BaseModel):
+    issue_id: str
+    action: RevisionAction
+    instruction: str = ""
+
+
+class RevisionResult(BaseModel):
+    run_id: str
+    issue_id: str
+    action: RevisionAction
+    status: WorkflowStatus = "revised"
+    message: str
+    revision_history: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class ArtifactSummary(BaseModel):
     artifact_id: str
     run_id: str
@@ -171,6 +192,8 @@ class PatchApplyResult(BaseModel):
     path: str
     applied: bool
     message: str
+    syntax_ok: bool = True
+    syntax_failures: list[dict[str, str]] = Field(default_factory=list)
 
 
 class SyntaxCheckRequest(BaseModel):

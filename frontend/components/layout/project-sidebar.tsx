@@ -18,6 +18,7 @@ export type RunFormState = {
   mode: RunMode;
   task: string;
   pdf_path: string;
+  pdf_paths: string[];
   github_url: string;
   hardware: string;
   gpu_info: string;

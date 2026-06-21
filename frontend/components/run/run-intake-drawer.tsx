@@ -83,6 +83,7 @@ export function RunIntakeDrawer({
                 ref={fileInputRef}
                 type="file"
                 accept=".pdf"
+                multiple={runForm.mode === "productize"}
                 onChange={onFileUpload}
                 style={{ display: "none" }}
               />
@@ -94,7 +95,12 @@ export function RunIntakeDrawer({
                 style={{ flex: 1, justifyContent: "flex-start" }}
               >
                 <Upload size={14} />
-                {uploadingPdf ? "Uploading..." : uploadedFileName || "Choose PDF..."}
+                {uploadingPdf
+                  ? "Uploading..."
+                  : uploadedFileName ||
+                    (runForm.mode === "productize"
+                      ? "Choose PDFs..."
+                      : "Choose PDF...")}
               </button>
             </div>
           </label>

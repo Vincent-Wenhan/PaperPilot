@@ -3,7 +3,7 @@
 import type { AgentEvent, PlanStep, RunMode, WorkflowStatus } from "@/lib/workbench-types";
 import type { EvaluationIssue } from "@/components/productize/evaluation-issues";
 import { IssueCard } from "@/components/productize/evaluation-issues";
-import type { ApiRevisionAction } from "@/lib/api";
+import type { ApiProductProposal, ApiRevisionAction, ApiRunResult } from "@/lib/api";
 import { WorkflowGraph, type GraphNodeData } from "@/components/workflow-graph";
 import { WorkbenchTabs, type WorkbenchTabId } from "@/components/workbench/workbench-tabs";
 import { ActivityPanel } from "@/components/workbench/activity-panel";
@@ -49,6 +49,8 @@ type CenterWorkspaceProps = {
   onOpenRunDrawer: () => void;
   onShowWorkflow: () => void;
   onRequestRevision?: (issueId: string, action: ApiRevisionAction) => void;
+  onExecuteProductizeProposal?: (proposalIndex: number) => void;
+  runResult?: ApiRunResult | null;
   evaluationIssues?: EvaluationIssue[];
 };
 
@@ -70,6 +72,8 @@ export function CenterWorkspace({
   onOpenRunDrawer,
   onShowWorkflow,
   onRequestRevision,
+  onExecuteProductizeProposal,
+  runResult,
   evaluationIssues,
 }: CenterWorkspaceProps) {
   void planState;
@@ -159,18 +163,101 @@ export function CenterWorkspace({
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">Product Design</p>
-                  <h2>PRD / MVP / Prototype</h2>
+                  <h2>
+                    {runResult?.productize_stage === "proposal_review"
+                      ? "Choose a Product Proposal"
+                      : "PRD / MVP / Prototype"}
+                  </h2>
                 </div>
               </div>
-              <div className="empty-state">
-                Product design content will appear after running a productize pipeline. Check the
-                Artifacts and Code tabs in the Inspector for generated outputs.
-              </div>
+              {runResult?.productize_proposals?.length ? (
+                <ProductProposalList
+                  proposals={runResult.productize_proposals}
+                  onExecute={onExecuteProductizeProposal}
+                />
+              ) : (
+                <div className="empty-state">
+                  Product design content will appear after running a productize pipeline. Check the
+                  Artifacts and Code tabs in the Inspector for generated outputs.
+                </div>
+              )}
             </section>
           )}
         </>
       )}
     </section>
+  );
+}
+
+function ProductProposalList({
+  proposals,
+  onExecute,
+}: {
+  proposals: ApiProductProposal[];
+  onExecute?: (proposalIndex: number) => void;
+}) {
+  return (
+    <div className="stack">
+      {proposals.map((proposal, index) => {
+        const features = proposal.prd?.core_features ?? [];
+        const risks = proposal.risks ?? proposal.prd?.risks ?? [];
+        return (
+          <article className="issue-card" key={`${proposal.product_name ?? "proposal"}-${index}`}>
+            <div className="issue-card-header">
+              <div>
+                <p className="eyebrow">Proposal {index + 1}</p>
+                <h3>{proposal.product_name || proposal.prd?.product_name || "Untitled product"}</h3>
+              </div>
+              <StatusPill status="waiting_review" />
+            </div>
+            <div className="detail-grid">
+              <div className="detail-row">
+                <span>Target user</span>
+                <strong>{proposal.target_user || "Not set"}</strong>
+              </div>
+              <div className="detail-row">
+                <span>Goal</span>
+                <strong>{proposal.product_goal || "Not set"}</strong>
+              </div>
+              <div className="detail-row">
+                <span>JTBD</span>
+                <strong>{proposal.jtbd || "Not set"}</strong>
+              </div>
+            </div>
+            {features.length ? (
+              <div className="issue-list">
+                <strong>Core features</strong>
+                <ul>
+                  {features.slice(0, 5).map((feature) => (
+                    <li key={feature}>{feature}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {risks.length ? (
+              <div className="issue-list">
+                <strong>Risks</strong>
+                <ul>
+                  {risks.slice(0, 3).map((risk) => (
+                    <li key={risk}>{risk}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div className="section-actions">
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => onExecute?.(index)}
+                disabled={!onExecute}
+              >
+                Execute Proposal
+              </button>
+            </div>
+          </article>
+        );
+      })}
+    </div>
   );
 }
 

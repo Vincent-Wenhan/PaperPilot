@@ -46,6 +46,7 @@ class RunCreateRequest(BaseModel):
     project_id: str = "default"
     task: str = ""
     pdf_path: str = ""
+    pdf_paths: list[str] = Field(default_factory=list)
     github_url: str = ""
     hardware: str = "CPU only"
     gpu_info: str = ""

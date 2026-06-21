@@ -24,6 +24,7 @@ from backend.services.patch_service import PatchService
 from backend.services.run_service import InMemoryRunService
 from backend.services.workbench_mock import build_workbench_snapshot
 from config import WORKSPACE_DIR
+from schemas.product_schema import ProductOpportunity, ProductProposal, PRD as ProductPRD
 from tools.llm_client import LLMClient
 
 
@@ -39,6 +40,47 @@ class FakeWebSocket:
 
 
 class WorkbenchBackendServiceTests(unittest.TestCase):
+    def _product_proposal(self, name: str) -> ProductProposal:
+        opportunity = ProductOpportunity(
+            idea_name=name,
+            target_user="Students",
+            core_value="Turn research into a demo",
+            technical_feasibility=5,
+            demo_feasibility=5,
+            model_availability=4,
+            data_requirement=4,
+            integration_risk=2,
+            user_value=4,
+            course_presentation_value=5,
+            overall_score=4.5,
+            reason="Strong mock-first fit.",
+        )
+        return ProductProposal(
+            product_name=name,
+            target_user="Students",
+            product_goal="Interactive demo",
+            jtbd="Help students understand research capabilities.",
+            opportunities=[opportunity],
+            prd=ProductPRD(
+                product_name=name,
+                problem_statement="Research papers are hard to evaluate quickly.",
+                target_users=["Students"],
+                goals=["Create a working demo"],
+                core_features=["Upload inputs", "Show mock analysis"],
+                user_flow=["Open demo", "Submit input", "Review output"],
+            ),
+            risks=["Mock output may overstate real readiness."],
+        )
+
+    def test_productize_request_accepts_multiple_pdf_paths(self) -> None:
+        request = RunCreateRequest(
+            mode="productize",
+            pdf_paths=["papers/a.pdf", "papers/b.pdf"],
+        )
+
+        self.assertEqual(request.pdf_path, "")
+        self.assertEqual(request.pdf_paths, ["papers/a.pdf", "papers/b.pdf"])
+
     def test_mock_snapshot_contains_workbench_contracts(self) -> None:
         snapshot = build_workbench_snapshot()
 
@@ -157,9 +199,10 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
                 run_pipeline=False,
             )
             product_run = service.create_run(product_request)
+            proposal = self._product_proposal("Scoped Proposal")
             with (
                 patch("main.run_paperpilot") as analyze,
-                patch("pipeline.productize_pipeline.run_productize_pipeline") as productize,
+                patch("pipeline.productize_pipeline.generate_proposals") as generate,
             ):
                 analyze.return_value = {
                     "paper_info": "paper",
@@ -168,18 +211,154 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
                     "repo_path": "",
                     "errors": [],
                 }
-                productize.return_value = {"pipeline_status": "complete", "errors": []}
-                service._execute_productize(
+                generate.return_value = (
+                    [proposal],
+                    {
+                        "pipeline_status": "complete",
+                        "research_synthesis": {"capability_cards": []},
+                        "errors": [],
+                    },
+                )
+                product_result = service._execute_productize(
                     product_run.run_id,
                     pdf,
                     product_request,
                     LLMClient(mock_mode=True),
                     lambda stage: None,
                 )
-            self.assertEqual(
-                productize.call_args.kwargs["output_dir"],
-                WORKSPACE_DIR / "runs" / product_run.run_id / "generated_product",
+            self.assertEqual(product_result["productize_stage"], "proposal_review")
+            self.assertEqual(generate.call_args.kwargs["papers"][0]["title"], "paper")
+
+    def test_productize_generates_reviewable_proposals_for_multiple_papers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            first_pdf = Path(tmp) / "first.pdf"
+            second_pdf = Path(tmp) / "second.pdf"
+            first_pdf.write_bytes(b"%PDF-1.4 first")
+            second_pdf.write_bytes(b"%PDF-1.4 second")
+            service = InMemoryRunService()
+            request = RunCreateRequest(
+                mode="productize",
+                project_id="project_agents",
+                task="Build a product from two papers",
+                pdf_paths=[str(first_pdf), str(second_pdf)],
+                mock_mode=True,
+                run_pipeline=False,
             )
+            run = service.create_run(request)
+            proposals = [
+                self._product_proposal("Proposal A"),
+                self._product_proposal("Proposal B"),
+                self._product_proposal("Proposal C"),
+                self._product_proposal("Proposal D"),
+            ]
+
+            with (
+                patch("main.run_paperpilot") as analyze,
+                patch("pipeline.productize_pipeline.generate_proposals") as generate,
+            ):
+                analyze.side_effect = [
+                    {
+                        "paper_info": "paper one",
+                        "method_info": "method one",
+                        "repo_info": "repo one",
+                        "repo_path": "/tmp/repo-one",
+                        "errors": [],
+                    },
+                    {
+                        "paper_info": "paper two",
+                        "method_info": "method two",
+                        "repo_info": "repo two",
+                        "repo_path": "/tmp/repo-two",
+                        "errors": [],
+                    },
+                ]
+                generate.return_value = (
+                    proposals,
+                    {
+                        "pipeline_status": "complete",
+                        "research_synthesis": {"capability_cards": []},
+                        "errors": [],
+                        "llm_attempts": 0,
+                        "llm_failures": 0,
+                    },
+                )
+                result = service._execute_productize(
+                    run.run_id,
+                    first_pdf,
+                    request,
+                    LLMClient(mock_mode=True),
+                    lambda stage: None,
+                )
+
+            self.assertEqual(analyze.call_count, 2)
+            passed_papers = generate.call_args.kwargs["papers"]
+            self.assertEqual([paper["title"] for paper in passed_papers], ["first", "second"])
+            self.assertEqual(result["productize_stage"], "proposal_review")
+            self.assertEqual(len(result["productize_proposals"]), 3)
+            self.assertEqual(result["productize_proposals"][1]["product_name"], "Proposal B")
+            self.assertEqual(result["papers"][1]["paper_info"], "paper two")
+
+    def test_productize_executes_selected_proposal_from_review_state(self) -> None:
+        service = InMemoryRunService()
+        run = service.create_run(
+            RunCreateRequest(
+                mode="productize",
+                pdf_path=__file__,
+                mock_mode=True,
+                run_pipeline=False,
+            )
+        )
+        first = self._product_proposal("Proposal A")
+        second = self._product_proposal("Proposal B")
+        service._store_result(
+            run.run_id,
+            {
+                "pipeline_status": "proposal_review",
+                "productize_stage": "proposal_review",
+                "productize_proposals": [
+                    first.model_dump(mode="json"),
+                    second.model_dump(mode="json"),
+                ],
+                "papers": [
+                    {
+                        "paper_id": "paper-1",
+                        "title": "First",
+                        "paper_info": "paper",
+                        "method_info": "method",
+                        "repo_info": "repo",
+                        "repo_path": "/tmp/source",
+                    }
+                ],
+                "research_synthesis": {"capability_cards": []},
+                "preferred_type": "text",
+                "errors": [],
+                "llm_attempts": 0,
+                "llm_failures": 0,
+            },
+        )
+
+        with patch("pipeline.productize_pipeline.execute_proposal") as execute:
+            execute.return_value = {
+                "pipeline_status": "complete",
+                "productize_stage": "executed",
+                "selected_proposal": second.model_dump(mode="json"),
+                "scaffold_result": {"output_dir": "workspace/runs/run/generated_product"},
+                "errors": [],
+            }
+            result = service.execute_productize_proposal(run.run_id, 1)
+
+        self.assertEqual(result["selected_proposal"]["product_name"], "Proposal B")
+        self.assertEqual(execute.call_args.kwargs["proposal"].product_name, "Proposal B")
+        self.assertEqual(execute.call_args.kwargs["papers"][0]["title"], "First")
+        self.assertEqual(
+            execute.call_args.kwargs["research_synthesis"],
+            {"capability_cards": []},
+        )
+        self.assertEqual(
+            execute.call_args.kwargs["output_dir"],
+            WORKSPACE_DIR / "runs" / run.run_id / "generated_product",
+        )
+        self.assertEqual(service.get_run(run.run_id).status, "success")
 
     def test_pipeline_output_creates_real_command_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -36,6 +36,7 @@ from backend.services.workbench_mock import (
 from config import PROJECT_ROOT, WORKSPACE_DIR
 from tools.command_runner import plan_command
 from tools.llm_client import LLMClient
+from schemas.product_schema import ProductProposal
 
 
 RUN_STATE_PATH = STORAGE_DIR / "run_state.json"
@@ -354,6 +355,7 @@ class InMemoryRunService:
     def _inputs_from_request(self, request: RunCreateRequest) -> dict[str, str]:
         return {
             "pdf_path": request.pdf_path,
+            "pdf_paths": "\n".join(request.pdf_paths),
             "github_url": request.github_url,
             "hardware": request.hardware,
             "gpu_info": request.gpu_info,
@@ -736,13 +738,24 @@ class InMemoryRunService:
         run_id: str,
         request: RunCreateRequest,
     ) -> dict[str, Any]:
-        pdf_path = Path(request.pdf_path).expanduser()
-        if not request.pdf_path.strip():
-            raise ValueError(
-                "A local PDF path is required before the Workbench can run agents."
-            )
-        if not pdf_path.is_file():
-            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+        if request.mode == "productize":
+            pdf_paths = self._effective_pdf_paths(request)
+            if not pdf_paths:
+                raise ValueError(
+                    "At least one local PDF path is required before Productize can run agents."
+                )
+            missing = [str(path) for path in pdf_paths if not path.is_file()]
+            if missing:
+                raise FileNotFoundError(f"PDF file not found: {missing[0]}")
+            primary_pdf_path = pdf_paths[0]
+        else:
+            primary_pdf_path = Path(request.pdf_path).expanduser()
+            if not request.pdf_path.strip():
+                raise ValueError(
+                    "A local PDF path is required before the Workbench can run agents."
+                )
+            if not primary_pdf_path.is_file():
+                raise FileNotFoundError(f"PDF file not found: {primary_pdf_path}")
 
         client = LLMClient(
             api_key=request.api_key or None,
@@ -764,8 +777,27 @@ class InMemoryRunService:
             )
 
         if request.mode == "productize":
-            return self._execute_productize(run_id, pdf_path, request, client, progress)
-        return self._execute_reproduce(run_id, pdf_path, request, client, progress)
+            return self._execute_productize(
+                run_id,
+                primary_pdf_path,
+                request,
+                client,
+                progress,
+            )
+        return self._execute_reproduce(run_id, primary_pdf_path, request, client, progress)
+
+    @staticmethod
+    def _effective_pdf_paths(request: RunCreateRequest) -> list[Path]:
+        raw_paths = request.pdf_paths or ([request.pdf_path] if request.pdf_path else [])
+        seen: set[str] = set()
+        paths: list[Path] = []
+        for raw_path in raw_paths:
+            normalized = str(raw_path).strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            paths.append(Path(normalized).expanduser())
+        return paths
 
     @staticmethod
     def _graph_node_for_progress_stage(stage: str, mode: str) -> str:
@@ -845,47 +877,167 @@ class InMemoryRunService:
         progress: Any,
     ) -> dict[str, Any]:
         from main import run_paperpilot
-        from pipeline.productize_pipeline import run_productize_pipeline
+        from pipeline.productize_pipeline import generate_proposals
 
-        progress("Analyzing paper before Productize pipeline")
-        analysis = run_paperpilot(
-            pdf_path=str(pdf_path),
-            github_url=request.github_url.strip(),
-            hardware=request.hardware,
-            gpu_info=request.gpu_info.strip(),
-            goal="run official demo",
-            llm_client=client,
-            progress_callback=progress,
-            user_idea=request.task.strip(),
-            paper_name=pdf_path.stem.replace(" ", "_")[:80],
-            generate_code=False,
-        )
-        paper = {
-            "paper_id": "paper-1",
-            "title": pdf_path.stem,
-            "paper_info": analysis.get("paper_info", ""),
-            "method_info": analysis.get("method_info", ""),
-            "repo_info": analysis.get("repo_info", ""),
-            "repo_path": analysis.get("repo_path", ""),
-            "repo_source": analysis.get("repo_source", ""),
-            "errors": analysis.get("errors", []),
-        }
-        result = run_productize_pipeline(
-            paper_info=paper["paper_info"],
-            method_info=paper["method_info"],
-            repo_info=paper["repo_info"],
-            repo_path=paper["repo_path"],
+        papers: list[dict[str, Any]] = []
+        source_analysis: list[dict[str, Any]] = []
+        for index, current_pdf_path in enumerate(
+            self._effective_pdf_paths(request) or [pdf_path],
+            1,
+        ):
+            progress(
+                "Analyzing paper before Productize pipeline "
+                f"({index})"
+            )
+            analysis = run_paperpilot(
+                pdf_path=str(current_pdf_path),
+                github_url=request.github_url.strip(),
+                hardware=request.hardware,
+                gpu_info=request.gpu_info.strip(),
+                goal="run official demo",
+                llm_client=client,
+                progress_callback=progress,
+                user_idea=request.task.strip(),
+                paper_name=current_pdf_path.stem.replace(" ", "_")[:80],
+                generate_code=False,
+            )
+            papers.append(
+                {
+                    "paper_id": f"paper-{index}",
+                    "title": current_pdf_path.stem,
+                    "paper_info": analysis.get("paper_info", ""),
+                    "method_info": analysis.get("method_info", ""),
+                    "repo_info": analysis.get("repo_info", ""),
+                    "repo_path": analysis.get("repo_path", ""),
+                    "repo_source": analysis.get("repo_source", ""),
+                    "errors": analysis.get("errors", []),
+                }
+            )
+            source_analysis.append(self._summarize_result(analysis))
+
+        progress("Generating Productize proposals for review")
+        proposals, result = generate_proposals(
+            papers=papers,
             target_user=request.target_user.strip() or "PaperPilot users",
             product_goal=request.product_goal.strip() or request.task.strip(),
             llm_client=client,
-            preferred_type=request.preferred_type or "auto",
-            output_dir=WORKSPACE_DIR / "runs" / run_id / "generated_product",
             progress_callback=progress,
             user_idea=request.task.strip(),
-            papers=[paper],
         )
-        result["source_analysis"] = self._summarize_result(analysis)
+        review_proposals = [
+            proposal.model_dump(mode="json")
+            for proposal in proposals[:3]
+        ]
+        if not review_proposals:
+            result["pipeline_status"] = "failed"
+            result.setdefault("errors", []).append("No product proposals were generated.")
+            result["papers"] = papers
+            result["source_analysis"] = source_analysis
+            return result
+        result.update(
+            {
+                "pipeline_status": "proposal_review",
+                "productize_stage": "proposal_review",
+                "productize_proposals": review_proposals,
+                "papers": papers,
+                "source_analysis": source_analysis,
+                "preferred_type": request.preferred_type or "auto",
+                "target_user": request.target_user.strip() or "PaperPilot users",
+                "product_goal": request.product_goal.strip() or request.task.strip(),
+                "llm_config": {
+                    "base_url": request.base_url,
+                    "model": request.model,
+                    "mock_mode": self._effective_mock_mode(request),
+                },
+            }
+        )
         return result
+
+    def execute_productize_proposal(
+        self,
+        run_id: str,
+        proposal_index: int,
+    ) -> dict[str, Any]:
+        from pipeline.productize_pipeline import execute_proposal
+
+        run = self.get_run(run_id)
+        if run is None:
+            raise ValueError("Run not found")
+        if run.mode != "productize":
+            raise ValueError("Proposal execution is only supported for productize runs.")
+        stored = self.get_result(run_id)
+        if not stored:
+            raise ValueError("Productize proposal result is not available.")
+        proposals = stored.get("productize_proposals")
+        if not isinstance(proposals, list) or not proposals:
+            raise ValueError("No productize proposals are available for execution.")
+        if proposal_index < 0 or proposal_index >= len(proposals):
+            raise ValueError("Proposal index is out of range.")
+
+        proposal = ProductProposal.model_validate(proposals[proposal_index])
+        llm_config = stored.get("llm_config") if isinstance(stored.get("llm_config"), dict) else {}
+        client = LLMClient(
+            base_url=str(llm_config.get("base_url") or "") or None,
+            model=str(llm_config.get("model") or "") or None,
+            mock_mode=bool(llm_config.get("mock_mode", True)),
+        )
+        result = execute_proposal(
+            proposal=proposal,
+            papers=list(stored.get("papers") or []),
+            research_synthesis=dict(stored.get("research_synthesis") or {}),
+            preferred_type=str(stored.get("preferred_type") or "auto"),
+            repo_path=self._repo_path_from_papers(list(stored.get("papers") or [])),
+            output_dir=WORKSPACE_DIR / "runs" / run_id / "generated_product",
+            llm_client=client,
+            progress_callback=lambda stage: self._append_event(
+                run_id,
+                node=self._graph_node_for_progress_stage(stage, "productize"),
+                agent="PaperPilot Agent",
+                event_type="node_started",
+                status="running",
+                message=stage,
+                payload={"graph": "productize"},
+            ),
+        )
+        result["productize_stage"] = "executed"
+        result["selected_proposal"] = proposal.model_dump(mode="json")
+        result["productize_proposals"] = proposals
+        result["source_analysis"] = stored.get("source_analysis") or []
+        self._store_result(run_id, result)
+
+        result_summary = self._summarize_result(result)
+        pipeline_status = str(result.get("pipeline_status") or "complete")
+        status = self._status_from_pipeline(pipeline_status)
+        self._append_event(
+            run_id,
+            node="agent_runtime",
+            agent="Workbench Runner",
+            event_type="proposal_executed",
+            status=status,
+            message=(
+                f"Executed product proposal: {proposal.product_name}."
+            ),
+            payload=result_summary,
+        )
+        self._update_run_status(
+            run_id,
+            status=status,
+            summary=self._summary_from_result(
+                RunCreateRequest(mode="productize"),
+                result_summary,
+                status,
+            ),
+            result_summary=result_summary,
+        )
+        return result
+
+    @staticmethod
+    def _repo_path_from_papers(papers: list[dict[str, Any]]) -> str:
+        for paper in papers:
+            repo_path = str(paper.get("repo_path") or "").strip()
+            if repo_path:
+                return repo_path
+        return ""
 
     def _execute_command_action(self, action: ActionRequest) -> ActionExecutionResult:
         command = self._action_command(action)
@@ -1423,7 +1575,7 @@ class InMemoryRunService:
     def _status_from_pipeline(pipeline_status: str) -> str:
         if pipeline_status == "failed":
             return "failed"
-        if pipeline_status in {"degraded", "hitl_paused"}:
+        if pipeline_status in {"degraded", "hitl_paused", "proposal_review"}:
             return "waiting_review"
         return "success"
 

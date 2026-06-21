@@ -85,6 +85,19 @@ def request_run_revision(run_id: str, request: RevisionRequest) -> RevisionResul
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
+@router.post("/runs/{run_id}/productize/proposals/{proposal_index}/execute")
+def execute_productize_proposal(
+    run_id: str,
+    proposal_index: int,
+) -> dict[str, Any]:
+    try:
+        return run_service.execute_productize_proposal(run_id, proposal_index)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "Run not found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
 @router.get("/runs/{run_id}/graph")
 def get_run_graph(run_id: str) -> list[dict[str, Any]]:
     run = run_service.get_run(run_id)

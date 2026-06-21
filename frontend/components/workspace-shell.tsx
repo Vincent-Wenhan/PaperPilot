@@ -28,6 +28,7 @@ import {
   editAction,
   eventFromApi,
   executeAction,
+  executeProductizeProposal,
   fetchCommandResults,
   fetchLlmConfig,
   fetchRun,
@@ -62,6 +63,7 @@ const defaultRunForm: RunFormState = {
   mode: "reproduce",
   task: "",
   pdf_path: "",
+  pdf_paths: [],
   github_url: "",
   hardware: "CPU only",
   gpu_info: "",
@@ -138,7 +140,11 @@ export function WorkspaceShell() {
   const currentMode = apiRun?.mode ?? runForm.mode;
   const currentTask =
     apiRun?.task || runForm.task || "New PaperPilot research run";
-  const paperInput = apiRun?.inputs?.pdf_path ?? runForm.pdf_path;
+  const paperInput =
+    apiRun?.inputs?.pdf_paths ||
+    apiRun?.inputs?.pdf_path ||
+    runForm.pdf_paths.join("\n") ||
+    runForm.pdf_path;
   const repoInput = apiRun?.inputs?.github_url ?? runForm.github_url;
   const productGoal = apiRun?.inputs?.product_goal ?? runForm.product_goal;
   const targetUser = apiRun?.inputs?.target_user ?? runForm.target_user;
@@ -455,7 +461,7 @@ export function WorkspaceShell() {
   function resetWorkspace() {
     setApiRun(null);
     clearActiveRunId();
-    setRunForm((current) => ({ ...current, pdf_path: "" }));
+    setRunForm((current) => ({ ...current, pdf_path: "", pdf_paths: [] }));
     setPlanState(planSteps);
     setGraphNodes([]);
     setTimelineEvents([]);
@@ -514,19 +520,38 @@ export function WorkspaceShell() {
   }
 
   async function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
+    const invalidFile = files.find((file) => !file.name.toLowerCase().endsWith(".pdf"));
+    if (invalidFile) {
       setNotice("Only PDF files are supported.");
       return;
     }
     setUploadingPdf(true);
-    setNotice(`Uploading ${file.name}...`);
+    const multiProductize = runForm.mode === "productize" && files.length > 1;
+    setNotice(
+      multiProductize
+        ? `Uploading ${files.length} PDFs...`
+        : `Uploading ${files[0].name}...`,
+    );
     try {
-      const result = await uploadPdf(file);
-      updateRunForm("pdf_path", result.pdf_path);
-      setUploadedFileName(file.name);
-      setNotice(`Uploaded: ${file.name}`);
+      const uploaded = await Promise.all(files.map((file) => uploadPdf(file)));
+      const pdfPaths = uploaded.map((item) => item.pdf_path);
+      setRunForm((current) => ({
+        ...current,
+        pdf_path: pdfPaths[0] ?? "",
+        pdf_paths: runForm.mode === "productize" ? pdfPaths : [],
+      }));
+      setUploadedFileName(
+        files.length > 1
+          ? `${files.length} PDFs selected`
+          : files[0].name,
+      );
+      setNotice(
+        files.length > 1
+          ? `Uploaded ${files.length} PDFs.`
+          : `Uploaded: ${files[0].name}`,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Upload failed";
       setNotice(`PDF upload failed: ${message}`);
@@ -558,7 +583,9 @@ export function WorkspaceShell() {
   async function submitRun(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!runForm.pdf_path.trim()) {
+    const hasProductizePapers =
+      runForm.mode === "productize" && runForm.pdf_paths.length > 0;
+    if (!runForm.pdf_path.trim() && !hasProductizePapers) {
       setNotice("Upload a PDF file first. The backend agent pipeline needs a readable PDF.");
       return;
     }
@@ -726,6 +753,24 @@ export function WorkspaceShell() {
     }
   }
 
+  async function handleExecuteProductizeProposal(proposalIndex: number) {
+    if (!apiRun) {
+      setNotice("Create or restore a productize run before executing a proposal.");
+      return;
+    }
+    setNotice(`Executing product proposal ${proposalIndex + 1}...`);
+    try {
+      const result = await executeProductizeProposal(apiRun.run_id, proposalIndex);
+      setRunResult(result);
+      setEvaluationIssues(issuesFromRunResult(result));
+      addTimelineEvent(`Executed product proposal ${proposalIndex + 1}.`, "success");
+      await refreshCurrentRun(apiRun.run_id, { quiet: true });
+      setNotice("Selected product proposal executed.");
+    } catch (error) {
+      setNotice(`Proposal execution failed: ${describeActionError(error)}`);
+    }
+  }
+
   async function refreshCurrentRun(runId: string, options: { quiet?: boolean } = {}) {
     if (!options.quiet) {
       setNotice("Refreshing backend run state...");
@@ -801,6 +846,8 @@ export function WorkspaceShell() {
           onOpenRunDrawer={() => setNewRunDrawerOpen(true)}
           onShowWorkflow={showWorkflow}
           onRequestRevision={(issueId, action) => void handleRequestRevision(issueId, action)}
+          runResult={runResult}
+          onExecuteProductizeProposal={(index) => void handleExecuteProductizeProposal(index)}
           evaluationIssues={evaluationIssues}
         />
 

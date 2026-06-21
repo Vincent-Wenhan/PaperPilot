@@ -22,6 +22,7 @@ export type ApiRunCreateRequest = {
   project_id: string;
   task: string;
   pdf_path?: string;
+  pdf_paths?: string[];
   github_url?: string;
   hardware?: string;
   gpu_info?: string;
@@ -476,6 +477,8 @@ export type ApiPatch = {
 
 export type ApiRunResult = {
   pipeline_status?: string;
+  productize_stage?: string;
+  productize_proposals?: ApiProductProposal[];
   errors?: string[];
   llm_attempts?: number;
   llm_failures?: number;
@@ -489,12 +492,44 @@ export type ApiRunResult = {
   [key: string]: unknown;
 };
 
+export type ApiProductProposal = {
+  product_name?: string;
+  target_user?: string;
+  product_goal?: string;
+  jtbd?: string;
+  prd?: {
+    product_name?: string;
+    problem_statement?: string;
+    core_features?: string[];
+    user_flow?: string[];
+    risks?: string[];
+  };
+  mvp_scope?: {
+    must_have?: string[];
+    should_have?: string[];
+    could_have?: string[];
+    wont_have?: string[];
+  };
+  risks?: string[];
+};
+
 export async function fetchRunResult(runId: string) {
   const response = await fetch(`${API_BASE}/api/runs/${runId}/result`, {
     cache: "no-store",
   });
   if (!response.ok) {
     throw await apiError(response, `Run result API returned ${response.status}`);
+  }
+  return response.json() as Promise<ApiRunResult>;
+}
+
+export async function executeProductizeProposal(runId: string, proposalIndex: number) {
+  const response = await fetch(
+    `${API_BASE}/api/runs/${runId}/productize/proposals/${proposalIndex}/execute`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    throw await apiError(response, `Proposal execution failed with ${response.status}`);
   }
   return response.json() as Promise<ApiRunResult>;
 }

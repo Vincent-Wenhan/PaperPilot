@@ -76,6 +76,29 @@ const defaultRunForm: RunFormState = {
 
 const ACTIVE_RUN_STORAGE_KEY = "paperpilot.activeRunId";
 
+function readActiveRunId(): string {
+  window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
+  return window.sessionStorage.getItem(ACTIVE_RUN_STORAGE_KEY) ?? "";
+}
+
+function writeActiveRunId(runId: string) {
+  window.sessionStorage.setItem(ACTIVE_RUN_STORAGE_KEY, runId);
+  window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
+}
+
+function rememberActiveRun(run: ApiRun) {
+  if (run.status === "running") {
+    writeActiveRunId(run.run_id);
+    return;
+  }
+  clearActiveRunId();
+}
+
+function clearActiveRunId() {
+  window.sessionStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
+  window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
+}
+
 function isNotFoundError(error: unknown): boolean {
   return error instanceof ApiRequestError && error.status === 404;
 }
@@ -210,9 +233,10 @@ export function WorkspaceShell() {
     }
   }, [pendingApprovalActions.length]);
 
-  // Restore active run from localStorage
+  // Restore only actively running backend work. Review/completed runs should not
+  // make a fresh page load look stuck on an old session.
   useEffect(() => {
-    const storedRunId = window.localStorage.getItem(ACTIVE_RUN_STORAGE_KEY);
+    const storedRunId = readActiveRunId();
     if (!storedRunId) {
       return;
     }
@@ -236,6 +260,13 @@ export function WorkspaceShell() {
           fetchRunResult(restoreRunId).catch(() => null),
         ]);
         if (cancelled) {
+          return;
+        }
+        if (restoredRun.status !== "running") {
+          clearStaleRun(
+            restoreRunId,
+            `Previous run ${restoreRunId} is not running anymore. Start a new run when you want to submit fresh inputs.`,
+          );
           return;
         }
         setApiRun(restoredRun);
@@ -365,7 +396,7 @@ export function WorkspaceShell() {
   }
 
   function clearStaleRun(runId: string, message: string) {
-    window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
+    clearActiveRunId();
     setApiRun(null);
     setApiActions([]);
     setCommandResults([]);
@@ -421,7 +452,7 @@ export function WorkspaceShell() {
 
   function resetWorkspace() {
     setApiRun(null);
-    window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY);
+    clearActiveRunId();
     setRunForm((current) => ({ ...current, pdf_path: "" }));
     setPlanState(planSteps);
     setGraphNodes([]);
@@ -550,7 +581,7 @@ export function WorkspaceShell() {
         fetchRunResult(run.run_id).catch(() => null),
       ]);
       setApiRun(run);
-      window.localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, run.run_id);
+      rememberActiveRun(run);
       setPlanState(planForRunStatus(run));
       setGraphNodes(enrichGraphFromEvents(runGraph, runEvents, run.mode));
       setTimelineEvents(
@@ -697,7 +728,7 @@ export function WorkspaceShell() {
         fetchRunResult(runId).catch(() => null),
       ]);
       setApiRun(nextRun);
-      window.localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, nextRun.run_id);
+      rememberActiveRun(nextRun);
       setTimelineEvents(nextEvents.map(eventFromApi));
       setGraphNodes(enrichGraphFromEvents(nextGraph, nextEvents, nextRun.mode));
       setPlanState(planForRunStatus(nextRun));

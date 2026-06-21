@@ -16,6 +16,7 @@ from backend.services.artifact_service import ArtifactService
 from backend.services.check_service import CheckService
 from backend.services.command_service import CommandService
 from backend.services.file_service import FileService
+from backend.services.graph_service import graph_service
 from backend.services.patch_service import PatchService
 from backend.services.run_service import InMemoryRunService
 from backend.services.workbench_mock import build_workbench_snapshot
@@ -142,6 +143,22 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             self.assertEqual(action.cwd, ".")
             self.assertEqual(action.execution_mode, "safe")
             self.assertEqual(action.execution_status, "not_started")
+            executed = service.execute_action(action.action_id)
+            self.assertIsNotNone(executed)
+            self.assertEqual(executed.execution_status, "succeeded")
+            reviewed = service.get_run(run.run_id)
+            self.assertIsNotNone(reviewed)
+            self.assertEqual(reviewed.status, "success")
+            self.assertEqual(reviewed.result_summary["pending_actions"], 0)
+            self.assertTrue(
+                any(
+                    event.event_type == "review_actions_resolved"
+                    for event in service.list_events(run.run_id)
+                )
+            )
+            graph = graph_service.build_graph("reproduce", service.list_events(run.run_id))
+            self.assertEqual(graph[-1]["id"], "outputs")
+            self.assertEqual(graph[-1]["status"], "success")
 
     def test_command_action_execute_edit_reject_and_idempotency(self) -> None:
         service = InMemoryRunService()

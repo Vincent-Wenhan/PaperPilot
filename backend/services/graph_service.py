@@ -122,7 +122,7 @@ class GraphService:
 
                 if etype in ("node_started", "pipeline_started") and not started:
                     started = created
-                if etype in ("node_finished", "pipeline_finished") and not finished:
+                if etype in ("node_finished", "pipeline_finished", "review_actions_resolved") and not finished:
                     finished = created
                 if etype in ("tool_call", "tool_result"):
                     tool_calls.append({
@@ -197,7 +197,7 @@ class GraphService:
             return "parse"
         if raw_node == "planner":
             return "planning" if run_mode == "reproduce" else "prd"
-        if event_type in {"pipeline_finished", "pipeline_failed"}:
+        if event_type in {"pipeline_finished", "pipeline_failed", "review_actions_resolved"}:
             return "outputs" if run_mode == "reproduce" else "scaffold"
 
         # Legacy keyword-based fallback for messages that don't carry structured node ids
@@ -261,7 +261,11 @@ class GraphService:
             evt
             for node_events in event_by_node.values()
             for evt in node_events
-            if str(getattr(evt, "event_type", "") or "") in {"pipeline_finished", "pipeline_failed"}
+            if str(getattr(evt, "event_type", "") or "") in {
+                "pipeline_finished",
+                "pipeline_failed",
+                "review_actions_resolved",
+            }
         ]
         if finished_events:
             final_status = str(getattr(finished_events[-1], "status", "success") or "success")

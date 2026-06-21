@@ -76,6 +76,7 @@ class InMemoryRunService:
         self._state_path = RUN_STATE_PATH
         self._load_state()
         self._recover_runs_from_events()
+        self._normalize_resolved_review_runs()
         self.seed_mock_run()
 
     def _load_state(self) -> None:
@@ -134,6 +135,10 @@ class InMemoryRunService:
                 self._results[run_id] = deepcopy(run.result_summary)
         with self._lock:
             self._persist_state_locked()
+
+    def _normalize_resolved_review_runs(self) -> None:
+        for run_id in list(self._runs):
+            self._finalize_run_after_review_actions(run_id)
 
     def _run_record_from_events(
         self,
@@ -454,6 +459,7 @@ class InMemoryRunService:
                 message=f"Rejected action {action.action_id}.",
                 payload={"action_id": action.action_id, "tool": action.tool},
             )
+            self._finalize_run_after_review_actions(action.run_id)
         return action
 
     def edit_action(
@@ -849,7 +855,97 @@ class InMemoryRunService:
                 "result": result,
             },
         )
+        self._finalize_run_after_review_actions(updated.run_id)
         return response
+
+    def _finalize_run_after_review_actions(self, run_id: str) -> None:
+        with self._lock:
+            run = self._runs.get(run_id)
+            if run is None or run.status != "waiting_review":
+                return
+            actions = self._actions.get(run_id, [])
+            if not actions:
+                return
+            pending_actions = [
+                action for action in actions
+                if self._action_needs_review_resolution(action)
+            ]
+            result_summary = deepcopy(run.result_summary)
+            result_summary["pending_actions"] = len(pending_actions)
+            if pending_actions:
+                self._runs[run_id] = run.model_copy(
+                    update={
+                        "updated_at": utc_now(),
+                        "result_summary": result_summary,
+                    }
+                )
+                self._persist_state_locked()
+                return
+
+            failed_actions = [
+                action for action in actions
+                if action.status == "rejected"
+                or action.execution_status in {"failed", "blocked"}
+            ]
+            final_status = "failed" if failed_actions else "success"
+            pipeline_status = str(result_summary.get("pipeline_status") or "complete")
+            summary = (
+                f"{run.mode} review action failed; inspect runner output."
+                if failed_actions
+                else f"{run.mode} agent pipeline completed after review ({pipeline_status})."
+            )
+            self._runs[run_id] = run.model_copy(
+                update={
+                    "status": final_status,
+                    "summary": summary,
+                    "updated_at": utc_now(),
+                    "result_summary": result_summary,
+                }
+            )
+            stored_result = self._results.get(run_id)
+            if isinstance(stored_result, dict):
+                stored_result["pending_actions"] = len(pending_actions)
+            self._persist_state_locked()
+
+        self._append_review_resolved_event(
+            run_id,
+            status=final_status,
+            message=summary,
+            payload=result_summary,
+        )
+
+    @staticmethod
+    def _action_needs_review_resolution(action: ActionRequest) -> bool:
+        if action.status in {"pending", "edited"}:
+            return True
+        if action.status == "approved":
+            return action.execution_status in {"not_started", "running"}
+        return False
+
+    def _append_review_resolved_event(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        message: str,
+        payload: dict[str, Any],
+    ) -> None:
+        with self._lock:
+            already_recorded = any(
+                event.event_type == "review_actions_resolved"
+                for event in self._events.get(run_id, [])
+            )
+        if already_recorded:
+            return
+        self._append_event(
+            run_id,
+            node="outputs",
+            agent="Workbench Runner",
+            event_type="review_actions_resolved",
+            status=status,
+            message=message,
+            payload=payload,
+        )
 
     def _execution_response_from_action(
         self,

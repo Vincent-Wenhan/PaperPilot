@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { WorkspaceShell } from "@/components/workspace-shell";
+import { WorkspaceShell, enrichGraphFromEvents } from "@/components/workspace-shell";
 
 vi.mock("@/components/workflow-graph", () => ({
   WorkflowGraph: () => <div aria-label="Workflow graph" />,
@@ -200,6 +200,24 @@ describe("workspace demo fallback", () => {
     expect(screen.getByText(/No backend run yet/)).toBeVisible();
     expect(window.sessionStorage.getItem("paperpilot.activeRunId")).toBeNull();
   });
+
+  it("keeps outputs successful after reviewed actions resolve", () => {
+    const graph = [
+      graphNode("parse", "success"),
+      graphNode("planning", "success"),
+      graphNode("command_routing", "success"),
+      graphNode("outputs", "success"),
+    ];
+    const events = [
+      apiEvent("evt_pipeline", "agent_runtime", "pipeline_finished", "waiting_review"),
+      apiEvent("evt_execute", "runner_execution", "action_execution_succeeded", "success"),
+      apiEvent("evt_resolved", "outputs", "review_actions_resolved", "success"),
+    ];
+
+    const enriched = enrichGraphFromEvents(graph as never, events as never, "reproduce");
+
+    expect(enriched.find((node) => node.id === "outputs")?.status).toBe("success");
+  });
 });
 
 function jsonResponse(body: unknown) {
@@ -209,4 +227,38 @@ function jsonResponse(body: unknown) {
       headers: { "Content-Type": "application/json" },
     }),
   );
+}
+
+function graphNode(id: string, status: string) {
+  return {
+    id,
+    label: id,
+    agent: "",
+    status,
+    startedAt: "",
+    finishedAt: "",
+    inputArtifacts: [],
+    outputArtifacts: [],
+    toolCalls: [],
+    issues: [],
+  };
+}
+
+function apiEvent(
+  event_id: string,
+  node: string,
+  event_type: string,
+  status: string,
+) {
+  return {
+    event_id,
+    run_id: "run_real",
+    node,
+    agent: "Workbench",
+    event_type,
+    status,
+    message: "",
+    payload: {},
+    created_at: new Date().toISOString(),
+  };
 }

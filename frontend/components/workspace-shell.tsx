@@ -1034,7 +1034,13 @@ function buildResultSummary(
   };
 }
 
-function enrichGraphFromEvents(
+const TERMINAL_EVENT_TYPES = new Set([
+  "pipeline_finished",
+  "pipeline_failed",
+  "review_actions_resolved",
+]);
+
+export function enrichGraphFromEvents(
   graph: ApiGraphNode[],
   events: ApiEvent[],
   mode: RunMode,
@@ -1055,7 +1061,7 @@ function enrichGraphFromEvents(
       continue;
     }
     touched.push(index);
-    if (event.event_type === "pipeline_finished" || event.event_type === "pipeline_failed") {
+    if (TERMINAL_EVENT_TYPES.has(event.event_type)) {
       terminal = event.status;
       next[index].status = event.status;
     } else if (event.status === "running" || event.status === "waiting_review") {
@@ -1100,7 +1106,7 @@ function graphNodeFromEvent(event: ApiEvent, mode: RunMode): string {
   if (event.node === "runner_execution" || event.node === "runner_review") {
     return mode === "reproduce" ? "command_routing" : "scaffold";
   }
-  if (event.event_type === "pipeline_finished" || event.event_type === "pipeline_failed") {
+  if (TERMINAL_EVENT_TYPES.has(event.event_type)) {
     return mode === "reproduce" ? "outputs" : "scaffold";
   }
 

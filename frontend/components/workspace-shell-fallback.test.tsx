@@ -203,6 +203,24 @@ describe("workspace demo fallback", () => {
 
   it("appends productize PDF uploads and submits all selected paths", async () => {
     let createdRunBody: Record<string, unknown> | null = null;
+    const proposals = [
+      {
+        product_name: "Proposal A",
+        target_user: "Students",
+        product_goal: "Demo",
+        jtbd: "Review research",
+        prd: { core_features: ["Compare methods"] },
+        risks: ["Mock only"],
+      },
+      {
+        product_name: "Proposal B",
+        target_user: "Researchers",
+        product_goal: "Prototype",
+        jtbd: "Inspect capabilities",
+        prd: { core_features: ["Trace evidence"] },
+        risks: ["Requires manual adapter review"],
+      },
+    ];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/llm/config")) {
@@ -243,7 +261,11 @@ describe("workspace demo fallback", () => {
         return jsonResponse([]);
       }
       if (url.endsWith("/api/runs/run_productize/result")) {
-        return jsonResponse({ pipeline_status: "proposal_review", productize_proposals: [] });
+        return jsonResponse({
+          pipeline_status: "proposal_review",
+          productize_stage: "proposal_review",
+          productize_proposals: proposals,
+        });
       }
       return jsonResponse({});
     });
@@ -276,6 +298,8 @@ describe("workspace demo fallback", () => {
         "uploads/paper-2.pdf",
       ]);
     });
+    expect(await screen.findByRole("heading", { name: "Choose a Product Proposal" })).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "Select & Scaffold Proposal" })).toHaveLength(2);
   });
 
   it("keeps outputs successful after reviewed actions resolve", () => {

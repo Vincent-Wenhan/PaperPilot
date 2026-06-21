@@ -251,7 +251,7 @@ function ProductProposalList({
                 onClick={() => onExecute?.(index)}
                 disabled={!onExecute}
               >
-                Execute Proposal
+                Select & Scaffold Proposal
               </button>
             </div>
           </article>

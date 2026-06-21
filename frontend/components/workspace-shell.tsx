@@ -635,9 +635,13 @@ export function WorkspaceShell() {
       setSelectedNavId("run");
       setNotice(`Started backend run ${run.run_id}. Agent progress will update here.`);
       setNewRunDrawerOpen(false);
-      setActiveWorkbenchTab("workflow");
       setRunResult(initialResult);
       setEvaluationIssues(initialResult ? issuesFromRunResult(initialResult) : []);
+      if (initialResult?.productize_stage === "proposal_review" || initialResult?.pipeline_status === "proposal_review") {
+        setActiveWorkbenchTab("product");
+      } else {
+        setActiveWorkbenchTab("workflow");
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown API error";
       setNotice(`Could not create backend run: ${message}`);
@@ -814,6 +818,13 @@ export function WorkspaceShell() {
       setCommandResults(nextCommands);
       setRunResult(nextResult);
       setEvaluationIssues(nextResult ? issuesFromRunResult(nextResult) : []);
+      if (
+        nextRun.mode === "productize" &&
+        (nextResult?.productize_stage === "proposal_review" ||
+          nextResult?.pipeline_status === "proposal_review")
+      ) {
+        setActiveWorkbenchTab("product");
+      }
       if (!options.quiet) {
         setNotice(nextRun.summary);
       }
@@ -1138,14 +1149,18 @@ export function enrichGraphFromEvents(
   const next = graph.map((node) => ({ ...node }));
   const touched: number[] = [];
   let terminal: WorkflowStatus | null = null;
+  let latestMappedNode = "";
 
   for (const event of events) {
-    const nodeId = graphNodeFromEvent(event, mode, indexById);
+    const nodeId = graphNodeFromEvent(event, mode, indexById, latestMappedNode);
     const index = nodeId ? indexById.get(nodeId) : undefined;
     if (index === undefined) {
       continue;
     }
     touched.push(index);
+    if (event.event_type !== "pipeline_failed") {
+      latestMappedNode = nodeId;
+    }
     if (TERMINAL_EVENT_TYPES.has(event.event_type)) {
       terminal = event.status;
       next[index].status = event.status;
@@ -1200,10 +1215,8 @@ function graphNodeFromEvent(
   event: ApiEvent,
   mode: RunMode,
   knownNodeIds?: Map<string, number>,
+  latestMappedNode = "",
 ): string {
-  if (knownNodeIds?.has(event.node)) {
-    return event.node;
-  }
   if (event.node === "run_intake" || event.node === "input_review") {
     return "parse";
   }
@@ -1212,6 +1225,9 @@ function graphNodeFromEvent(
   }
   if (event.node === "runner_execution" || event.node === "runner_review") {
     return mode === "reproduce" ? "command_routing" : "scaffold";
+  }
+  if (mode === "productize" && event.event_type === "pipeline_failed") {
+    return latestMappedNode || "parse";
   }
   if (
     mode === "productize" &&
@@ -1240,6 +1256,10 @@ function graphNodeFromEvent(
     if (message.includes("prototype") || message.includes("scaffold")) return "prototype";
     if (message.includes("evaluation") || message.includes("evaluator")) return "evaluation";
     if (message.includes("revision")) return "revision";
+  }
+
+  if (knownNodeIds?.has(event.node)) {
+    return event.node;
   }
 
   if (message.includes("research understanding")) return "research_evidence";

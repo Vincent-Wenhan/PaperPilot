@@ -34,6 +34,59 @@ def _card(paper_id: str) -> PaperCapabilityCard:
 
 
 def _plan() -> ProductPlan:
+    opportunities = [
+        ProductOpportunity(
+            idea_name="Demo",
+            target_user="Students",
+            core_value="Explain research",
+            technical_feasibility=5,
+            demo_feasibility=5,
+            model_availability=4,
+            data_requirement=5,
+            integration_risk=2,
+            user_value=4,
+            course_presentation_value=5,
+            paper_faithfulness=4,
+            multi_paper_coherence=4,
+            mock_first_suitability=5,
+            overall_score=4.5,
+            reason="Bounded demo",
+        ),
+        ProductOpportunity(
+            idea_name="Explorer",
+            target_user="Students",
+            core_value="Explore research tradeoffs",
+            technical_feasibility=4,
+            demo_feasibility=5,
+            model_availability=4,
+            data_requirement=5,
+            integration_risk=2,
+            user_value=4,
+            course_presentation_value=5,
+            paper_faithfulness=4,
+            multi_paper_coherence=4,
+            mock_first_suitability=5,
+            overall_score=4.3,
+            reason="Different review workflow",
+        ),
+    ]
+    return ProductPlan(
+        jtbd="Understand research",
+        value_proposition=ValueProposition(),
+        opportunities=opportunities,
+        selected_product="Demo",
+        selection_reason="Bounded demo",
+        prd=PRD(
+            product_name="Demo",
+            problem_statement="Research is hard to inspect.",
+            target_users=["Students"],
+            core_features=["Evidence"],
+        ),
+        mvp_scope=MVPScope(must_have=["Mock-first prototype"]),
+    )
+
+
+def _single_opportunity_plan() -> ProductPlan:
     opportunity = ProductOpportunity(
         idea_name="Demo",
         target_user="Students",
@@ -138,6 +191,7 @@ class ProductizeProposalGraphTests(unittest.TestCase):
             ProductProposal.model_validate(state["proposals"][0]).product_name,
             "Demo",
         )
+        self.assertEqual(len(state["proposals"]), 2)
         trace = state["graph_trace"]
         for node in (
             "normalize_inputs",
@@ -148,6 +202,35 @@ class ProductizeProposalGraphTests(unittest.TestCase):
             "build_proposals",
         ):
             self.assertIn(node, trace)
+
+    def test_single_opportunity_plan_is_expanded_to_choice_set(self) -> None:
+        graph = build_productize_proposal_graph(
+            ProductizeProposalDependencies(
+                extract_capability=lambda paper: _card(str(paper["paper_id"])),
+                synthesize_research=lambda papers, cards: ResearchSynthesis(),
+                plan_product=lambda synthesis, target_user, product_goal, user_idea: _single_opportunity_plan(),
+            )
+        )
+
+        state = graph.invoke(
+            {
+                "papers": [{"paper_id": "paper-1", "title": "Paper"}],
+                "target_user": "Students",
+                "product_goal": "Demo",
+                "user_idea": "",
+                "capability_cards": [],
+                "errors": [],
+                "graph_trace": [],
+            }
+        )
+
+        proposals = [
+            ProductProposal.model_validate(proposal)
+            for proposal in state["proposals"]
+        ]
+        self.assertGreaterEqual(len(proposals), 2)
+        self.assertLessEqual(len(proposals), 3)
+        self.assertEqual(len({proposal.product_name for proposal in proposals}), len(proposals))
 
 
 class ProductizeExecutionGraphTests(unittest.TestCase):

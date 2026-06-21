@@ -868,6 +868,47 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
         self.assertEqual(statuses["evaluation"], "success")
         self.assertEqual(statuses["scaffold"], "success")
 
+    def test_productize_proposal_failure_stays_on_latest_started_stage(self) -> None:
+        events = [
+            WorkbenchEvent(
+                event_id="evt_parse",
+                run_id="run_productize_failed_graph",
+                node="parse",
+                agent="PaperPilot Agent",
+                event_type="node_started",
+                status="running",
+                message="Generating Productize proposals for review",
+                created_at="2026-01-01T00:00:01Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_capability",
+                run_id="run_productize_failed_graph",
+                node="parse",
+                agent="PaperPilot Agent",
+                event_type="node_started",
+                status="running",
+                message="Research Synthesizer Agent extracting capability for Paper",
+                created_at="2026-01-01T00:00:02Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_failed",
+                run_id="run_productize_failed_graph",
+                node="agent_runtime",
+                agent="Workbench Runner",
+                event_type="pipeline_failed",
+                status="failed",
+                message="Agent pipeline failed: cannot schedule new futures after interpreter shutdown",
+                payload={"pipeline_status": "failed"},
+                created_at="2026-01-01T00:00:03Z",
+            ),
+        ]
+
+        graph = graph_service.build_graph("productize", events)
+        statuses = {node["id"]: node["status"] for node in graph}
+
+        self.assertEqual(statuses["capability_cards"], "failed")
+        self.assertEqual(statuses["scaffold"], "pending")
+
     def test_artifact_and_file_services_are_read_only_and_root_limited(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

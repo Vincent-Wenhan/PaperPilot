@@ -97,12 +97,19 @@ class GraphService:
         node_order = [node_id for node_id, _label, _agent in node_defs]
         node_index = {node_id: index for index, node_id in enumerate(node_order)}
         event_by_node: dict[str, list[Any]] = {}
+        last_mapped_node = ""
         for evt in events:
             node = getattr(evt, "node", "unknown")
             event_by_node.setdefault(node, []).append(evt)
-            mapped_node = self._node_from_event(run_mode, evt)
+            mapped_node = self._node_from_event(
+                run_mode,
+                evt,
+                last_mapped_node=last_mapped_node,
+            )
             if mapped_node and mapped_node != node:
                 event_by_node.setdefault(mapped_node, []).append(evt)
+            if mapped_node in node_index and str(getattr(evt, "event_type", "") or "") != "pipeline_failed":
+                last_mapped_node = mapped_node
 
         nodes: list[dict[str, Any]] = []
         for node_id, label, agent in node_defs:
@@ -178,7 +185,12 @@ class GraphService:
         return "pending"
 
     @staticmethod
-    def _node_from_event(run_mode: str, event: Any) -> str:
+    def _node_from_event(
+        run_mode: str,
+        event: Any,
+        *,
+        last_mapped_node: str = "",
+    ) -> str:
         """Map runtime events to graph nodes.
 
         Priority: structured event.node > event_type mapping > message keyword fallback.
@@ -191,16 +203,13 @@ class GraphService:
         if isinstance(payload, dict):
             pipeline_status = str(payload.get("pipeline_status", "") or "")
 
-        # Structured node mapping: if event.node matches a known node id, use it directly
-        known_nodes = {nid for nid, _label, _agent in NODE_MAP.get(run_mode, NODE_MAP["reproduce"])["nodes"]}
-        if raw_node in known_nodes:
-            return raw_node
-
         # Pipeline lifecycle events mapped to terminal nodes
         if raw_node in {"run_intake", "input_review"}:
             return "parse"
         if raw_node == "planner":
             return "planning" if run_mode == "reproduce" else "prd"
+        if run_mode == "productize" and event_type == "pipeline_failed":
+            return last_mapped_node or "parse"
         if run_mode == "productize" and event_type == "pipeline_finished" and pipeline_status == "proposal_review":
             return "mvp"
         if run_mode == "productize" and event_type == "proposal_executed":
@@ -234,6 +243,11 @@ class GraphService:
                 return "evaluation"
             if "revision" in message:
                 return "revision"
+
+        # Structured node mapping: if event.node matches a known node id, use it directly
+        known_nodes = {nid for nid, _label, _agent in NODE_MAP.get(run_mode, NODE_MAP["reproduce"])["nodes"]}
+        if raw_node in known_nodes:
+            return raw_node
 
         if "research understanding" in message:
             return "research_evidence"

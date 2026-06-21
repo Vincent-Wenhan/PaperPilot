@@ -803,6 +803,10 @@ class InMemoryRunService:
     def _graph_node_for_progress_stage(stage: str, mode: str) -> str:
         message = stage.lower()
         if mode == "productize":
+            if "extracting capability" in message:
+                return "capability_cards"
+            if "composing paper capabilities" in message:
+                return "capability_map"
             if "capability card" in message:
                 return "capability_cards"
             if "capability map" in message:

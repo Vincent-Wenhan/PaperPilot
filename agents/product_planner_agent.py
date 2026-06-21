@@ -117,7 +117,7 @@ class ProductPlannerAgent(StructuredAgent[ProductPlan]):
                 gain_creators=["PRD-driven prototype plan"],
                 product_features=[feature, "Rubric-based evaluation"],
             ),
-            opportunities=[opportunity],
+            opportunities=[opportunity, opportunity2, opportunity3],
             selected_product=opportunity.idea_name,
             selection_reason=opportunity.reason,
             prd=PRD(

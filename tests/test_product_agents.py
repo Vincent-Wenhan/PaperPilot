@@ -37,6 +37,8 @@ class ProductAgentTests(unittest.TestCase):
         )
         self.assertTrue(synthesis.capability_cards)
         self.assertTrue(product.prd.core_features)
+        self.assertGreaterEqual(len(product.opportunities), 2)
+        self.assertLessEqual(len(product.opportunities), 3)
         self.assertTrue(prototype.mock_first)
         self.assertGreaterEqual(evaluation.overall_score, 4)
 

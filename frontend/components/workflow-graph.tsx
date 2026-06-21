@@ -10,7 +10,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { CheckCircle2, Circle, Clock3, LoaderCircle } from "lucide-react";
+import { CheckCircle2, Circle, Clock3, LoaderCircle, X } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import type { WorkflowStatus } from "@/lib/workbench-types";
@@ -180,7 +180,7 @@ function NodeDetailPanel({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3 style={{ margin: 0 }}>{node.label}</h3>
         <button className="icon-button" type="button" onClick={onClose} title="Close">
-          ✕
+          <X size={14} />
         </button>
       </div>
       <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", marginTop: 8 }}>

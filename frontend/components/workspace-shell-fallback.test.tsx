@@ -203,6 +203,7 @@ describe("workspace demo fallback", () => {
 
   it("appends productize PDF uploads and submits all selected paths", async () => {
     let createdRunBody: Record<string, unknown> | null = null;
+    let executedProposalIndex: number | null = null;
     const proposals = [
       {
         product_name: "Proposal A",
@@ -252,6 +253,31 @@ describe("workspace demo fallback", () => {
           plan: ["Generate product proposals"],
         });
       }
+      if (url.endsWith("/api/runs/run_productize")) {
+        return jsonResponse({
+          run_id: "run_productize",
+          project_id: "paperpilot_workspace",
+          mode: "productize",
+          status: executedProposalIndex === null ? "waiting_review" : "success",
+          task: "Productize the submitted research into a mock-first MVP.",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          summary:
+            executedProposalIndex === null
+              ? "Productize proposals ready."
+              : "Selected product proposal executed.",
+          inputs: {
+            pdf_path: "uploads/paper-1.pdf",
+            pdf_paths: "uploads/paper-1.pdf\nuploads/paper-2.pdf",
+            llm_model: "gpt-4o-mini",
+          },
+          result_summary: {
+            pipeline_status:
+              executedProposalIndex === null ? "proposal_review" : "complete",
+          },
+          plan: ["Generate product proposals"],
+        });
+      }
       if (
         url.endsWith("/api/runs/run_productize/events") ||
         url.endsWith("/api/runs/run_productize/graph") ||
@@ -265,6 +291,21 @@ describe("workspace demo fallback", () => {
           pipeline_status: "proposal_review",
           productize_stage: "proposal_review",
           productize_proposals: proposals,
+          selected_proposal:
+            executedProposalIndex === null
+              ? undefined
+              : proposals[executedProposalIndex],
+          generated_files: executedProposalIndex === null ? 0 : 4,
+        });
+      }
+      if (url.endsWith("/api/runs/run_productize/productize/proposals/1/execute") && init?.method === "POST") {
+        executedProposalIndex = 1;
+        return jsonResponse({
+          pipeline_status: "complete",
+          productize_stage: "executed",
+          productize_proposals: proposals,
+          selected_proposal: proposals[1],
+          generated_files: 4,
         });
       }
       return jsonResponse({});
@@ -299,7 +340,20 @@ describe("workspace demo fallback", () => {
       ]);
     });
     expect(await screen.findByRole("heading", { name: "Choose a Product Proposal" })).toBeVisible();
+    expect(screen.getByText(/Review the proposal options below/)).toBeVisible();
+    expect(screen.getByText("Trace evidence")).toBeVisible();
     expect(screen.getAllByRole("button", { name: "Select & Scaffold Proposal" })).toHaveLength(2);
+
+    await user.click(screen.getAllByRole("button", { name: "Select & Scaffold Proposal" })[1]);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:8000/api/runs/run_productize/productize/proposals/1/execute",
+        { method: "POST" },
+      );
+    });
+    expect(await screen.findByText("Selected proposal")).toBeVisible();
+    expect(screen.getByText("Proposal B")).toBeVisible();
   });
 
   it("keeps outputs successful after reviewed actions resolve", () => {

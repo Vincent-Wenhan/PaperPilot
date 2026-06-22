@@ -133,6 +133,7 @@ export function WorkspaceShell() {
   const [evaluationIssues, setEvaluationIssues] = useState<EvaluationIssue[]>([]);
   const [commandResults, setCommandResults] = useState<ApiCommandRunResult[]>([]);
   const [approvalBusyId, setApprovalBusyId] = useState("");
+  const [executingProductizeProposalIndex, setExecutingProductizeProposalIndex] = useState<number | null>(null);
 
   const activeRunId = apiRun?.run_id;
   const activeRunStatus = apiRun?.status;
@@ -783,16 +784,20 @@ export function WorkspaceShell() {
       setNotice("Create or restore a productize run before executing a proposal.");
       return;
     }
+    setExecutingProductizeProposalIndex(proposalIndex);
     setNotice(`Executing product proposal ${proposalIndex + 1}...`);
     try {
       const result = await executeProductizeProposal(apiRun.run_id, proposalIndex);
       setRunResult(result);
       setEvaluationIssues(issuesFromRunResult(result));
+      setActiveWorkbenchTab("product");
       addTimelineEvent(`Executed product proposal ${proposalIndex + 1}.`, "success");
       await refreshCurrentRun(apiRun.run_id, { quiet: true });
       setNotice("Selected product proposal executed.");
     } catch (error) {
       setNotice(`Proposal execution failed: ${describeActionError(error)}`);
+    } finally {
+      setExecutingProductizeProposalIndex(null);
     }
   }
 
@@ -880,6 +885,7 @@ export function WorkspaceShell() {
           onRequestRevision={(issueId, action) => void handleRequestRevision(issueId, action)}
           runResult={runResult}
           onExecuteProductizeProposal={(index) => void handleExecuteProductizeProposal(index)}
+          executingProductizeProposalIndex={executingProductizeProposalIndex}
           evaluationIssues={evaluationIssues}
         />
 

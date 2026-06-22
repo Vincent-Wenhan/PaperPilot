@@ -479,6 +479,7 @@ export type ApiRunResult = {
   pipeline_status?: string;
   productize_stage?: string;
   productize_proposals?: ApiProductProposal[];
+  selected_proposal?: ApiProductProposal;
   errors?: string[];
   llm_attempts?: number;
   llm_failures?: number;

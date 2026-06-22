@@ -50,6 +50,7 @@ type CenterWorkspaceProps = {
   onShowWorkflow: () => void;
   onRequestRevision?: (issueId: string, action: ApiRevisionAction) => void;
   onExecuteProductizeProposal?: (proposalIndex: number) => void;
+  executingProductizeProposalIndex?: number | null;
   runResult?: ApiRunResult | null;
   evaluationIssues?: EvaluationIssue[];
 };
@@ -73,6 +74,7 @@ export function CenterWorkspace({
   onShowWorkflow,
   onRequestRevision,
   onExecuteProductizeProposal,
+  executingProductizeProposalIndex,
   runResult,
   evaluationIssues,
 }: CenterWorkspaceProps) {
@@ -173,6 +175,8 @@ export function CenterWorkspace({
               {runResult?.productize_proposals?.length ? (
                 <ProductProposalList
                   proposals={runResult.productize_proposals}
+                  selectedProposal={runResult.selected_proposal}
+                  executingIndex={executingProductizeProposalIndex ?? null}
                   onExecute={onExecuteProductizeProposal}
                 />
               ) : (
@@ -191,25 +195,43 @@ export function CenterWorkspace({
 
 function ProductProposalList({
   proposals,
+  selectedProposal,
+  executingIndex,
   onExecute,
 }: {
   proposals: ApiProductProposal[];
+  selectedProposal?: ApiProductProposal;
+  executingIndex?: number | null;
   onExecute?: (proposalIndex: number) => void;
 }) {
   return (
     <div className="stack">
+      <div className="empty-state product-proposal-guidance" role="status">
+        Review the proposal options below, compare target users, core features, and risks, then select one proposal to scaffold the MVP.
+      </div>
       {proposals.map((proposal, index) => {
         const features = proposal.prd?.core_features ?? [];
         const risks = proposal.risks ?? proposal.prd?.risks ?? [];
+        const selected = sameProposal(proposal, selectedProposal);
+        const executing = executingIndex === index;
         return (
-          <article className="issue-card" key={`${proposal.product_name ?? "proposal"}-${index}`}>
+          <article
+            className={`issue-card${selected ? " proposal-selected" : ""}`}
+            key={`${proposal.product_name ?? "proposal"}-${index}`}
+            aria-label={`Product proposal ${index + 1}: ${proposal.product_name || proposal.prd?.product_name || "Untitled product"}`}
+          >
             <div className="issue-card-header">
               <div>
                 <p className="eyebrow">Proposal {index + 1}</p>
                 <h3>{proposal.product_name || proposal.prd?.product_name || "Untitled product"}</h3>
               </div>
-              <StatusPill status="waiting_review" />
+              <StatusPill status={selected ? "success" : "waiting_review"} />
             </div>
+            {selected ? (
+              <div className="empty-state product-proposal-selected" role="status">
+                Selected proposal
+              </div>
+            ) : null}
             <div className="detail-grid">
               <div className="detail-row">
                 <span>Target user</span>
@@ -249,9 +271,9 @@ function ProductProposalList({
                 type="button"
                 className="secondary-action"
                 onClick={() => onExecute?.(index)}
-                disabled={!onExecute}
+                disabled={!onExecute || executing}
               >
-                Select & Scaffold Proposal
+                {executing ? "Selecting Proposal..." : "Select & Scaffold Proposal"}
               </button>
             </div>
           </article>
@@ -259,6 +281,15 @@ function ProductProposalList({
       })}
     </div>
   );
+}
+
+function sameProposal(left: ApiProductProposal, right?: ApiProductProposal) {
+  if (!right) {
+    return false;
+  }
+  const leftName = left.product_name || left.prd?.product_name || "";
+  const rightName = right.product_name || right.prd?.product_name || "";
+  return Boolean(leftName && rightName && leftName === rightName);
 }
 
 function WorkspaceSectionPanel({

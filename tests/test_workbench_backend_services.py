@@ -646,6 +646,49 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
         self.assertFalse(client.mock_mode)
         self.assertNotIn("secret-key", str(service.list_events(run.run_id)))
 
+    def test_productize_proposal_execution_reuses_run_scoped_llm_config(self) -> None:
+        service = InMemoryRunService()
+        run = service.create_run(
+            RunCreateRequest(
+                mode="productize",
+                pdf_path=__file__,
+                api_key="secret-key",
+                base_url="https://openrouter.ai/api/v1",
+                model="gpt-4o",
+                mock_mode=False,
+                run_pipeline=False,
+            )
+        )
+        proposal = self._product_proposal("Stored Config Proposal")
+        service._store_result(
+            run.run_id,
+            {
+                "pipeline_status": "proposal_review",
+                "productize_stage": "proposal_review",
+                "productize_proposals": [proposal.model_dump(mode="json")],
+                "papers": [],
+                "research_synthesis": {"capability_cards": []},
+                "preferred_type": "text",
+                "errors": [],
+            },
+        )
+
+        with patch("pipeline.productize_pipeline.execute_proposal") as execute:
+            execute.return_value = {
+                "pipeline_status": "complete",
+                "selected_proposal": proposal.model_dump(mode="json"),
+                "errors": [],
+            }
+            service.execute_productize_proposal(run.run_id, 0)
+
+        client = execute.call_args.kwargs["llm_client"]
+        self.assertEqual(client.api_key, "secret-key")
+        self.assertEqual(client.base_url, "https://openrouter.ai/api/v1")
+        self.assertEqual(client.model, "gpt-4o")
+        self.assertFalse(client.mock_mode)
+        self.assertNotIn("secret-key", str(service.get_run(run.run_id).inputs))
+        self.assertNotIn("secret-key", str(service.list_events(run.run_id)))
+
     def test_pipeline_output_creates_real_command_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pdf = Path(tmp) / "paper.pdf"
@@ -1035,6 +1078,20 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             ),
             "planning",
         )
+        self.assertEqual(
+            InMemoryRunService._graph_node_for_progress_stage(
+                "Product Evaluator Agent scoring prototype",
+                "productize",
+            ),
+            "evaluation",
+        )
+        self.assertEqual(
+            InMemoryRunService._graph_node_for_progress_stage(
+                "Inspecting generated product",
+                "productize",
+            ),
+            "scaffold",
+        )
 
     def test_productize_proposal_review_graph_stops_before_execution_nodes(self) -> None:
         events = [
@@ -1195,6 +1252,52 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
         statuses = {node["id"]: node["status"] for node in graph}
 
         self.assertEqual(statuses["capability_cards"], "failed")
+        self.assertEqual(statuses["scaffold"], "pending")
+
+    def test_productize_failed_proposal_marks_error_agent_node(self) -> None:
+        events = [
+            WorkbenchEvent(
+                event_id="evt_review",
+                run_id="run_productize_failed_execute",
+                node="agent_runtime",
+                agent="Workbench Runner",
+                event_type="pipeline_finished",
+                status="waiting_review",
+                message="Product proposals are ready; choose one to scaffold.",
+                payload={"pipeline_status": "proposal_review"},
+                created_at="2026-01-01T00:00:01Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_eval",
+                run_id="run_productize_failed_execute",
+                node="evaluation",
+                agent="PaperPilot Agent",
+                event_type="node_started",
+                status="running",
+                message="Product Evaluator Agent scoring prototype",
+                created_at="2026-01-01T00:00:02Z",
+            ),
+            WorkbenchEvent(
+                event_id="evt_executed_failed",
+                run_id="run_productize_failed_execute",
+                node="agent_runtime",
+                agent="Workbench Runner",
+                event_type="proposal_executed",
+                status="failed",
+                message="Executed product proposal: Demo.",
+                payload={
+                    "pipeline_status": "failed",
+                    "errors": ["[Prototype Builder Agent] No LLM API key is configured."],
+                },
+                created_at="2026-01-01T00:00:03Z",
+            ),
+        ]
+
+        graph = graph_service.build_graph("productize", events)
+        statuses = {node["id"]: node["status"] for node in graph}
+
+        self.assertEqual(statuses["prototype"], "failed")
+        self.assertEqual(statuses["evaluation"], "pending")
         self.assertEqual(statuses["scaffold"], "pending")
 
     def test_artifact_and_file_services_are_read_only_and_root_limited(self) -> None:

@@ -209,10 +209,20 @@ class GraphService:
         if raw_node == "planner":
             return "planning" if run_mode == "reproduce" else "prd"
         if run_mode == "productize" and event_type == "pipeline_failed":
-            return last_mapped_node or "parse"
+            return (
+                GraphService._productize_error_node(payload)
+                or last_mapped_node
+                or "parse"
+            )
         if run_mode == "productize" and event_type == "pipeline_finished" and pipeline_status == "proposal_review":
             return "mvp"
         if run_mode == "productize" and event_type == "proposal_executed":
+            if str(getattr(event, "status", "") or "") == "failed" or pipeline_status == "failed":
+                return (
+                    GraphService._productize_error_node(payload)
+                    or last_mapped_node
+                    or "scaffold"
+                )
             return "scaffold"
         if event_type in {"pipeline_finished", "pipeline_failed", "review_actions_resolved"}:
             return "outputs" if run_mode == "reproduce" else "scaffold"
@@ -225,6 +235,8 @@ class GraphService:
                 return "capability_cards"
             if "composing paper capabilities" in message:
                 return "capability_map"
+            if "inspecting generated product" in message:
+                return "scaffold"
             if "capability card" in message:
                 return "capability_cards"
             if "capability map" in message:
@@ -237,10 +249,14 @@ class GraphService:
                 return "prd"
             if "mvp" in message or "moscow" in message:
                 return "mvp"
-            if "prototype" in message or "scaffold" in message:
-                return "prototype"
             if "evaluation" in message or "evaluator" in message:
                 return "evaluation"
+            if "scaffold" in message:
+                return "scaffold"
+            if "selecting product template" in message:
+                return "prototype"
+            if "prototype" in message:
+                return "prototype"
             if "revision" in message:
                 return "revision"
 
@@ -270,6 +286,26 @@ class GraphService:
         return raw_node
 
     @staticmethod
+    def _productize_error_node(payload: Any) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        errors = payload.get("errors")
+        if not isinstance(errors, list):
+            return ""
+        text = " ".join(str(error).lower() for error in errors)
+        if "prototype builder agent" in text:
+            return "prototype"
+        if "product evaluator agent" in text:
+            return "evaluation"
+        if "product planner agent" in text:
+            return "prd"
+        if "research synthesizer agent" in text:
+            return "capability_cards"
+        if "scaffold" in text:
+            return "scaffold"
+        return ""
+
+    @staticmethod
     def _advance_progression(
         nodes: list[dict[str, Any]],
         node_index: dict[str, int],
@@ -296,12 +332,28 @@ class GraphService:
         ]
         if finished_events:
             final_status = str(getattr(finished_events[-1], "status", "success") or "success")
-            final_index = max(active_indices)
+            terminal_indices = [
+                node_index[node_id]
+                for node_id, node_events in event_by_node.items()
+                if node_id in node_index
+                and any(
+                    str(getattr(evt, "event_type", "") or "") in {
+                        "pipeline_finished",
+                        "pipeline_failed",
+                        "review_actions_resolved",
+                        "proposal_executed",
+                    }
+                    for evt in node_events
+                )
+            ]
+            final_index = max(terminal_indices) if terminal_indices else max(active_indices)
             for index, node in enumerate(nodes):
                 if index < final_index and node["status"] in {"pending", "running", "waiting_review"}:
                     node["status"] = "success"
                 elif index == final_index:
                     node["status"] = final_status
+                elif final_status == "failed" and node["status"] in {"running", "waiting_review"}:
+                    node["status"] = "pending"
             return
 
         latest_index = max(active_indices)

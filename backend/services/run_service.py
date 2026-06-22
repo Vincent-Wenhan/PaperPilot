@@ -76,6 +76,7 @@ class InMemoryRunService:
         self._events: dict[str, list[WorkbenchEvent]] = {}
         self._actions: dict[str, list[ActionRequest]] = {}
         self._results: dict[str, dict[str, Any]] = {}
+        self._llm_configs: dict[str, dict[str, Any]] = {}
         self._state_path = RUN_STATE_PATH
         self._load_state()
         self._recover_runs_from_events()
@@ -463,6 +464,7 @@ class InMemoryRunService:
             self._runs[run_id] = run
             self._events[run_id] = events
             self._actions[run_id] = []
+            self._llm_configs[run_id] = self._llm_config_from_request(request)
             self._persist_state_locked()
         for event in events:
             event_service.emit(event)
@@ -489,6 +491,15 @@ class InMemoryRunService:
             "llm_model": request.model,
             "implementation_model": request.implementation_model,
             "mock_mode": str(self._effective_mock_mode(request)),
+        }
+
+    @staticmethod
+    def _llm_config_from_request(request: RunCreateRequest) -> dict[str, Any]:
+        return {
+            "api_key": request.api_key,
+            "base_url": request.base_url,
+            "model": request.model,
+            "mock_mode": request.mock_mode,
         }
 
     def _build_run_events(self, run: RunRecord) -> list[WorkbenchEvent]:
@@ -937,6 +948,8 @@ class InMemoryRunService:
                 return "capability_cards"
             if "composing paper capabilities" in message:
                 return "capability_map"
+            if "inspecting generated product" in message:
+                return "scaffold"
             if "capability card" in message:
                 return "capability_cards"
             if "capability map" in message:
@@ -949,14 +962,16 @@ class InMemoryRunService:
                 return "prd"
             if "mvp" in message or "moscow" in message:
                 return "mvp"
-            if "prototype" in message:
-                return "prototype"
             if "evaluation" in message or "evaluator" in message:
                 return "evaluation"
-            if "revision" in message:
-                return "revision"
             if "scaffold" in message:
                 return "scaffold"
+            if "selecting product template" in message:
+                return "prototype"
+            if "prototype" in message:
+                return "prototype"
+            if "revision" in message:
+                return "revision"
             return "parse"
 
         if "research understanding" in message:
@@ -1129,15 +1144,29 @@ class InMemoryRunService:
 
         proposal = ProductProposal.model_validate(proposals[proposal_index])
         llm_config = stored.get("llm_config") if isinstance(stored.get("llm_config"), dict) else {}
-        effective_base_url = base_url.strip() or str(llm_config.get("base_url") or "")
-        effective_model = model.strip() or str(llm_config.get("model") or "")
+        run_llm_config = self._llm_configs.get(run_id, {})
+        effective_api_key = api_key.strip() or str(run_llm_config.get("api_key") or "")
+        effective_base_url = (
+            base_url.strip()
+            or str(run_llm_config.get("base_url") or "")
+            or str(llm_config.get("base_url") or "")
+        )
+        effective_model = (
+            model.strip()
+            or str(run_llm_config.get("model") or "")
+            or str(llm_config.get("model") or "")
+        )
         effective_mock_mode = (
             mock_mode
             if mock_mode is not None
-            else bool(llm_config.get("mock_mode", True))
+            else (
+                bool(run_llm_config["mock_mode"])
+                if "mock_mode" in run_llm_config
+                else bool(llm_config.get("mock_mode", True))
+            )
         )
         client = LLMClient(
-            api_key=api_key.strip() or None,
+            api_key=effective_api_key or None,
             base_url=effective_base_url or None,
             model=effective_model or None,
             mock_mode=effective_mock_mode,

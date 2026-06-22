@@ -1151,6 +1151,7 @@ function buildResultSummary(
 const TERMINAL_EVENT_TYPES = new Set([
   "pipeline_finished",
   "pipeline_failed",
+  "proposal_executed",
   "review_actions_resolved",
 ]);
 
@@ -1167,6 +1168,7 @@ export function enrichGraphFromEvents(
   const next = graph.map((node) => ({ ...node }));
   const touched: number[] = [];
   let terminal: WorkflowStatus | null = null;
+  let terminalIndex: number | null = null;
   let latestMappedNode = "";
 
   for (const event of events) {
@@ -1181,6 +1183,7 @@ export function enrichGraphFromEvents(
     }
     if (TERMINAL_EVENT_TYPES.has(event.event_type)) {
       terminal = event.status;
+      terminalIndex = index;
       next[index].status = event.status;
     } else if (event.status === "running" || event.status === "waiting_review") {
       next[index].status = mergeWorkflowStatus(next[index].status, event.status);
@@ -1194,12 +1197,15 @@ export function enrichGraphFromEvents(
   }
   const latest = Math.max(...touched);
   if (terminal) {
+    const finalIndex = terminalIndex ?? latest;
     next.forEach((node, index) => {
-      if (index < latest && ["pending", "running", "waiting_review"].includes(node.status)) {
+      if (index < finalIndex && ["pending", "running", "waiting_review"].includes(node.status)) {
         node.status = "success";
       }
-      if (index === latest) {
+      if (index === finalIndex) {
         node.status = terminal!;
+      } else if (terminal === "failed" && index > finalIndex && ["running", "waiting_review"].includes(node.status)) {
+        node.status = "pending";
       }
     });
     return next;
@@ -1245,7 +1251,7 @@ function graphNodeFromEvent(
     return mode === "reproduce" ? "command_routing" : "scaffold";
   }
   if (mode === "productize" && event.event_type === "pipeline_failed") {
-    return latestMappedNode || "parse";
+    return productizeErrorNode(event) || latestMappedNode || "parse";
   }
   if (
     mode === "productize" &&
@@ -1255,6 +1261,9 @@ function graphNodeFromEvent(
     return "mvp";
   }
   if (mode === "productize" && event.event_type === "proposal_executed") {
+    if (event.status === "failed" || event.payload?.pipeline_status === "failed") {
+      return productizeErrorNode(event) || latestMappedNode || "scaffold";
+    }
     return "scaffold";
   }
   if (TERMINAL_EVENT_TYPES.has(event.event_type)) {
@@ -1265,14 +1274,17 @@ function graphNodeFromEvent(
   if (mode === "productize") {
     if (message.includes("extracting capability")) return "capability_cards";
     if (message.includes("composing paper capabilities")) return "capability_map";
+    if (message.includes("inspecting generated product")) return "scaffold";
     if (message.includes("capability card")) return "capability_cards";
     if (message.includes("capability map")) return "capability_map";
     if (message.includes("composition")) return "method_composition";
     if (message.includes("jtbd") || message.includes("job-to-be-done")) return "jtbd";
     if (message.includes("prd")) return "prd";
     if (message.includes("mvp") || message.includes("moscow")) return "mvp";
-    if (message.includes("prototype") || message.includes("scaffold")) return "prototype";
     if (message.includes("evaluation") || message.includes("evaluator")) return "evaluation";
+    if (message.includes("scaffold")) return "scaffold";
+    if (message.includes("selecting product template")) return "prototype";
+    if (message.includes("prototype")) return "prototype";
     if (message.includes("revision")) return "revision";
   }
 
@@ -1289,4 +1301,18 @@ function graphNodeFromEvent(
   if (message.includes("execution") || message.includes("diagnosis")) return "diagnosis";
   if (message.includes("report") || message.includes("output")) return "outputs";
   return event.node;
+}
+
+function productizeErrorNode(event: ApiEvent): string {
+  const errors = event.payload?.errors;
+  if (!Array.isArray(errors)) {
+    return "";
+  }
+  const text = errors.map((error) => String(error).toLowerCase()).join(" ");
+  if (text.includes("prototype builder agent")) return "prototype";
+  if (text.includes("product evaluator agent")) return "evaluation";
+  if (text.includes("product planner agent")) return "prd";
+  if (text.includes("research synthesizer agent")) return "capability_cards";
+  if (text.includes("scaffold")) return "scaffold";
+  return "";
 }

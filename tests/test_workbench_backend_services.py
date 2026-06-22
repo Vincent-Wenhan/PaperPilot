@@ -83,6 +83,25 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
         self.assertEqual(request.pdf_path, "")
         self.assertEqual(request.pdf_paths, ["papers/a.pdf", "papers/b.pdf"])
 
+    def test_productize_input_event_mentions_all_selected_pdf_paths(self) -> None:
+        service = InMemoryRunService()
+        run = service.create_run(
+            RunCreateRequest(
+                mode="productize",
+                project_id="project_test",
+                task="Productize multiple papers",
+                pdf_paths=["papers/a.pdf", "papers/b.pdf"],
+            )
+        )
+
+        input_event = next(
+            event for event in service.list_events(run.run_id)
+            if event.event_type == "input_received"
+        )
+        self.assertIn("2 papers", input_event.message)
+        self.assertIn("papers/a.pdf", input_event.message)
+        self.assertIn("papers/b.pdf", input_event.message)
+
     def test_file_service_exposes_source_repository_for_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
@@ -435,6 +454,51 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             self.assertEqual(len(result["productize_proposals"]), 3)
             self.assertEqual(result["productize_proposals"][1]["product_name"], "Proposal B")
             self.assertEqual(result["papers"][1]["paper_info"], "paper two")
+
+    def test_productize_continues_to_proposal_review_when_paper_analysis_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "paper.pdf"
+            pdf.write_bytes(b"%PDF-1.4 paper")
+            service = InMemoryRunService()
+            request = RunCreateRequest(
+                mode="productize",
+                project_id="project_agents",
+                task="Build a product despite analysis failure",
+                pdf_path=str(pdf),
+                mock_mode=True,
+                run_pipeline=False,
+            )
+            run = service.create_run(request)
+            proposal = self._product_proposal("Fallback Proposal")
+
+            with (
+                patch("main.run_paperpilot") as analyze,
+                patch("pipeline.productize_pipeline.generate_proposals") as generate,
+            ):
+                analyze.side_effect = RuntimeError(
+                    "cannot schedule new futures after interpreter shutdown"
+                )
+                generate.return_value = (
+                    [proposal],
+                    {
+                        "pipeline_status": "complete",
+                        "research_synthesis": {"capability_cards": []},
+                        "errors": [],
+                    },
+                )
+                result = service._execute_productize(
+                    run.run_id,
+                    pdf,
+                    request,
+                    LLMClient(mock_mode=True),
+                    lambda stage: None,
+                )
+
+            self.assertEqual(result["productize_stage"], "proposal_review")
+            self.assertEqual(len(result["productize_proposals"]), 1)
+            self.assertIn("analysis failed", result["papers"][0]["paper_info"].lower())
+            self.assertTrue(result["source_analysis"][0]["errors"])
+            self.assertTrue(generate.call_args.kwargs["papers"][0]["errors"])
 
     def test_productize_proposal_review_summary_points_to_next_action(self) -> None:
         summary = InMemoryRunService._summary_from_result(

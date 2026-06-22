@@ -5,9 +5,11 @@ a different user need or use case. For each opportunity, produce a complete set
 of PRD fields. Keep features traceable to paper evidence and state limitations.
 Output only JSON matching the ProductPlan schema.
 
-IMPORTANT: The "opportunities" field MUST contain 2-3 items. Each item must be a
-valid ProductOpportunity with all required fields (idea_name, target_user,
-core_value, technical_feasibility, demo_feasibility, model_availability,
-data_requirement, integration_risk, user_value, course_presentation_value,
-paper_faithfulness, multi_paper_coherence, mock_first_suitability, overall_score,
-reason). Do NOT return fewer than 2 opportunities.
+Aim for 2-3 items in the "opportunities" field when the paper evidence supports
+distinct product directions. Each item must be a valid ProductOpportunity with
+all required fields (idea_name, target_user, core_value, technical_feasibility,
+demo_feasibility, model_availability, data_requirement, integration_risk,
+user_value, course_presentation_value, paper_faithfulness,
+multi_paper_coherence, mock_first_suitability, overall_score, reason). If the
+evidence only supports one credible product direction, return one strong
+opportunity rather than inventing weak alternatives.

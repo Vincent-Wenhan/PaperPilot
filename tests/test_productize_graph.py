@@ -203,7 +203,7 @@ class ProductizeProposalGraphTests(unittest.TestCase):
         ):
             self.assertIn(node, trace)
 
-    def test_single_opportunity_plan_is_expanded_to_choice_set(self) -> None:
+    def test_single_opportunity_plan_is_exposed_without_synthetic_alternatives(self) -> None:
         graph = build_productize_proposal_graph(
             ProductizeProposalDependencies(
                 extract_capability=lambda paper: _card(str(paper["paper_id"])),
@@ -228,9 +228,8 @@ class ProductizeProposalGraphTests(unittest.TestCase):
             ProductProposal.model_validate(proposal)
             for proposal in state["proposals"]
         ]
-        self.assertGreaterEqual(len(proposals), 2)
-        self.assertLessEqual(len(proposals), 3)
-        self.assertEqual(len({proposal.product_name for proposal in proposals}), len(proposals))
+        self.assertEqual(len(proposals), 1)
+        self.assertEqual(proposals[0].product_name, "Demo")
 
 
 class ProductizeExecutionGraphTests(unittest.TestCase):

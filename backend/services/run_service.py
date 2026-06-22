@@ -493,7 +493,15 @@ class InMemoryRunService:
 
     def _build_run_events(self, run: RunRecord) -> list[WorkbenchEvent]:
         """Create input-aware run events for newly submitted workbench runs."""
-        paper = run.inputs.get("pdf_path") or "paper input"
+        pdf_paths = [
+            path.strip()
+            for path in str(run.inputs.get("pdf_paths") or "").splitlines()
+            if path.strip()
+        ]
+        if run.mode == "productize" and pdf_paths:
+            paper = f"{len(pdf_paths)} papers: " + "; ".join(pdf_paths)
+        else:
+            paper = run.inputs.get("pdf_path") or "paper input"
         repo = run.inputs.get("github_url") or "repository input"
         task = run.task or "No task provided"
         now = utc_now()
@@ -1015,18 +1023,32 @@ class InMemoryRunService:
                 "Analyzing paper before Productize pipeline "
                 f"({index})"
             )
-            analysis = run_paperpilot(
-                pdf_path=str(current_pdf_path),
-                github_url=request.github_url.strip(),
-                hardware=request.hardware,
-                gpu_info=request.gpu_info.strip(),
-                goal="run official demo",
-                llm_client=client,
-                progress_callback=progress,
-                user_idea=request.task.strip(),
-                paper_name=current_pdf_path.stem.replace(" ", "_")[:80],
-                generate_code=False,
-            )
+            try:
+                analysis = run_paperpilot(
+                    pdf_path=str(current_pdf_path),
+                    github_url=request.github_url.strip(),
+                    hardware=request.hardware,
+                    gpu_info=request.gpu_info.strip(),
+                    goal="run official demo",
+                    llm_client=client,
+                    progress_callback=progress,
+                    user_idea=request.task.strip(),
+                    paper_name=current_pdf_path.stem.replace(" ", "_")[:80],
+                    generate_code=False,
+                )
+            except Exception as exc:
+                message = str(exc) or type(exc).__name__
+                analysis = {
+                    "pipeline_status": "failed",
+                    "paper_info": (
+                        f"Analysis failed for {current_pdf_path.name}: {message}"
+                    ),
+                    "method_info": "",
+                    "repo_info": "",
+                    "repo_path": "",
+                    "repo_source": "",
+                    "errors": [message],
+                }
             papers.append(
                 {
                     "paper_id": f"paper-{index}",

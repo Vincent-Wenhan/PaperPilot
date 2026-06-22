@@ -99,8 +99,6 @@ def _build_proposals(
             ),
         ]
 
-    opportunities = _ensure_choice_set(opportunities, product_plan, target_user, product_goal)
-
     for opportunity in opportunities[:3]:
         per_opportunity_prd = PRD(
             **{
@@ -151,61 +149,6 @@ def _build_proposals(
             )
         )
     return [proposal.model_dump(mode="json") for proposal in proposals]
-
-
-def _ensure_choice_set(
-    opportunities: list[ProductOpportunity],
-    product_plan: ProductPlan,
-    target_user: str,
-    product_goal: str,
-) -> list[ProductOpportunity]:
-    """Guarantee the review step offers a real 2-3 proposal choice set."""
-    normalized = list(opportunities[:3])
-    seen = {opportunity.idea_name for opportunity in normalized}
-    templates = [
-        (
-            "Evidence Review Workbench",
-            "Compare extracted paper capabilities, evidence, and limitations before selecting a demo path.",
-            "A conservative review workflow for validating paper-to-product traceability.",
-        ),
-        (
-            "Interactive Method Demo",
-            "Turn the selected method into a mock-first user workflow with visible inputs and outputs.",
-            "A hands-on prototype that makes the research method easy to present.",
-        ),
-        (
-            "Capability Comparison Dashboard",
-            "Browse and compare capabilities across papers, risks, and mock integration readiness.",
-            "A dashboard-centered product for multi-paper synthesis and decision making.",
-        ),
-    ]
-    for name, core_value, reason in templates:
-        if len(normalized) >= 2:
-            break
-        candidate_name = name
-        if candidate_name in seen:
-            candidate_name = f"{name} Alternative"
-        normalized.append(
-            ProductOpportunity(
-                idea_name=candidate_name,
-                target_user=target_user or (product_plan.prd.target_users[0] if product_plan.prd.target_users else "PaperPilot users"),
-                core_value=product_goal or core_value,
-                technical_feasibility=4,
-                demo_feasibility=5,
-                model_availability=3,
-                data_requirement=5,
-                integration_risk=2,
-                user_value=4,
-                course_presentation_value=5,
-                paper_faithfulness=4,
-                multi_paper_coherence=4,
-                mock_first_suitability=5,
-                overall_score=4.2,
-                reason=reason,
-            )
-        )
-        seen.add(candidate_name)
-    return normalized
 
 
 def build_productize_proposal_graph(

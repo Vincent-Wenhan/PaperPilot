@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Callable
 
@@ -166,6 +167,61 @@ The current output is a reproduction plan. It does not demonstrate alignment wit
 ## Report Builder
 This report was assembled deterministically from structured Reproduce artifacts.
 """
+
+
+def build_reproduce_manifest(
+    result: dict[str, Any],
+    output_dir: str | Path,
+    saved_outputs: dict[str, str] | None = None,
+) -> str:
+    """Build a machine-readable manifest for reproduce-mode artifacts."""
+    root = Path(output_dir)
+    saved_outputs = saved_outputs or {}
+    artifacts = [
+        {
+            "path": "reproduction_plan.md",
+            "role": "plan",
+            "absolute_path": str(saved_outputs.get("reproduction_plan") or root / "reproduction_plan.md"),
+        },
+        {
+            "path": "run.sh",
+            "role": "runner_script",
+            "absolute_path": str(saved_outputs.get("run_script") or root / "run.sh"),
+        },
+        {
+            "path": "report.md",
+            "role": "report",
+            "absolute_path": str(saved_outputs.get("report") or root / "report.md"),
+        },
+    ]
+    generated_code_dir = str(result.get("generated_code_output_dir") or "")
+    generated_files = [
+        {
+            "path": str(path),
+            "role": "generated_code",
+            "source": generated_code_dir,
+        }
+        for path in result.get("generated_files", [])
+    ]
+    manifest = {
+        "mode": "reproduce",
+        "mock_first": bool(result.get("pipeline_status") == "mock"),
+        "pipeline_status": result.get("pipeline_status", ""),
+        "paper_name": result.get("paper_name", ""),
+        "repo_source": result.get("repo_source", ""),
+        "repo_path": result.get("repo_path", ""),
+        "generated_code_output_dir": generated_code_dir,
+        "artifacts": artifacts,
+        "generated_files": generated_files,
+        "commands": {
+            "smoke_test": (result.get("implementation_bundle") or {}).get("smoke_test_command", ""),
+            "data_download": (result.get("implementation_bundle") or {}).get("data_download_command", ""),
+            "route": result.get("command_route", ""),
+        },
+        "issues": result.get("issues", []),
+        "errors": result.get("errors", []),
+    }
+    return json.dumps(manifest, ensure_ascii=False, indent=2)
 
 
 def save_output(

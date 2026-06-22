@@ -54,5 +54,26 @@ class PrototypeBuilderAgent(StructuredAgent[PrototypePlan]):
                 "load_model() is manual outside mock mode",
                 "predict() converts one bounded input to structured output",
             ],
+            backend_endpoints=[
+                {
+                    "path": "/health",
+                    "method": "GET",
+                    "purpose": "Check generated backend readiness",
+                },
+                {
+                    "path": "/predict",
+                    "method": "POST",
+                    "purpose": "Run mock-first model adapter prediction",
+                },
+            ],
+            dependencies=[
+                {"name": "fastapi", "version": ">=0.115,<1", "kind": "python"},
+                {"name": "uvicorn[standard]", "version": ">=0.30,<1", "kind": "python"},
+            ],
+            run_commands=[
+                "python -m pip install -r requirements.txt",
+                "python -m uvicorn backend.main:app --reload --port 8000",
+                "python -m http.server 8080 -d frontend",
+            ],
             mock_first=True,
         )

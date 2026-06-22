@@ -79,7 +79,30 @@ class PrototypePlan(BaseModel):
     mock_result: dict[str, object] = Field(default_factory=dict)
     real_integration_placeholder: str = ""
     adapter_boundary: list[str] = Field(default_factory=list)
+    generated_files: list["PrototypeFileSpec"] = Field(default_factory=list)
+    backend_endpoints: list["PrototypeEndpointSpec"] = Field(default_factory=list)
+    dependencies: list["PrototypeDependencySpec"] = Field(default_factory=list)
+    run_commands: list[str] = Field(default_factory=list)
     mock_first: bool = True
+
+
+class PrototypeFileSpec(BaseModel):
+    path: str = ""
+    purpose: str = ""
+    content: str = ""
+    role: str = "support"
+
+
+class PrototypeEndpointSpec(BaseModel):
+    path: str = ""
+    method: str = "GET"
+    purpose: str = ""
+
+
+class PrototypeDependencySpec(BaseModel):
+    name: str = ""
+    version: str = ""
+    kind: str = "python"
 
 
 class UIControl(BaseModel):

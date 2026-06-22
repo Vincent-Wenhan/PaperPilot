@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import shutil
 import time
+import json
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from config import PROJECT_ROOT
 from productize.product_templates import build_static_bundle_sources
+
+MAX_PRODUCT_FILES = 64
 
 
 def _backup_existing_directory(output_dir: Path) -> Path | None:
@@ -47,7 +50,8 @@ def _build_readme(
 ## Product Overview
 
 This is a limited-scope `{template_type}` prototype generated from paper and
-repository analysis.
+repository analysis. It is a manifest-driven mini application with a browser
+frontend and a FastAPI backend adapter.
 
 ## What This Demo Does
 
@@ -55,24 +59,31 @@ It demonstrates the product interaction with a deterministic mock adapter.
 
 ## Files
 
-- `index.html`: browser-native interface
-- `app.js`: product workflow, controls, rendering, and JSON export
-- `adapter.js`: unified mock-first `ModelAdapter`
-- `styles.css`: local styling for the generated UI
+- `manifest.json`: generated file inventory, entrypoints, endpoints, commands
+- `frontend/`: browser-native interface and local mock adapter
+- `backend/`: FastAPI service and mock-first model adapter
+- `requirements.txt`: backend dependencies
 - `product_spec.md`: generated MVP requirements
 - `outputs/`: downloaded or manually saved results
 
 ## How to Run
 
-Open `index.html` directly in a browser, or serve the directory locally:
+Install backend dependencies and start the generated API:
 
 ```bash
-python -m http.server 8000
+python -m pip install -r requirements.txt
+python -m uvicorn backend.main:app --reload --port 8000
+```
+
+Open the frontend directly in a browser, or serve it locally:
+
+```bash
+python -m http.server 8080 -d frontend
 ```
 
 Then open:
 
-http://localhost:8000
+http://localhost:8080
 
 ## Mock Mode
 
@@ -99,6 +110,94 @@ This generated product is a prototype. It does not guarantee full reproduction
 of the original paper results, and it never downloads weights, trains models,
 or executes repository scripts automatically.
 """
+
+
+def _safe_bundle_path(raw_path: str) -> PurePosixPath:
+    normalized = raw_path.strip().replace("\\", "/")
+    relative = PurePosixPath(normalized)
+    if not normalized or relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"Unsafe product file path: {raw_path}")
+    if relative.parts[0] in {".git", "__pycache__"}:
+        raise ValueError(f"Unsafe product file path: {raw_path}")
+    for part in relative.parts:
+        if part in {"", ".", ".."} or part.endswith((" ", ".")):
+            raise ValueError(f"Unsafe product file path: {raw_path}")
+    return relative
+
+
+def _custom_generated_sources(prototype_plan: dict[str, Any] | None) -> dict[str, str]:
+    if not isinstance(prototype_plan, dict):
+        return {}
+    generated_files = prototype_plan.get("generated_files")
+    if not isinstance(generated_files, list):
+        return {}
+    sources: dict[str, str] = {}
+    for item in generated_files:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "")
+        content = item.get("content")
+        if not path or not isinstance(content, str):
+            continue
+        safe_path = _safe_bundle_path(path).as_posix()
+        sources[safe_path] = content
+    return sources
+
+
+def _manifest(
+    *,
+    template_type: str,
+    contents: dict[str, str],
+    prototype_plan: dict[str, Any] | None,
+) -> dict[str, Any]:
+    plan = prototype_plan if isinstance(prototype_plan, dict) else {}
+    endpoints = plan.get("backend_endpoints")
+    if not isinstance(endpoints, list) or not endpoints:
+        endpoints = [
+            {"path": "/health", "method": "GET", "purpose": "Check backend readiness"},
+            {"path": "/predict", "method": "POST", "purpose": "Run mock-first prediction"},
+        ]
+    run_commands = plan.get("run_commands")
+    if not isinstance(run_commands, list) or not run_commands:
+        run_commands = [
+            "python -m pip install -r requirements.txt",
+            "python -m uvicorn backend.main:app --reload --port 8000",
+            "python -m http.server 8080 -d frontend",
+        ]
+    return {
+        "mode": "productize",
+        "template_type": template_type,
+        "mock_first": True,
+        "entrypoints": {
+            "frontend": "frontend/index.html",
+            "backend": "backend/main.py",
+            "adapter": "backend/adapter.py",
+        },
+        "backend_endpoints": endpoints,
+        "run_commands": [str(command) for command in run_commands],
+        "files": [
+            {
+                "path": path,
+                "role": _file_role(path),
+                "size_bytes": len(content.encode("utf-8")),
+            }
+            for path, content in sorted(contents.items())
+        ],
+    }
+
+
+def _file_role(path: str) -> str:
+    if path.startswith("frontend/"):
+        return "frontend"
+    if path.startswith("backend/"):
+        return "backend"
+    if path == "requirements.txt":
+        return "dependency"
+    if path.endswith(".md"):
+        return "documentation"
+    if path.startswith("outputs/"):
+        return "output"
+    return "support"
 
 
 def scaffold_product(
@@ -128,6 +227,7 @@ def scaffold_product(
         ui_spec=ui_spec,
         repo_path=repo_path,
     )
+    contents.update(_custom_generated_sources(prototype_plan))
     contents.update(
         {
             "README.md": _build_readme(
@@ -136,10 +236,22 @@ def scaffold_product(
                 frontend_plan,
             ),
             "product_spec.md": product_spec,
+            "outputs/.gitkeep": "",
         }
     )
+    if len(contents) > MAX_PRODUCT_FILES:
+        raise ValueError(f"Generated product has too many files ({len(contents)}).")
+    manifest = _manifest(
+        template_type=template_type,
+        contents=contents,
+        prototype_plan=prototype_plan,
+    )
+    contents["manifest.json"] = json.dumps(manifest, ensure_ascii=False, indent=2)
     for filename, content in contents.items():
-        (root / filename).write_text(content.rstrip() + "\n", encoding="utf-8")
+        relative = _safe_bundle_path(filename)
+        target = root.joinpath(*relative.parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content.rstrip() + "\n", encoding="utf-8")
 
     files = sorted(
         str(path.relative_to(root))

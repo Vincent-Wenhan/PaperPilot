@@ -23,6 +23,7 @@ from graphs.reproduce_graph import (
     build_reproduce_graph,
 )
 from pipeline.output_builder import (
+    build_reproduce_manifest,
     build_report,
     build_reproduction_plan,
     build_run_script,
@@ -238,6 +239,11 @@ def _save_outputs(
     reproduction_plan = build_reproduction_plan(result)
     result["run_sh"] = build_run_script(repo_scan, result.get("implementation_bundle"))
     result["report"] = build_report(result, diagnosis_text)
+    saved_outputs = {
+        "reproduction_plan": str(output_dir / "reproduction_plan.md"),
+        "run_script": str(output_dir / "run.sh"),
+        "report": str(output_dir / "report.md"),
+    }
     for step, writer, content, path in (
         (
             "Failed to save reproduction_plan.md",
@@ -260,6 +266,13 @@ def _save_outputs(
     ):
         save_output(result, step, writer, content, path)
     _save_generated_code(result, output_dir)
+    save_output(
+        result,
+        "Failed to save manifest.json",
+        save_markdown,
+        build_reproduce_manifest(result, output_dir, saved_outputs),
+        output_dir / "manifest.json",
+    )
 
 
 def _save_generated_code(result: PipelineResult, output_dir: Path) -> None:
@@ -928,6 +941,7 @@ def run_reproduce_pipeline(
             "reproduction_plan": str(output_dir / "reproduction_plan.md"),
             "run_script": str(output_dir / "run.sh"),
             "report": str(output_dir / "report.md"),
+            "manifest": str(output_dir / "manifest.json"),
         }
 
     use_sync_hitl = bool(hitl and hitl.sync_mode)

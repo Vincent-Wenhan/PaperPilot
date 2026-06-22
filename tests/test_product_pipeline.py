@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,9 +63,14 @@ class ProductPipelineTests(unittest.TestCase):
             self.assertTrue(result["scaffold_result"]["success"])
             self.assertTrue(result["inspection"]["syntax_ok"])
             self.assertEqual(result["inspection"]["missing_files"], [])
-            self.assertTrue((output_dir / "index.html").is_file())
-            self.assertTrue((output_dir / "app.js").is_file())
-            self.assertFalse((output_dir / "requirements.txt").exists())
+            self.assertTrue((output_dir / "manifest.json").is_file())
+            self.assertTrue((output_dir / "frontend" / "index.html").is_file())
+            self.assertTrue((output_dir / "frontend" / "app.js").is_file())
+            self.assertTrue((output_dir / "backend" / "main.py").is_file())
+            self.assertTrue((output_dir / "backend" / "adapter.py").is_file())
+            self.assertTrue((output_dir / "requirements.txt").exists())
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["entrypoints"]["backend"], "backend/main.py")
             self.assertEqual(len(result["capability_cards"]), 1)
             self.assertEqual(result["evaluation"]["demo_readiness"], "ready_with_mock")
 
@@ -176,7 +182,7 @@ class ProductPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(result["evaluation"]["overall_score"], 4)
             self.assertIn(
                 "/tmp/vision",
-                (output_dir / "adapter.js").read_text(encoding="utf-8"),
+                (output_dir / "backend" / "adapter.py").read_text(encoding="utf-8"),
             )
 
 

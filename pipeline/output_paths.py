@@ -10,6 +10,7 @@ OUTPUT_FILENAMES = (
     "reproduction_plan.md",
     "run.sh",
     "report.md",
+    "manifest.json",
 )
 
 

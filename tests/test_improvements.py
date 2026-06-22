@@ -61,6 +61,12 @@ class ImprovementTests(unittest.TestCase):
         self.assertEqual(path.name, "report.md")
         self.assertEqual(path.parent.name, "demo")
 
+    def test_resolve_output_file_accepts_manifest(self) -> None:
+        result = {"paper_name": "demo"}
+        path = resolve_output_file(result, "manifest.json")
+        self.assertEqual(path.name, "manifest.json")
+        self.assertEqual(path.parent.name, "demo")
+
     def test_output_paths_sanitize_paper_name(self) -> None:
         self.assertEqual(safe_output_name("../Bad Paper?.pdf"), "Bad_Paper_pdf")
         path = resolve_output_dir({"paper_name": "../Bad Paper?.pdf"})
@@ -178,6 +184,7 @@ class ImprovementTests(unittest.TestCase):
                 )
             self.assertIn("env_plan", updated)
             self.assertTrue((output_dir / "reproduction_plan.md").is_file())
+            self.assertTrue((output_dir / "manifest.json").is_file())
 
 
 if __name__ == "__main__":

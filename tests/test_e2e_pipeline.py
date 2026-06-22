@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -68,6 +69,15 @@ class E2EPipelineTests(unittest.TestCase):
             self.assertTrue(result.get("paper_info"))
             self.assertTrue(result.get("experiment_plan"))
             self.assertIn("stage_sources", result)
+            output_dir = Path("outputs") / "sample"
+            manifest_path = output_dir / "manifest.json"
+            self.assertTrue(manifest_path.is_file())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            artifact_paths = {item["path"] for item in manifest["artifacts"]}
+            self.assertIn("reproduction_plan.md", artifact_paths)
+            self.assertIn("run.sh", artifact_paths)
+            self.assertIn("report.md", artifact_paths)
+            self.assertEqual(manifest["mode"], "reproduce")
 
 
 if __name__ == "__main__":

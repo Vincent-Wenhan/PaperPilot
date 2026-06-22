@@ -58,16 +58,22 @@ class ProductTemplateTests(unittest.TestCase):
                 self.assertNotIn("streamlit", client_source.lower())
                 self.assertNotIn("streamlit", adapter_source.lower())
 
-    def test_static_bundle_has_expected_files_without_streamlit_runtime(self) -> None:
+    def test_static_bundle_has_manifest_driven_frontend_and_backend_files(self) -> None:
         bundle = build_static_bundle_sources(
             "text",
             product_spec="# Product\n\n## Product Name\n\nEvidence Console",
             frontend_plan="# Frontend\n\nUse a focused review workflow.",
         )
 
-        self.assertEqual(set(bundle), {"index.html", "app.js", "adapter.js", "styles.css"})
-        self.assertIn("Evidence Console", bundle["index.html"])
-        self.assertIn("Use a focused review workflow.", bundle["app.js"])
+        self.assertIn("frontend/index.html", bundle)
+        self.assertIn("frontend/app.js", bundle)
+        self.assertIn("frontend/adapter.js", bundle)
+        self.assertIn("backend/main.py", bundle)
+        self.assertIn("backend/adapter.py", bundle)
+        self.assertIn("requirements.txt", bundle)
+        self.assertIn("Evidence Console", bundle["frontend/index.html"])
+        self.assertIn("Use a focused review workflow.", bundle["frontend/app.js"])
+        self.assertIn("FastAPI", bundle["backend/main.py"])
         for source in bundle.values():
             self.assertNotIn("streamlit", source.lower())
 

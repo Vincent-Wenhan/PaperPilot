@@ -342,6 +342,13 @@ export function WorkspaceShell() {
         setCommandResults(nextCommands);
         setRunResult(nextResult);
         setEvaluationIssues(nextResult ? issuesFromRunResult(nextResult) : []);
+        if (
+          nextRun.mode === "productize" &&
+          (nextResult?.productize_stage === "proposal_review" ||
+            nextResult?.pipeline_status === "proposal_review")
+        ) {
+          setActiveWorkbenchTab("product");
+        }
         if (nextRun.status !== "running") {
           setNotice(nextRun.summary);
         }

@@ -72,7 +72,7 @@ _PRODUCTIZE_NODES = [
     ("method_composition", "Method Composition", "Research Synthesizer Agent"),
     ("jtbd", "JTBD Analysis", "Product Planner Agent"),
     ("prd", "PRD Generation", "Product Planner Agent"),
-    ("mvp", "MVP / MoSCoW", "Product Planner Agent"),
+    ("mvp", "Proposal Review", "Product Planner Agent"),
     ("prototype", "Prototype Build", "Prototype Builder Agent"),
     ("evaluation", "Evaluation", "Product Evaluator Agent"),
     ("revision", "Revision Routing", "Product Evaluator Agent"),

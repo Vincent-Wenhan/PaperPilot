@@ -96,7 +96,7 @@ function WorkflowNodeCard({ data }: NodeProps) {
       <Handle className="workflow-node-handle" position={Position.Left} type="target" />
       <div className="node-title"><StatusIcon size={17} /><strong>{nodeData.label}</strong></div>
       <div className="node-status-row">
-        <span>{nodeData.status === "success" ? "Completed" : nodeData.status === "waiting_review" ? "Pending" : nodeData.status}</span>
+        <span>{nodeData.status === "success" ? "Completed" : nodeData.status === "waiting_review" ? "Review" : nodeData.status}</span>
         <time>{nodeData.finishedAt}</time>
       </div>
       <div className="node-meta">

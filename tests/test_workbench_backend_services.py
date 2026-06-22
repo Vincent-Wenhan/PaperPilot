@@ -23,7 +23,7 @@ from backend.services.command_service import CommandService
 from backend.services.file_service import FileService
 from backend.services.graph_service import graph_service
 from backend.services.patch_service import PatchService
-from backend.services.run_service import InMemoryRunService, REPRODUCE_PLAN
+from backend.services.run_service import InMemoryRunService, PRODUCTIZE_PLAN, REPRODUCE_PLAN
 from backend.services.workbench_mock import build_workbench_snapshot, utc_now
 from config import WORKSPACE_DIR
 from schemas.product_schema import ProductOpportunity, ProductProposal, PRD as ProductPRD
@@ -435,6 +435,42 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             self.assertEqual(len(result["productize_proposals"]), 3)
             self.assertEqual(result["productize_proposals"][1]["product_name"], "Proposal B")
             self.assertEqual(result["papers"][1]["paper_info"], "paper two")
+
+    def test_productize_proposal_review_summary_points_to_next_action(self) -> None:
+        summary = InMemoryRunService._summary_from_result(
+            RunCreateRequest(mode="productize"),
+            {"pipeline_status": "proposal_review"},
+            "waiting_review",
+        )
+
+        self.assertEqual(summary, "Product proposals are ready; choose one to scaffold.")
+
+    def test_productize_proposal_review_summary_is_normalized_for_existing_runs(self) -> None:
+        service = InMemoryRunService()
+        run_id = "run_productize_old_summary"
+        started = utc_now()
+        service._runs[run_id] = RunRecord(
+            run_id=run_id,
+            project_id="project_agents",
+            mode="productize",
+            status="waiting_review",
+            task="Productize",
+            created_at=started,
+            updated_at=started,
+            summary="productize agent pipeline completed with review items.",
+            inputs={"pdf_path": "paper.pdf"},
+            result_summary={"pipeline_status": "proposal_review"},
+            plan=PRODUCTIZE_PLAN,
+        )
+
+        service._normalize_productize_proposal_review_runs()
+
+        recovered = service.get_run(run_id)
+        self.assertIsNotNone(recovered)
+        self.assertEqual(
+            recovered.summary,
+            "Product proposals are ready; choose one to scaffold.",
+        )
 
     def test_productize_executes_selected_proposal_from_review_state(self) -> None:
         service = InMemoryRunService()
@@ -934,8 +970,10 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
         ]
 
         graph = graph_service.build_graph("productize", events)
+        labels = {node["id"]: node["label"] for node in graph}
         statuses = {node["id"]: node["status"] for node in graph}
 
+        self.assertEqual(labels["mvp"], "Proposal Review")
         self.assertEqual(statuses["prd"], "success")
         self.assertEqual(statuses["mvp"], "waiting_review")
         self.assertEqual(statuses["prototype"], "pending")

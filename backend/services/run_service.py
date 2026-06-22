@@ -81,6 +81,7 @@ class InMemoryRunService:
         self._recover_runs_from_events()
         self._recover_terminal_status_from_results()
         self._recover_stale_running_runs()
+        self._normalize_productize_proposal_review_runs()
         self._normalize_resolved_review_runs()
         self.seed_mock_run()
 
@@ -145,6 +146,28 @@ class InMemoryRunService:
     def _normalize_resolved_review_runs(self) -> None:
         for run_id in list(self._runs):
             self._finalize_run_after_review_actions(run_id)
+
+    def _normalize_productize_proposal_review_runs(self) -> None:
+        changed = False
+        target_summary = "Product proposals are ready; choose one to scaffold."
+        for run_id, run in list(self._runs.items()):
+            if (
+                run.mode != "productize"
+                or run.status != "waiting_review"
+                or run.result_summary.get("pipeline_status") != "proposal_review"
+                or run.summary == target_summary
+            ):
+                continue
+            self._runs[run_id] = run.model_copy(
+                update={
+                    "summary": target_summary,
+                    "updated_at": utc_now(),
+                }
+            )
+            changed = True
+        if changed:
+            with self._lock:
+                self._persist_state_locked()
 
     def _recover_terminal_status_from_events(
         self,
@@ -1732,6 +1755,12 @@ class InMemoryRunService:
         pipeline_status = result_summary.get("pipeline_status", "complete")
         if status == "failed":
             return f"{request.mode} agent pipeline failed."
+        if (
+            request.mode == "productize"
+            and status == "waiting_review"
+            and pipeline_status == "proposal_review"
+        ):
+            return "Product proposals are ready; choose one to scaffold."
         if status == "waiting_review":
             return f"{request.mode} agent pipeline completed with review items."
         return f"{request.mode} agent pipeline completed ({pipeline_status})."

@@ -79,6 +79,8 @@ class InMemoryRunService:
         self._state_path = RUN_STATE_PATH
         self._load_state()
         self._recover_runs_from_events()
+        self._recover_terminal_status_from_results()
+        self._recover_stale_running_runs()
         self._normalize_resolved_review_runs()
         self.seed_mock_run()
 
@@ -129,6 +131,7 @@ class InMemoryRunService:
             if run_id in self._runs:
                 self._events[run_id] = events
                 self._actions.setdefault(run_id, [])
+                self._recover_terminal_status_from_events(run_id, events)
                 continue
             run = self._run_record_from_events(run_id, events)
             self._runs[run_id] = run
@@ -142,6 +145,102 @@ class InMemoryRunService:
     def _normalize_resolved_review_runs(self) -> None:
         for run_id in list(self._runs):
             self._finalize_run_after_review_actions(run_id)
+
+    def _recover_terminal_status_from_events(
+        self,
+        run_id: str,
+        events: list[WorkbenchEvent],
+    ) -> None:
+        current = self._runs.get(run_id)
+        if current is None or not events:
+            return
+        last = events[-1]
+        if last.event_type not in {
+            "pipeline_finished",
+            "pipeline_failed",
+            "proposal_executed",
+            "review_actions_resolved",
+        }:
+            return
+        if current.status not in {"running", "waiting_review"}:
+            return
+
+        recovered = self._run_record_from_events(run_id, events)
+        self._runs[run_id] = recovered.model_copy(
+            update={
+                "project_id": current.project_id or recovered.project_id,
+                "task": current.task or recovered.task,
+                "inputs": current.inputs or recovered.inputs,
+                "plan": current.plan or recovered.plan,
+            }
+        )
+        if recovered.result_summary:
+            self._results.setdefault(run_id, deepcopy(recovered.result_summary))
+
+    def _recover_terminal_status_from_results(self) -> None:
+        changed = False
+        for run_id, result in list(self._results.items()):
+            if not isinstance(result, dict):
+                continue
+            current = self._runs.get(run_id)
+            if current is None or current.status != "running":
+                continue
+            pipeline_status = str(result.get("pipeline_status") or "").strip()
+            if pipeline_status not in {
+                "complete",
+                "degraded",
+                "failed",
+                "hitl_paused",
+                "mock",
+                "proposal_review",
+            }:
+                continue
+            result_summary = self._summarize_result(result)
+            status = self._status_from_pipeline(pipeline_status)
+            summary = self._summary_from_result(
+                RunCreateRequest(mode=current.mode),
+                result_summary,
+                status,
+            )
+            if status == "failed" and result_summary.get("errors"):
+                summary = f"{current.mode} agent pipeline failed: {result_summary['errors'][0]}"
+            self._runs[run_id] = current.model_copy(
+                update={
+                    "status": status,
+                    "summary": summary,
+                    "updated_at": utc_now(),
+                    "result_summary": result_summary,
+                }
+            )
+            changed = True
+        if changed:
+            with self._lock:
+                self._persist_state_locked()
+
+    def _recover_stale_running_runs(self) -> None:
+        changed = False
+        for run_id, current in list(self._runs.items()):
+            if run_id == MOCK_RUN_ID or current.status != "running":
+                continue
+            result_summary = {
+                "pipeline_status": "failed",
+                "errors": [
+                    "Run was interrupted before completion. Start a new run to retry."
+                ],
+            }
+            self._runs[run_id] = current.model_copy(
+                update={
+                    "status": "failed",
+                    "summary": "Agent pipeline failed: run was interrupted before completion.",
+                    "updated_at": utc_now(),
+                    "result_summary": result_summary,
+                }
+            )
+            self._results.setdefault(run_id, deepcopy(result_summary))
+            changed = True
+        if changed:
+            with self._lock:
+                self._persist_state_locked()
 
     def _run_record_from_events(
         self,

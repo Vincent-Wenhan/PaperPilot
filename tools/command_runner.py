@@ -289,6 +289,69 @@ def run_command_sandbox(
         )
 
 
+def _run_command_in_existing_sandbox(
+    command: str,
+    sandbox_dir: Path,
+    timeout: int,
+) -> CommandResult:
+    """Run a reviewed command inside an already-created sandbox directory."""
+    risk_level, reason = assess_risk(command)
+    if risk_level == "blocked":
+        return CommandResult(
+            command=command,
+            mode="sandbox",
+            executed=False,
+            risk_level=risk_level,
+            blocked_reason=reason,
+            sandbox_dir=str(sandbox_dir),
+        )
+
+    try:
+        result = subprocess.run(
+            shlex.split(command, posix=True),
+            cwd=str(sandbox_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        return CommandResult(
+            command=command,
+            mode="sandbox",
+            executed=True,
+            exit_code=result.returncode,
+            stdout=result.stdout[-MAX_OUTPUT_CHARS:],
+            stderr=result.stderr[-MAX_OUTPUT_CHARS:],
+            timeout=False,
+            risk_level=risk_level,
+            sandbox_dir=str(sandbox_dir),
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode(errors="replace")
+        return CommandResult(
+            command=command,
+            mode="sandbox",
+            executed=True,
+            exit_code=None,
+            stdout=stdout[-MAX_OUTPUT_CHARS:],
+            stderr="Timeout exceeded.",
+            timeout=True,
+            risk_level=risk_level,
+            sandbox_dir=str(sandbox_dir),
+        )
+    except OSError as exc:
+        return CommandResult(
+            command=command,
+            mode="sandbox",
+            executed=False,
+            risk_level=risk_level,
+            blocked_reason=f"Sandbox execution failed: {exc}",
+            sandbox_dir=str(sandbox_dir),
+        )
+
+
 def run_command(
     command: str,
     cwd: str | Path,
@@ -418,7 +481,11 @@ def run_sandbox_verification(
     requirements_path = sandbox_dir / "requirements.txt"
     pip_command = "python -m pip install --disable-pip-version-check -r requirements.txt"
     if _requirements_has_installable_lines(requirements_path):
-        pip_result = run_command_sandbox(pip_command, str(sandbox_dir), timeout=180)
+        pip_result = _run_command_in_existing_sandbox(
+            pip_command,
+            sandbox_dir,
+            timeout=180,
+        )
         results.append({
             "step": "pip install",
             "command": pip_command,
@@ -475,7 +542,7 @@ def run_sandbox_verification(
 
     # 3. python main.py --help
     help_cmd = "python main.py --help"
-    help_result = run_command_sandbox(help_cmd, str(sandbox_dir), timeout=60)
+    help_result = _run_command_in_existing_sandbox(help_cmd, sandbox_dir, timeout=60)
     results.append({
         "step": "help_check",
         "command": help_cmd,
@@ -486,7 +553,11 @@ def run_sandbox_verification(
     })
 
     # 4. smoke test
-    smoke_result = run_command_sandbox(smoke_test_command, str(sandbox_dir), timeout=120)
+    smoke_result = _run_command_in_existing_sandbox(
+        smoke_test_command,
+        sandbox_dir,
+        timeout=120,
+    )
     results.append({
         "step": "smoke_test",
         "command": smoke_test_command,

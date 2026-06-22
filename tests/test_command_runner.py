@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from tools.command_runner import (
     assess_risk,
@@ -98,4 +99,31 @@ class TestCommandRunner(unittest.TestCase):
         pip_step = next(item for item in result["results"] if item["step"] == "pip install")
         self.assertTrue(pip_step["passed"])
         self.assertIn("Skipped", pip_step["stdout"])
+        self.assertTrue(result["passed"])
+
+    def test_sandbox_verification_does_not_create_nested_sandboxes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "requirements.txt").write_text("", encoding="utf-8")
+            (root / "main.py").write_text(
+                "import argparse\n\n"
+                "def main() -> None:\n"
+                "    parser = argparse.ArgumentParser()\n"
+                "    parser.add_argument('--smoke-test', action='store_true')\n"
+                "    parser.parse_args()\n"
+                "    print('ok')\n\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n",
+                encoding="utf-8",
+            )
+
+            with patch(
+                "tools.command_runner.run_command_sandbox",
+                side_effect=AssertionError("verification should reuse its sandbox"),
+            ):
+                result = run_sandbox_verification(
+                    root,
+                    smoke_test_command="python main.py --smoke-test",
+                )
+
         self.assertTrue(result["passed"])

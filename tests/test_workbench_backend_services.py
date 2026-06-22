@@ -13,6 +13,7 @@ from backend.schemas import (
     CommandReviewRequest,
     PatchProposeRequest,
     RunCreateRequest,
+    RunRecord,
     SyntaxCheckRequest,
     WorkbenchEvent,
 )
@@ -22,8 +23,8 @@ from backend.services.command_service import CommandService
 from backend.services.file_service import FileService
 from backend.services.graph_service import graph_service
 from backend.services.patch_service import PatchService
-from backend.services.run_service import InMemoryRunService
-from backend.services.workbench_mock import build_workbench_snapshot
+from backend.services.run_service import InMemoryRunService, REPRODUCE_PLAN
+from backend.services.workbench_mock import build_workbench_snapshot, utc_now
 from config import WORKSPACE_DIR
 from schemas.product_schema import ProductOpportunity, ProductProposal, PRD as ProductPRD
 from tools.llm_client import LLMClient
@@ -191,6 +192,112 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
                 service.get_result(run.run_id)["pipeline_status"],
                 "complete",
             )
+
+    def test_run_service_recovers_failed_status_from_terminal_event(self) -> None:
+        service = InMemoryRunService()
+        run_id = "run_stale_failed"
+        started = utc_now()
+        service._runs[run_id] = RunRecord(
+            run_id=run_id,
+            project_id="project_agents",
+            mode="reproduce",
+            status="running",
+            task="stale run",
+            created_at=started,
+            updated_at=started,
+            summary="Reproduce agent workflow is running.",
+            inputs={"pdf_path": "paper.pdf"},
+            plan=REPRODUCE_PLAN,
+        )
+        events = [
+            WorkbenchEvent(
+                event_id="evt_start",
+                run_id=run_id,
+                node="agent_runtime",
+                agent="Workbench Runner",
+                event_type="pipeline_started",
+                status="running",
+                message="Starting PaperPilot agent pipeline.",
+                payload={},
+                created_at=started,
+            ),
+            WorkbenchEvent(
+                event_id="evt_failed",
+                run_id=run_id,
+                node="agent_runtime",
+                agent="Workbench Runner",
+                event_type="pipeline_failed",
+                status="failed",
+                message="Agent pipeline failed: No space left on device",
+                payload={
+                    "pipeline_status": "failed",
+                    "errors": ["No space left on device"],
+                },
+                created_at=utc_now(),
+            ),
+        ]
+
+        service._recover_terminal_status_from_events(run_id, events)
+
+        recovered = service.get_run(run_id)
+        self.assertIsNotNone(recovered)
+        self.assertEqual(recovered.status, "failed")
+        self.assertEqual(recovered.result_summary["pipeline_status"], "failed")
+        self.assertIn("No space", recovered.summary)
+
+    def test_run_service_recovers_failed_status_from_stored_result(self) -> None:
+        service = InMemoryRunService()
+        run_id = "run_stale_result_failed"
+        started = utc_now()
+        service._runs[run_id] = RunRecord(
+            run_id=run_id,
+            project_id="project_agents",
+            mode="reproduce",
+            status="running",
+            task="stale run",
+            created_at=started,
+            updated_at=started,
+            summary="Reproduce agent workflow is running.",
+            inputs={"pdf_path": "paper.pdf"},
+            plan=REPRODUCE_PLAN,
+        )
+        service._results[run_id] = {
+            "pipeline_status": "failed",
+            "errors": ["No space left on device"],
+        }
+
+        service._recover_terminal_status_from_results()
+
+        recovered = service.get_run(run_id)
+        self.assertIsNotNone(recovered)
+        self.assertEqual(recovered.status, "failed")
+        self.assertEqual(recovered.result_summary["pipeline_status"], "failed")
+        self.assertIn("No space", recovered.summary)
+
+    def test_run_service_marks_orphan_running_run_failed_on_startup(self) -> None:
+        service = InMemoryRunService()
+        run_id = "run_orphan_running"
+        started = utc_now()
+        service._runs[run_id] = RunRecord(
+            run_id=run_id,
+            project_id="project_agents",
+            mode="reproduce",
+            status="running",
+            task="orphan run",
+            created_at=started,
+            updated_at=started,
+            summary="Reproduce agent workflow is running.",
+            inputs={"pdf_path": "paper.pdf"},
+            plan=REPRODUCE_PLAN,
+        )
+
+        service._recover_stale_running_runs()
+
+        recovered = service.get_run(run_id)
+        self.assertIsNotNone(recovered)
+        self.assertEqual(recovered.status, "failed")
+        self.assertEqual(recovered.result_summary["pipeline_status"], "failed")
+        self.assertIn("interrupted", recovered.summary)
 
     def test_run_service_uses_run_scoped_workspace_output_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

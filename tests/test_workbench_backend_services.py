@@ -4,6 +4,7 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend.schemas import (
@@ -80,6 +81,36 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
 
         self.assertEqual(request.pdf_path, "")
         self.assertEqual(request.pdf_paths, ["papers/a.pdf", "papers/b.pdf"])
+
+    def test_file_service_exposes_source_repository_for_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            generated_root = (
+                project_root / "workspace" / "runs" / "run_source" / "outputs" / "code"
+            )
+            source_repo = project_root / "workspace" / "taldatech__lpwm"
+            generated_root.mkdir(parents=True)
+            source_repo.mkdir(parents=True)
+            (generated_root / "main.py").write_text("print('generated')\n", encoding="utf-8")
+            (source_repo / "README.md").write_text("# source repo\n", encoding="utf-8")
+
+            fake_run_service = SimpleNamespace(
+                get_run=lambda _run_id: SimpleNamespace(
+                    result_summary={"generated_code_output_dir": str(generated_root)}
+                ),
+                get_result=lambda _run_id: {
+                    "repository_understanding": {"repo_path": str(source_repo)}
+                },
+                list_actions=lambda _run_id: [],
+            )
+            file_service = FileService(project_root=project_root, file_roots=[])
+
+            with patch("backend.services.run_service.run_service", fake_run_service):
+                files = file_service.list_files(run_id="run_source")
+
+            paths = {file.path for file in files}
+            self.assertIn("workspace/runs/run_source/outputs/code/main.py", paths)
+            self.assertIn("workspace/taldatech__lpwm/README.md", paths)
 
     def test_mock_snapshot_contains_workbench_contracts(self) -> None:
         snapshot = build_workbench_snapshot()

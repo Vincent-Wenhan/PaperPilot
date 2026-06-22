@@ -105,6 +105,7 @@ class FileService:
                 "product_output_dir",
             )
         )
+        source_roots = self._source_repository_roots(result)
 
         output_files = result.get("output_files")
         if isinstance(output_files, dict):
@@ -117,6 +118,7 @@ class FileService:
             cwd = str(action.cwd or "").strip()
             if cwd:
                 roots.append(cwd)
+        roots.extend(source_roots)
         return roots
 
     @staticmethod
@@ -127,6 +129,17 @@ class FileService:
             if value:
                 values.append(value)
         return values
+
+    def _source_repository_roots(self, result: dict[str, object]) -> list[str]:
+        roots: list[str] = []
+        roots.extend(self._path_values(result, "repo_path"))
+        repository = result.get("repository_understanding")
+        if isinstance(repository, dict):
+            roots.extend(self._path_values(repository, "repo_path"))
+        repo_scan = result.get("repo_scan")
+        if isinstance(repo_scan, dict):
+            roots.extend(self._path_values(repo_scan, "repo_path"))
+        return roots
 
     def _resolve_project_path(self, raw_path: str | Path) -> Path | None:
         path = Path(raw_path).expanduser()

@@ -91,6 +91,13 @@ class LLMConnectionResult(BaseModel):
     mock_mode: bool = False
 
 
+class ProductizeProposalExecuteRequest(BaseModel):
+    api_key: str = ""
+    base_url: str = ""
+    model: str = ""
+    mock_mode: bool | None = None
+
+
 class WorkbenchEvent(BaseModel):
     event_id: str
     run_id: str

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from backend.schemas import (
     ActionRequest,
+    ProductizeProposalExecuteRequest,
     RevisionRequest,
     RevisionResult,
     RunCreateRequest,
@@ -89,9 +90,18 @@ def request_run_revision(run_id: str, request: RevisionRequest) -> RevisionResul
 def execute_productize_proposal(
     run_id: str,
     proposal_index: int,
+    request: ProductizeProposalExecuteRequest | None = None,
 ) -> dict[str, Any]:
     try:
-        return run_service.execute_productize_proposal(run_id, proposal_index)
+        body = request or ProductizeProposalExecuteRequest()
+        return run_service.execute_productize_proposal(
+            run_id,
+            proposal_index,
+            api_key=body.api_key,
+            base_url=body.base_url,
+            model=body.model,
+            mock_mode=body.mock_mode,
+        )
     except ValueError as exc:
         detail = str(exc)
         status_code = 404 if detail == "Run not found" else 400

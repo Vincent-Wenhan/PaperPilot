@@ -52,6 +52,13 @@ export type ApiLlmConnectionRequest = {
   mock_mode: boolean;
 };
 
+export type ApiProductizeProposalExecuteRequest = {
+  api_key?: string;
+  base_url?: string;
+  model?: string;
+  mock_mode?: boolean;
+};
+
 export type ApiLlmConnectionResult = {
   ok: boolean;
   message: string;
@@ -530,10 +537,18 @@ export async function fetchRunResult(runId: string) {
   return response.json() as Promise<ApiRunResult>;
 }
 
-export async function executeProductizeProposal(runId: string, proposalIndex: number) {
+export async function executeProductizeProposal(
+  runId: string,
+  proposalIndex: number,
+  request: ApiProductizeProposalExecuteRequest = {},
+) {
   const response = await fetch(
     `${API_BASE}/api/runs/${runId}/productize/proposals/${proposalIndex}/execute`,
-    { method: "POST" },
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
   );
   if (!response.ok) {
     throw await apiError(response, `Proposal execution failed with ${response.status}`);

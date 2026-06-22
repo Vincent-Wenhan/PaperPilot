@@ -1105,6 +1105,11 @@ class InMemoryRunService:
         self,
         run_id: str,
         proposal_index: int,
+        *,
+        api_key: str = "",
+        base_url: str = "",
+        model: str = "",
+        mock_mode: bool | None = None,
     ) -> dict[str, Any]:
         from pipeline.productize_pipeline import execute_proposal
 
@@ -1124,10 +1129,18 @@ class InMemoryRunService:
 
         proposal = ProductProposal.model_validate(proposals[proposal_index])
         llm_config = stored.get("llm_config") if isinstance(stored.get("llm_config"), dict) else {}
+        effective_base_url = base_url.strip() or str(llm_config.get("base_url") or "")
+        effective_model = model.strip() or str(llm_config.get("model") or "")
+        effective_mock_mode = (
+            mock_mode
+            if mock_mode is not None
+            else bool(llm_config.get("mock_mode", True))
+        )
         client = LLMClient(
-            base_url=str(llm_config.get("base_url") or "") or None,
-            model=str(llm_config.get("model") or "") or None,
-            mock_mode=bool(llm_config.get("mock_mode", True)),
+            api_key=api_key.strip() or None,
+            base_url=effective_base_url or None,
+            model=effective_model or None,
+            mock_mode=effective_mock_mode,
         )
         result = execute_proposal(
             proposal=proposal,

@@ -349,8 +349,20 @@ describe("workspace demo fallback", () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         "http://localhost:8000/api/runs/run_productize/productize/proposals/1/execute",
-        { method: "POST" },
+        expect.objectContaining({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: expect.any(String),
+        }),
       );
+    });
+    const executeCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/runs/run_productize/productize/proposals/1/execute"),
+    );
+    expect(JSON.parse(String(executeCall?.[1]?.body))).toMatchObject({
+      base_url: "https://api.openai.com/v1",
+      model: "gpt-4o-mini",
+      mock_mode: false,
     });
     expect(await screen.findByText("Selected proposal")).toBeVisible();
     expect(screen.getByText("Proposal B")).toBeVisible();

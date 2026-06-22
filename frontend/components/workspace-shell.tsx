@@ -787,7 +787,12 @@ export function WorkspaceShell() {
     setExecutingProductizeProposalIndex(proposalIndex);
     setNotice(`Executing product proposal ${proposalIndex + 1}...`);
     try {
-      const result = await executeProductizeProposal(apiRun.run_id, proposalIndex);
+      const result = await executeProductizeProposal(apiRun.run_id, proposalIndex, {
+        api_key: runForm.api_key,
+        base_url: runForm.base_url,
+        model: runForm.model,
+        mock_mode: runForm.mock_mode,
+      });
       setRunResult(result);
       setEvaluationIssues(issuesFromRunResult(result));
       setActiveWorkbenchTab("product");

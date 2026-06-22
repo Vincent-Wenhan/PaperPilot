@@ -203,6 +203,14 @@ def build_reproduce_manifest(
         }
         for path in result.get("generated_files", [])
     ]
+    artifacts.extend(
+        {
+            "path": f"generated/{item['path']}",
+            "role": "generated_code",
+            "absolute_path": str(root / "generated" / item["path"]),
+        }
+        for item in generated_files
+    )
     manifest = {
         "mode": "reproduce",
         "mock_first": bool(result.get("pipeline_status") == "mock"),

@@ -282,7 +282,7 @@ def _save_generated_code(result: PipelineResult, output_dir: Path) -> None:
     source = Path(repo_path).expanduser().resolve()
     if not source.is_dir():
         return
-    destination = output_dir / "code"
+    destination = output_dir / "generated"
     if destination.exists():
         shutil.rmtree(destination)
     shutil.copytree(

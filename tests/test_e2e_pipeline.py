@@ -41,6 +41,13 @@ def test_mock_reproduce_result_includes_implementation_blueprint(tmp_path):
     assert result["implementation_blueprint"]["files"]
     assert "blueprint_quality" in result
     assert result["code_quality"]["metrics"]["blueprint"]["planned_files"] > 0
+    output_dir = Path("outputs") / "blueprint_test"
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    artifact_paths = {item["path"] for item in manifest["artifacts"]}
+    assert "generated/main.py" in artifact_paths
+    assert "generated/README.md" in artifact_paths
+    assert (output_dir / "generated" / "main.py").is_file()
+    assert result["generated_code_output_dir"].endswith("generated")
 
 
 class E2EPipelineTests(unittest.TestCase):

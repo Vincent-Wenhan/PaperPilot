@@ -3,13 +3,15 @@
 import { Check } from "lucide-react";
 import { StatusPill } from "@/components/status-pill";
 import { DiffViewer } from "@/components/code/diff-viewer";
-import type { WorkflowStatus } from "@/lib/workbench-types";
+import type { PatchSyntaxResult, WorkflowStatus } from "@/lib/workbench-types";
 
 type DiffPanelProps = {
   patchFile: string;
   oldCode: string;
   newCode: string;
   patchStatus: WorkflowStatus;
+  syntaxResult?: PatchSyntaxResult;
+  reason?: string;
   onApprove?: () => void;
   onReject?: () => void;
   onRevise?: () => void;
@@ -26,16 +28,21 @@ export function DiffPanel({
   oldCode,
   newCode,
   patchStatus,
+  syntaxResult,
+  reason,
   onApprove,
   onReject,
   onRevise,
 }: DiffPanelProps) {
+  const hasSyntaxResult = syntaxResult?.syntaxOk !== undefined;
+
   return (
     <div className="stack">
       <div className="diff-header">
         <div>
           <p className="eyebrow">Patch proposal</p>
           <strong>{patchFile}</strong>
+          {reason && <p>{reason}</p>}
         </div>
         <StatusPill status={patchStatus} />
       </div>
@@ -48,6 +55,23 @@ export function DiffPanel({
         onReject={onReject}
         onRevise={onRevise}
       />
+      {hasSyntaxResult && (
+        <div className={syntaxResult.syntaxOk ? "syntax-result success" : "syntax-result failed"}>
+          <strong>
+            {syntaxResult.syntaxOk ? "Syntax check passed" : "Syntax check failed"}
+          </strong>
+          {syntaxResult.failures.length > 0 && (
+            <ul>
+              {syntaxResult.failures.map((failure, index) => (
+                <li key={`${failure.path ?? "failure"}-${index}`}>
+                  <code>{failure.path ?? patchFile}</code>
+                  <span>{failure.error ?? "Unknown syntax error"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {patchStatus !== "success" && patchStatus !== "failed" && (onApprove || onReject || onRevise) && (
         <div className="action-row">
           {onApprove && (

@@ -26,6 +26,12 @@ export function RunnerPanel({
   onEdit,
   onReject,
 }: RunnerPanelProps) {
+  const executionLines = [
+    runnerMessage,
+    runnerReview.stdout ? `stdout:\n${runnerReview.stdout}` : "",
+    runnerReview.stderr ? `stderr:\n${runnerReview.stderr}` : "",
+  ].filter(Boolean);
+
   return (
     <div className="stack">
       <div className="action-request">
@@ -38,8 +44,45 @@ export function RunnerPanel({
           </div>
           <div>
             <dt>Command</dt>
-            <dd><code>{approvalRequest.command}</code></dd>
+            <dd>
+              <code>
+                {approvalRequest.command ||
+                  approvalRequest.patchId ||
+                  approvalRequest.path ||
+                  "No command payload"}
+              </code>
+            </dd>
           </div>
+          {approvalRequest.path && (
+            <div>
+              <dt>Path</dt>
+              <dd><code>{approvalRequest.path}</code></dd>
+            </div>
+          )}
+          {approvalRequest.patchId && (
+            <div>
+              <dt>Patch</dt>
+              <dd><code>{approvalRequest.patchId}</code></dd>
+            </div>
+          )}
+          {approvalRequest.cwd && (
+            <div>
+              <dt>Working dir</dt>
+              <dd><code>{approvalRequest.cwd}</code></dd>
+            </div>
+          )}
+          {approvalRequest.status && (
+            <div>
+              <dt>Status</dt>
+              <dd>{approvalRequest.status}</dd>
+            </div>
+          )}
+          {approvalRequest.executionStatus && (
+            <div>
+              <dt>Execution</dt>
+              <dd>{approvalRequest.executionStatus}</dd>
+            </div>
+          )}
           <div>
             <dt>Risk</dt>
             <dd>{approvalRequest.risk}</dd>
@@ -58,10 +101,10 @@ export function RunnerPanel({
         <span>Expected</span>
         <strong>{runnerReview.expectedOutput}</strong>
         <span>Exit code</span>
-        <strong>{runnerStatus === "success" ? 0 : runnerReview.exitCode ?? "not run"}</strong>
+        <strong>{runnerReview.exitCode ?? (runnerStatus === "success" ? 0 : "not run")}</strong>
       </div>
       <pre className="terminal-block">
-        <code>{runnerMessage}</code>
+        <code>{executionLines.join("\n\n")}</code>
       </pre>
       {(onApprove || onEdit || onReject) && (
         <div className="action-row">

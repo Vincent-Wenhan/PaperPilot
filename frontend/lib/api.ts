@@ -108,6 +108,8 @@ export type ApiPatchApplyResult = {
   path: string;
   applied: boolean;
   message: string;
+  syntax_ok: boolean;
+  syntax_failures: Array<Record<string, string>>;
 };
 
 export type ApiActionExecutionResult = {
@@ -442,14 +444,18 @@ export async function editAction(actionId: string, editedCommand: string) {
 export function eventFromApi(event: ApiEvent): AgentEvent {
   return {
     id: event.event_id,
+    runId: event.run_id,
+    node: event.node,
     time: new Date(event.created_at).toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
     }),
+    createdAt: event.created_at,
     agent: event.agent,
     eventType: event.event_type,
     message: event.message,
+    payload: event.payload ?? {},
     status: event.status,
   };
 }

@@ -70,15 +70,15 @@ export function DiffViewer({
           compareMethod={DiffMethod.WORDS}
           useDarkTheme
           styles={diffStyles}
-          leftTitle={`old — ${filePath}`}
-          rightTitle={`new — ${filePath}`}
+          leftTitle={`old - ${filePath}`}
+          rightTitle={`new - ${filePath}`}
           hideLineNumbers={false}
           showDiffOnly={false}
         />
       </div>
       {patchStatus === "proposed" && (onApprove || onReject || onRevise) && (
         <div className="diff-approval-bar">
-          <span>Patch is proposed — review and approve or request revision.</span>
+          <span>Patch is proposed - review and approve or request revision.</span>
           <div className="action-row">
             {onApprove && (
               <button className="command-button primary" type="button" onClick={onApprove}>

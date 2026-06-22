@@ -11,7 +11,6 @@ import {
 import { useEffect, useState } from "react";
 
 import {
-  type AgentEvent,
   approvalRequest,
   artifacts as mockArtifacts,
   codeFiles,
@@ -19,7 +18,13 @@ import {
   runnerReview,
   toolCalls as mockToolCalls,
 } from "@/lib/mock-data";
-import type { WorkbenchToolCallEvent } from "@/lib/workbench-types";
+import type {
+  AgentEvent,
+  PatchSyntaxResult,
+  RunnerActionView,
+  RunnerReviewView,
+  WorkbenchToolCallEvent,
+} from "@/lib/workbench-types";
 import { StatusPill } from "@/components/status-pill";
 import {
   artifactFromApi,
@@ -99,8 +104,15 @@ export function InspectorPanel({
       .filter((e) => e.eventType === "tool_call" || e.eventType === "tool_result")
       .map((e) => ({
         id: e.id,
+        runId: e.runId,
+        node: e.node,
+        agent: e.agent,
+        tool: toolNameFromPayload(e.payload) || e.eventType,
+        eventType: e.eventType,
         action: e.eventType === "tool_call" ? e.message : "",
         observation: e.eventType === "tool_result" ? e.message : "",
+        payload: e.payload,
+        timestamp: e.createdAt,
         status: e.status,
       }));
     // Merge paired tool_call/tool_result events
@@ -193,9 +205,14 @@ export function InspectorPanel({
         label: file.path.split("/").pop() ?? file.path,
       })) : [];
 
+  const activePatchSyntax = activePatch
+    ? patchSyntaxResultFromEvents(events, activePatch.patch_id)
+    : undefined;
   const runnerAction =
-    apiActions.find((a) => a.tool === "run_command" && (a.status === "pending" || a.status === "edited")) ??
-    apiActions.find((a) => a.tool === "run_command");
+    apiActions.find((a) => (a.status === "pending" || a.status === "edited")) ??
+    apiActions.find((a) => a.execution_status === "running") ??
+    apiActions.find((a) => a.tool === "run_command") ??
+    apiActions[0];
   const realPatchStatus = activePatch?.status === "applied"
     ? "success"
     : activePatch?.status === "rejected"
@@ -204,9 +221,9 @@ export function InspectorPanel({
   const realRunnerStatus = runnerAction
     ? statusFromActionExecution(runnerAction.execution_status)
     : runnerStatus;
-  const realRunnerMessage = runnerAction
-    ? runnerMessageFromAction(runnerAction)
-    : runnerMessage;
+  const realRunnerMessage = runnerAction ? runnerMessageFromAction(runnerAction) : runnerMessage;
+  const realRunnerAction = runnerAction ? actionViewFromApi(runnerAction) : approvalRequest;
+  const realRunnerReview = runnerAction ? runnerReviewFromAction(runnerAction) : runnerReview;
 
   return (
     <aside className="inspector" aria-label="Run inspector">
@@ -255,6 +272,8 @@ export function InspectorPanel({
               oldCode={activePatch.old_content}
               newCode={activePatch.new_content}
               patchStatus={realPatchStatus}
+              syntaxResult={activePatchSyntax}
+              reason={activePatch.reason}
             />
           ) : preview ? (
             <DiffPanel
@@ -274,25 +293,8 @@ export function InspectorPanel({
         {activeTab === "runner" && (
           runnerAction ? (
             <RunnerPanel
-              approvalRequest={{
-                id: runnerAction.action_id,
-                agent: runnerAction.agent,
-                tool: runnerAction.tool,
-                command: runnerAction.edited_command || runnerAction.command,
-                risk: runnerAction.risk,
-                reason: runnerAction.reason,
-              }}
-              runnerReview={{
-                ...runnerReview,
-                command: runnerAction.edited_command || runnerAction.command,
-                risk: runnerAction.risk === "blocked" ? "high" : runnerAction.risk,
-                cwd: runnerAction.cwd,
-                stdout: String(runnerAction.execution_result?.stdout ?? ""),
-                stderr: String(runnerAction.execution_result?.stderr ?? ""),
-                exitCode: typeof runnerAction.execution_result?.exit_code === "number"
-                  ? runnerAction.execution_result.exit_code
-                  : null,
-              }}
+              approvalRequest={realRunnerAction}
+              runnerReview={realRunnerReview}
               runnerStatus={realRunnerStatus}
               runnerMessage={realRunnerMessage}
             />
@@ -329,6 +331,96 @@ export function InspectorPanel({
   );
 }
 
+function actionViewFromApi(action: ApiAction): RunnerActionView {
+  return {
+    id: action.action_id,
+    runId: action.run_id,
+    agent: action.agent,
+    tool: action.tool,
+    command: action.edited_command || action.command,
+    cwd: action.cwd,
+    patchId: action.patch_id,
+    path: action.path,
+    risk: action.risk,
+    reason: action.reason,
+    status: action.status,
+    executionStatus: action.execution_status,
+  };
+}
+
+function runnerReviewFromAction(action: ApiAction): RunnerReviewView {
+  const result = action.execution_result ?? {};
+  const patchResult = isRecord(result.result) ? result.result : result;
+  const patchMessage = String(patchResult.message ?? "");
+  const command = action.edited_command || action.command;
+  const isPatch = action.tool === "apply_patch";
+  const stdout = String(result.stdout ?? "");
+  const stderr = String(result.stderr ?? "");
+
+  return {
+    purpose: isPatch
+      ? "Apply a reviewed patch through the backend approval path."
+      : "Run a reviewed command through the backend command runner.",
+    command: command || action.patch_id || action.path || action.tool,
+    risk: action.risk === "blocked" ? "high" : action.risk,
+    cwd: action.cwd || ".",
+    expectedOutput: isPatch
+      ? "Patch result plus syntax check event."
+      : "Bounded stdout/stderr and exit code.",
+    stdout: isPatch ? patchMessage : stdout,
+    stderr,
+    exitCode:
+      typeof result.exit_code === "number"
+        ? result.exit_code
+        : null,
+  };
+}
+
+function patchSyntaxResultFromEvents(
+  events: AgentEvent[],
+  patchId: string,
+): PatchSyntaxResult | undefined {
+  const syntaxEvent = [...events]
+    .reverse()
+    .find((event) => {
+      if (
+        event.eventType !== "syntax_check_passed" &&
+        event.eventType !== "syntax_check_failed"
+      ) {
+        return false;
+      }
+      return String(event.payload?.patch_id ?? "") === patchId;
+    });
+  if (!syntaxEvent) {
+    return undefined;
+  }
+  const failures = Array.isArray(syntaxEvent.payload?.syntax_failures)
+    ? syntaxEvent.payload.syntax_failures
+        .filter(isRecord)
+        .map((failure) => ({
+          path: typeof failure.path === "string" ? failure.path : undefined,
+          error: typeof failure.error === "string" ? failure.error : undefined,
+        }))
+    : [];
+  return {
+    syntaxOk: Boolean(syntaxEvent.payload?.syntax_ok),
+    failures,
+  };
+}
+
+function toolNameFromPayload(payload?: Record<string, unknown>): string {
+  if (!payload) {
+    return "";
+  }
+  for (const key of ["tool", "tool_name", "name", "command"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return "";
+}
+
 function statusFromActionExecution(
   status: ApiAction["execution_status"],
 ): "waiting_review" | "success" | "failed" | "revised" {
@@ -358,6 +450,10 @@ function runnerMessageFromAction(action: ApiAction): string {
   }
   const stderr = String(action.execution_result?.stderr ?? "");
   return stderr || "Execution completed with a failure result.";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function preferredCodeFile(files: ApiFileNode[]): ApiFileNode | undefined {

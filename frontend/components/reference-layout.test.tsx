@@ -269,6 +269,68 @@ describe("reference workbench layout", () => {
 
     expect(onRequestRevision).toHaveBeenCalledWith("eval-suggestion-1", "revise_prd");
   });
+
+  it("marks product design proposal review as a scrollable workbench panel", () => {
+    render(
+      <CenterWorkspace
+        mode="productize"
+        notice="Productize proposals ready."
+        planState={[]}
+        timelineEvents={[]}
+        runStatus="waiting_review"
+        hasRun
+        graphNodes={[]}
+        activeTab="product"
+        activeNavId="run"
+        sectionContext={{
+          projectId: "paperpilot_workspace",
+          task: "Productize",
+          paperInput: "paper.pdf",
+          repoInput: "",
+          mode: "productize",
+          model: "gpt-4o-mini",
+          baseUrl: "",
+          goal: "",
+          hardware: "CPU only",
+          gpuInfo: "",
+          mockMode: true,
+          runStatus: "waiting_review",
+          pendingActions: 0,
+          eventCount: 0,
+          generatedFiles: 0,
+          pipelineStatus: "proposal_review",
+          productGoal: "Mock-first MVP",
+          targetUser: "Researchers",
+        }}
+        onTabChange={vi.fn()}
+        onTogglePlanStep={vi.fn()}
+        onApprovePlan={vi.fn()}
+        onContinueRun={vi.fn()}
+        onOpenRunDrawer={vi.fn()}
+        onShowWorkflow={vi.fn()}
+        runResult={{
+          pipeline_status: "proposal_review",
+          productize_stage: "proposal_review",
+          productize_proposals: [
+            {
+              product_name: "Proposal A",
+              target_user: "Students",
+              product_goal: "Demo",
+              jtbd: "Review research",
+              prd: { core_features: ["Compare methods"] },
+              risks: ["Mock only"],
+            },
+          ],
+        }}
+      />,
+    );
+
+    const proposalPanel = screen
+      .getByRole("heading", { name: "Choose a Product Proposal" })
+      .closest("section");
+
+    expect(proposalPanel).toHaveClass("product-design-panel");
+  });
 });
 
 function jsonResponse(body: unknown) {

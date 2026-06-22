@@ -116,7 +116,7 @@ export function CenterWorkspace({
           )}
 
           {activeTab === "evaluation" && (
-            <section className="tool-panel">
+            <section className="tool-panel workbench-scroll-panel">
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">Quality</p>
@@ -161,7 +161,7 @@ export function CenterWorkspace({
           )}
 
           {activeTab === "product" && (
-            <section className="tool-panel">
+            <section className="tool-panel workbench-scroll-panel product-design-panel">
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">Product Design</p>

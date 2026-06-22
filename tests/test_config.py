@@ -17,3 +17,8 @@ class TestConfig(unittest.TestCase):
 
     def test_debug_goal_value(self) -> None:
         self.assertEqual(MAIN_GOAL_DEBUG, "debug errors")
+
+    def test_runtime_requirements_include_upload_dependency(self) -> None:
+        requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+        self.assertIn("python-multipart", requirements)

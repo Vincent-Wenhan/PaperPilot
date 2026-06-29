@@ -188,10 +188,19 @@ def _is_allowed_cwd(path: Path) -> bool:
 
 
 def _copytree(src: Path, dst: Path) -> None:
-    """Copy a directory tree skipping .git, __pycache__, and venv dirs."""
+    """Copy a directory tree skipping .git, __pycache__, venv, and sandbox dirs.
+
+    The sandbox exclusion prevents the recursive nesting issue where a sandbox
+    created inside an existing sandbox would copy the parent's sandboxes/
+    directory, creating sandboxes inside sandboxes inside sandboxes.
+    """
     dst.mkdir(parents=True, exist_ok=True)
     for item in src.iterdir():
         if item.name in (".git", "__pycache__", ".venv", "venv", "node_modules"):
+            continue
+        # Never copy nested sandboxes — this is what caused the recursive
+        # sandbox-in-sandbox-in-sandbox explosion.
+        if item.name == "sandboxes":
             continue
         target = dst / item.name
         if item.is_dir():

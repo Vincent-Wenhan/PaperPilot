@@ -54,6 +54,7 @@ from pipeline.graph_hitl_runner import (
     resume_graph,
 )
 from pipeline.hitl_context import PipelineHITL
+from pipeline.structured_stage import llm_client_key, run_structured_stage as _run_structured_stage
 from pipeline.stage_tracker import (
     STAGE_FALLBACK,
     STAGE_MOCK,
@@ -90,53 +91,6 @@ DEFAULT_CODE_MAX_REVISIONS = 4
 
 def _record_error(result: PipelineResult, step: str, error: object) -> None:
     result["errors"].append(f"[{step}] {error}")
-
-
-def _llm_client_key(client: LLMClient) -> str:
-    return f"{getattr(client, 'base_url', '')}|{getattr(client, 'model', '')}"
-
-
-def _run_structured_stage(
-    result: PipelineResult,
-    stage: str,
-    agent_factory: Callable[[LLMClient], Any],
-    llm_client: LLMClient,
-    input_data: dict[str, Any],
-    fallback: Callable[[], SchemaT],
-) -> SchemaT:
-    client_key = _llm_client_key(llm_client)
-    unavailable_clients = result["llm_unavailable_clients"]
-    if client_key in unavailable_clients and not llm_client.mock_mode:
-        record_stage_source(result, stage, STAGE_FALLBACK)
-        return fallback()
-    if llm_client.mock_mode:
-        record_stage_source(result, stage, STAGE_MOCK)
-        return fallback()
-    result["llm_attempts"] += 1
-    try:
-        output = agent_factory(llm_client).run_structured(input_data)
-        record_stage_source(result, stage, STAGE_REAL)
-        return output
-    except LLMClientError as exc:
-        result["llm_failures"] += 1
-        if exc.blocks_client and client_key not in unavailable_clients:
-            unavailable_clients.append(client_key)
-        fallback_note = (
-            "Remaining stages using the same endpoint and model used fallback outputs."
-            if exc.blocks_client
-            else "This stage used a fallback output; later stages will continue."
-        )
-        _record_error(
-            result,
-            stage,
-            f"{exc} {fallback_note}",
-        )
-        record_stage_source(result, stage, STAGE_FALLBACK)
-        return fallback()
-    except Exception as exc:
-        _record_error(result, stage, exc)
-        record_stage_source(result, stage, STAGE_FALLBACK)
-        return fallback()
 
 
 def _finalize_status(result: PipelineResult, client: LLMClient) -> None:

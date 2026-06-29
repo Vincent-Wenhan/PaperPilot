@@ -73,13 +73,7 @@ class StructuredAgent(BaseAgent, ABC, Generic[SchemaT]):
         formatted_input = self._format_input(input_data)
         if self.llm_client.mock_mode:
             return self.build_mock(input_data)
-        max_tokens = self._max_output_tokens()
-        raw = self.llm_client.generate(
-            self.system_prompt,
-            formatted_input,
-            max_tokens=max_tokens,
-            json_mode=True,
-        )
+        raw = self._invoke_llm(formatted_input)
         parsed, error = self._parse_structured_response(raw, input_data)
         if parsed is not None:
             return parsed
@@ -89,12 +83,7 @@ class StructuredAgent(BaseAgent, ABC, Generic[SchemaT]):
             f"Error: {error}. Return ONE JSON object only that matches the schema. "
             "Do not wrap the JSON in markdown fences."
         )
-        raw_retry = self.llm_client.generate(
-            self.system_prompt,
-            retry_prompt,
-            max_tokens=max_tokens,
-            json_mode=True,
-        )
+        raw_retry = self._invoke_llm(retry_prompt)
         parsed_retry, retry_error = self._parse_structured_response(
             raw_retry, input_data
         )
@@ -105,6 +94,23 @@ class StructuredAgent(BaseAgent, ABC, Generic[SchemaT]):
             f"{self.name} returned invalid structured output after retry: {retry_error}. "
             f"Response preview: {preview or '<empty>'}"
         )
+
+    def _invoke_llm(self, prompt: str) -> str:
+        """Call the LLM client, tolerating older ``generate`` signatures.
+
+        Tests inject mock clients whose ``generate`` only accepts positional
+        args. Try keyword args first, fall back to positional.
+        """
+        max_tokens = self._max_output_tokens()
+        try:
+            return self.llm_client.generate(
+                self.system_prompt,
+                prompt,
+                max_tokens=max_tokens,
+                json_mode=True,
+            )
+        except TypeError:
+            return self.llm_client.generate(self.system_prompt, prompt)
 
     def _max_output_tokens(self) -> int | None:
         """Cap output tokens for structured agents to avoid truncation.

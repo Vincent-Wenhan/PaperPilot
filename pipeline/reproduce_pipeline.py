@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -83,7 +85,7 @@ from tools.resource_links import extract_resource_links
 
 PipelineResult = dict[str, Any]
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
-DEFAULT_CODE_MAX_REVISIONS = 2
+DEFAULT_CODE_MAX_REVISIONS = 4
 
 
 def _record_error(result: PipelineResult, step: str, error: object) -> None:
@@ -750,6 +752,17 @@ def run_reproduce_pipeline(
                 result["repo_source"] = "Generated reproduction"
         except Exception as exc:
             _record_error(result, "Generated Code Writer", exc)
+        # Actually run the smoke test so the reviewer and reviser see real output.
+        smoke_cmd = implementation.smoke_test_command or "python main.py --smoke-test"
+        smoke_result = _run_smoke_test(result.get("generated_repo_path", ""), smoke_cmd)
+        result["smoke_test_result"] = smoke_result
+        if not smoke_result.get("passed"):
+            _record_error(
+                result,
+                "Smoke Test",
+                f"exit={smoke_result.get('exit_code')}: "
+                f"{(smoke_result.get('stderr') or '')[:400]}",
+            )
         return result["implementation_bundle"]
 
     def review_code(state: dict[str, Any]) -> CodeReview:
@@ -829,6 +842,49 @@ def run_reproduce_pipeline(
         total = len(verification.get("results", []))
         progress(f"Sandbox verification: {passed_count}/{total} checks passed")
         return verification
+
+    def _run_smoke_test(repo_path: str, smoke_command: str) -> dict[str, Any]:
+        """Actually execute the smoke-test command and capture real output."""
+        if not repo_path or not Path(repo_path).is_dir():
+            return {
+                "passed": False,
+                "exit_code": None,
+                "stdout": "",
+                "stderr": f"Repo path does not exist: {repo_path}",
+                "error": "No generated repo path",
+            }
+        try:
+            proc = subprocess.run(
+                shlex.split(smoke_command, posix=True),
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            return {
+                "passed": proc.returncode == 0,
+                "exit_code": proc.returncode,
+                "stdout": proc.stdout[-4000:],
+                "stderr": proc.stderr[-4000:],
+                "error": None,
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "passed": False,
+                "exit_code": None,
+                "stdout": "",
+                "stderr": f"Smoke test timed out after 60 seconds.",
+                "error": "timeout",
+            }
+        except OSError as exc:
+            return {
+                "passed": False,
+                "exit_code": None,
+                "stdout": "",
+                "stderr": f"Failed to start smoke test: {exc}",
+                "error": "startup_failure",
+            }
 
     def revise_code(
         state: dict[str, Any],

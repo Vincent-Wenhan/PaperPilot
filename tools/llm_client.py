@@ -187,6 +187,7 @@ class LLMClient:
         messages: list[dict[str, str]],
         *,
         max_tokens: int | None = None,
+        json_mode: bool = False,
     ) -> Any:
         options: dict[str, Any] = {
             "model": self.model,
@@ -197,12 +198,26 @@ class LLMClient:
                 options["max_completion_tokens"] = max_tokens
             else:
                 options["max_tokens"] = max_tokens
+        if json_mode and self._supports_json_response():
+            options["response_format"] = {"type": "json_object"}
         try:
             return self._get_client().chat.completions.create(**options)
         except LLMClientError:
             raise
         except Exception as exc:
             raise self._request_error(exc) from exc
+
+    @staticmethod
+    def _supports_json_response() -> bool:
+        """Opt-in JSON response format via env var.
+
+        Some OpenAI-compatible endpoints reject ``response_format``. Default
+        is off so the schema-driven prompt keeps working everywhere. Set
+        ``LLM_JSON_RESPONSE=true`` to enable structured JSON mode.
+        """
+        return os.getenv("LLM_JSON_RESPONSE", "false").lower() in {
+            "1", "true", "yes", "on",
+        }
 
     def test_connection(self) -> str:
         """Perform a tiny explicit request to validate endpoint, key, and model."""
@@ -239,7 +254,14 @@ class LLMClient:
                     "`https://api.openai.com/v1`."
                 )
 
-    def generate(self, system_prompt: str, user_prompt: str) -> str:
+    def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        max_tokens: int | None = None,
+        json_mode: bool = False,
+    ) -> str:
         """Return generated text or raise an actionable client error."""
         if self.mock_mode:
             return (
@@ -251,7 +273,9 @@ class LLMClient:
             [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
-            ]
+            ],
+            max_tokens=max_tokens,
+            json_mode=json_mode,
         )
 
         content = response.choices[0].message.content

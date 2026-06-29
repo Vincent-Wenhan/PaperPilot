@@ -308,72 +308,89 @@ export function WorkspaceShell() {
     };
   }, []);
 
-  // Poll running runs
+  // Live updates via WebSocket when a run is active.
   useEffect(() => {
-    if (!activeRunId || activeRunStatus !== "running") {
+    if (!activeRunId) {
       return;
     }
     const runId = activeRunId;
-    let cancelled = false;
-    async function refreshRun() {
+    let closed = false;
+
+    const wsUrl = `${API_BASE.replace(/^http/, "ws")}/ws/runs/${runId}`;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+
+    const refreshCompanion = async () => {
       try {
-        const [
-          nextRun,
-          nextEvents,
-          nextGraph,
-          nextActions,
-          nextCommands,
-          nextResult,
-        ] = await Promise.all([
-          fetchRun(runId),
-          fetchRunEvents(runId),
-          fetchRunGraph(runId).catch(() => []),
-          fetchRunActions(runId).catch(() => []),
-          fetchCommandResults(runId).catch(() => []),
-          fetchRunResult(runId).catch(() => null),
-        ]);
-        if (cancelled) {
-          return;
-        }
+        const [nextRun, nextGraph, nextActions, nextCommands, nextResult] =
+          await Promise.all([
+            fetchRun(runId),
+            fetchRunGraph(runId).catch(() => []),
+            fetchRunActions(runId).catch(() => []),
+            fetchCommandResults(runId).catch(() => []),
+            fetchRunResult(runId).catch(() => null),
+          ]);
+        if (closed) return;
         setApiRun(nextRun);
-        setTimelineEvents(nextEvents.map(eventFromApi));
-        setGraphNodes(enrichGraphFromEvents(nextGraph, nextEvents, nextRun.mode));
-        setPlanState(planForRunStatus(nextRun));
+        setGraphNodes(enrichGraphFromEvents(nextGraph, [], nextRun.mode));
         setApiActions(nextActions);
         setCommandResults(nextCommands);
         setRunResult(nextResult);
         setEvaluationIssues(nextResult ? issuesFromRunResult(nextResult) : []);
-        if (
-          nextRun.mode === "productize" &&
-          (nextResult?.productize_stage === "proposal_review" ||
-            nextResult?.pipeline_status === "proposal_review")
-        ) {
-          setActiveWorkbenchTab("product");
-        }
-        if (nextRun.status !== "running") {
-          setNotice(nextRun.summary);
-        }
       } catch (error) {
-        if (!cancelled) {
-          if (isNotFoundError(error)) {
-            clearStaleRun(
-              runId,
-              `Run ${runId} is stale because the backend no longer has its state. The running indicator has been cleared.`,
-            );
-            return;
-          }
-          const message = error instanceof Error ? error.message : "poll failed";
-          setNotice(`Could not refresh run status: ${message}`);
+        if (!closed && isNotFoundError(error)) {
+          clearStaleRun(
+            runId,
+            `Run ${runId} is stale because the backend no longer has its state.`,
+          );
         }
       }
-    }
-    const timer = window.setInterval(refreshRun, 1800);
-    void refreshRun();
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
     };
-  }, [activeRunId, activeRunStatus]);
+
+    const handleEvent = (event: ApiEvent) => {
+      setTimelineEvents((events) => {
+        if (events.some((item) => item.id === event.event_id)) {
+          return events;
+        }
+        return [eventFromApi(event), ...events];
+      });
+    };
+
+    const connect = () => {
+      socket = new WebSocket(wsUrl);
+      socket.onopen = () => {
+        // pull initial state once the socket is live
+        void refreshCompanion();
+      };
+      socket.onmessage = (message) => {
+        try {
+          const event = JSON.parse(message.data) as ApiEvent;
+          handleEvent(event);
+          void refreshCompanion();
+        } catch {
+          // ignore malformed payloads — the companion poll will reconcile
+        }
+      };
+      socket.onerror = () => {
+        // fall back silently; the reconnect loop will retry
+      };
+      socket.onclose = () => {
+        if (closed) return;
+        reconnectTimer = window.setTimeout(connect, 2000);
+      };
+    };
+
+    connect();
+    void refreshCompanion();
+
+    return () => {
+      closed = true;
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+      }
+      socket?.close();
+    };
+  }, [activeRunId]);
 
   // Fetch durable outputs when a run reaches a review or terminal state.
   useEffect(() => {
@@ -1008,6 +1025,8 @@ function appendUniquePaths(existing: string[], additions: string[]): string[] {
 }
 
 function planFromRun(run: ApiRun): PlanStep[] {
+  // Each plan label becomes a step. Step status is derived from the run's
+  // overall status; the graph panel renders the fine-grained node status.
   return run.plan.map((label, index) => ({
     id: `${run.run_id}-plan-${index}`,
     label,

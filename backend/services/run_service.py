@@ -417,7 +417,12 @@ class InMemoryRunService:
             return
 
     def seed_mock_run(self) -> RunRecord:
-        """Register the mock workbench run so action endpoints can mutate it."""
+        """Register the mock workbench run so action endpoints can mutate it.
+
+        Mock runs are tagged via the ``inputs.is_mock`` flag so the UI can
+        distinguish them from real runs instead of presenting fabricated
+        state as live.
+        """
         run = build_mock_run()
         with self._lock:
             self._runs[run.run_id] = run
@@ -670,12 +675,227 @@ class InMemoryRunService:
             message=message,
             payload=record,
         )
+        # Actually re-run the affected agent so the user sees a real change
+        # in the generated artifact, not just a history entry.
+        if action in {"revise_prd", "reduce_mvp_scope", "revise_prototype"}:
+            self._executor.submit(
+                self._rerun_productize_agent,
+                run_id,
+                action,
+                instruction,
+            )
         return RevisionResult(
             run_id=run_id,
             issue_id=issue_id,
             action=action,
             message=message,
             revision_history=history,
+        )
+
+    def _rerun_productize_agent(
+        self,
+        run_id: str,
+        action: RevisionAction,
+        instruction: str,
+    ) -> None:
+        """Re-run a productize agent with the revision instruction as feedback.
+
+        Best-effort: if the agent rerun fails, the original artifact remains
+        in place so the user still has a working prototype to inspect.
+        """
+        try:
+            from pipeline.productize_pipeline import (
+                ProductizeExecutionDependencies,
+                build_productize_execution_graph,
+            )
+            from productize import inspect_generated_product
+            from productize.ui_spec import build_product_ui_spec
+            from schemas.product_schema import (
+                ProductPlan,
+                ProductProposal,
+                PrototypePlan,
+            )
+
+            stored = self.get_result(run_id) or {}
+            proposals = stored.get("productize_proposals") or []
+            if not proposals:
+                return
+            proposal = ProductProposal.model_validate(proposals[0])
+            papers = list(stored.get("papers") or [])
+            research_synthesis = dict(stored.get("research_synthesis") or {})
+            repo_path = self._repo_path_from_papers(papers)
+
+            def _run_stage(
+                stage_name: str,
+                agent_factory,
+                input_data: dict[str, Any],
+                fallback_factory,
+            ):
+                try:
+                    return agent_factory().run_structured(input_data)
+                except Exception as exc:
+                    self._append_event(
+                        run_id,
+                        node="revision",
+                        agent=stage_name,
+                        event_type="revision_failed",
+                        status="failed",
+                        message=f"Revision failed for {stage_name}: {exc}",
+                        payload={
+                            "action": action,
+                            "instruction": instruction,
+                            "error": str(exc),
+                        },
+                    )
+                    return fallback_factory()
+
+            def select_template(state: dict[str, Any]) -> str:
+                from productize import select_product_template
+                return select_product_template(
+                    " ".join(str(p.get("paper_info", "")) for p in papers),
+                    " ".join(str(p.get("method_info", "")) for p in papers),
+                    " ".join(str(p.get("repo_info", "")) for p in papers),
+                    _product_plan_to_markdown(
+                        ProductPlan.model_validate(state["product_plan"])
+                    ),
+                    str(stored.get("preferred_type") or "auto"),
+                )
+
+            def build_prototype(
+                product_plan: dict[str, Any],
+                template_type: str,
+                feedback: dict[str, Any],
+            ) -> PrototypePlan:
+                input_data = {
+                    "product_plan": product_plan,
+                    "template_type": template_type,
+                }
+                if feedback:
+                    input_data["evaluation_feedback"] = feedback
+                from agents import PrototypeBuilderAgent
+                prototype = _run_stage(
+                    "Prototype Builder Agent (revision)",
+                    lambda: PrototypeBuilderAgent(self._client_for_run(run_id)),
+                    input_data,
+                    lambda: PrototypePlan.model_validate(product_plan),
+                )
+                return prototype
+
+            def revise_product_plan(
+                product_plan: dict[str, Any],
+                evaluation: dict[str, Any],
+            ) -> ProductPlan:
+                input_data = {
+                    "research_synthesis": research_synthesis,
+                    "target_user": proposal.target_user,
+                    "product_goal": proposal.product_goal,
+                    "current_product_plan": product_plan,
+                    "evaluation_feedback": {
+                        **(evaluation or {}),
+                        "revision_instruction": instruction,
+                        "revision_action": action,
+                    },
+                }
+                from agents import ProductPlannerAgent
+                return _run_stage(
+                    "Product Planner Agent (revision)",
+                    lambda: ProductPlannerAgent(self._client_for_run(run_id)),
+                    input_data,
+                    lambda: ProductPlan.model_validate(product_plan),
+                )
+
+            def scaffold(state: dict[str, Any]) -> dict[str, Any]:
+                from productize import scaffold_product
+                plan = ProductPlan.model_validate(state["product_plan"])
+                prototype = PrototypePlan.model_validate(state["prototype_plan"])
+                ui_spec = build_product_ui_spec(plan, prototype)
+                return scaffold_product(
+                    template_type=str(state["template_type"]),
+                    product_spec=_product_plan_to_markdown(plan),
+                    adapter_plan=_prototype_plan_to_markdown(prototype),
+                    frontend_plan=_prototype_plan_to_markdown(prototype),
+                    repo_path=repo_path,
+                    output_dir=WORKSPACE_DIR / "runs" / run_id / "generated_product",
+                    prototype_plan=prototype.model_dump(mode="json"),
+                    ui_spec=ui_spec.model_dump(mode="json"),
+                )
+
+            def inspect(state: dict[str, Any]) -> dict[str, Any]:
+                del state
+                return inspect_generated_product(
+                    WORKSPACE_DIR / "runs" / run_id / "generated_product"
+                )
+
+            def evaluate_product(*args, **kwargs):
+                # placeholder, not used in revision path
+                return None
+
+            def revise_prototype(*args, **kwargs):
+                return None
+
+            # Build a minimal execution graph that only revises the affected artifact
+            deps = ProductizeExecutionDependencies(
+                select_template=select_template,
+                build_prototype=build_prototype,
+                evaluate_product=evaluate_product,
+                revise_product_plan=revise_product_plan,
+                revise_prototype=revise_prototype,
+                scaffold_product=scaffold,
+                inspect_product=inspect,
+            )
+            graph = build_productize_execution_graph(deps)
+            initial_state = {
+                "selected_proposal": proposal.model_dump(mode="json"),
+                "papers": papers,
+                "research_synthesis": research_synthesis,
+                "revision_count": 0,
+                "max_revisions": 1,
+                "revision_history": [],
+                "errors": [],
+            }
+            self._append_event(
+                run_id,
+                node="revision",
+                agent=route_by_action[action],
+                event_type="revision_started",
+                status="running",
+                message=f"Re-running {route_by_action[action]} with revision feedback.",
+                payload={"action": action, "instruction": instruction},
+            )
+            final_state = graph.invoke(initial_state)
+            new_plan = ProductPlan.model_validate(final_state.get("product_plan") or {})
+            self._store_result(run_id, dict(stored))
+            self._append_event(
+                run_id,
+                node="revision",
+                agent=route_by_action[action],
+                event_type="revision_completed",
+                status="success",
+                message=f"Revision completed: {action}.",
+                payload={
+                    "action": action,
+                    "selected_product": new_plan.selected_product,
+                },
+            )
+        except Exception as exc:
+            self._append_event(
+                run_id,
+                node="revision",
+                agent="Workbench Runner",
+                event_type="revision_failed",
+                status="failed",
+                message=f"Revision rerun failed: {exc}",
+                payload={"error": str(exc)},
+            )
+
+    def _client_for_run(self, run_id: str) -> LLMClient:
+        """Build an LLMClient for revision reruns from stored run config."""
+        run_llm_config = self._llm_configs.get(run_id, {})
+        return LLMClient(
+            api_key=str(run_llm_config.get("api_key") or "") or None,
+            base_url=str(run_llm_config.get("base_url") or "") or None,
+            model=str(run_llm_config.get("model") or "") or None,
+            mock_mode=bool(run_llm_config.get("mock_mode", True)),
         )
 
     def get_action(self, action_id: str) -> ActionRequest | None:

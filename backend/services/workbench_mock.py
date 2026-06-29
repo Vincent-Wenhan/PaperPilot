@@ -28,7 +28,7 @@ def build_mock_run(run_id: str = "run_mock_reproduce") -> RunRecord:
         task="Reproduce a paper with repository evidence and bounded runner checks.",
         created_at=now,
         updated_at=now,
-        summary="Reproduce workflow paused at runner review.",
+        summary="[MOCK] Reproduce workflow paused at runner review. This is a seeded mock run, not real pipeline state.",
         plan=[
             "Parse paper and extract resource links",
             "Build structured research understanding",
@@ -44,6 +44,17 @@ def build_mock_events(run_id: str) -> list[WorkbenchEvent]:
     now = utc_now()
     return [
         WorkbenchEvent(
+            event_id="evt_mock_seed",
+            run_id=run_id,
+            node="run_intake",
+            agent="Workbench",
+            event_type="run_created",
+            status="success",
+            message="[MOCK] Seeded a mock run for workbench preview. Start a real run to see pipeline state.",
+            payload={"mock": True},
+            created_at=now,
+        ),
+        WorkbenchEvent(
             event_id="evt_parse_finished",
             run_id=run_id,
             node="parse_paper",
@@ -51,7 +62,7 @@ def build_mock_events(run_id: str) -> list[WorkbenchEvent]:
             event_type="node_finished",
             status="success",
             message="Paper text and resource links extracted.",
-            payload={"pages": 14},
+            payload={"pages": 14, "mock": True},
             created_at=now,
         ),
         WorkbenchEvent(
@@ -62,7 +73,7 @@ def build_mock_events(run_id: str) -> list[WorkbenchEvent]:
             event_type="tool_call",
             status="success",
             message="code_search found train.py, eval.py, and config/default.yaml.",
-            payload={"tool": "code_search", "query": "argparse"},
+            payload={"tool": "code_search", "query": "argparse", "mock": True},
             created_at=now,
         ),
         WorkbenchEvent(
@@ -73,7 +84,7 @@ def build_mock_events(run_id: str) -> list[WorkbenchEvent]:
             event_type="human_review_required",
             status="waiting_review",
             message="Command classified as review-required.",
-            payload={"command": "python main.py --smoke-test", "risk": "medium"},
+            payload={"command": "python main.py --smoke-test", "risk": "medium", "mock": True},
             created_at=now,
         ),
     ]
@@ -88,7 +99,7 @@ def build_mock_actions(run_id: str) -> list[ActionRequest]:
             tool="run_command",
             command="python main.py --smoke-test",
             risk="medium",
-            reason="Validate generated entrypoint with synthetic inputs only.",
+            reason="[MOCK] Validate generated entrypoint with synthetic inputs only.",
         )
     ]
 

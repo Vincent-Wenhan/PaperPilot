@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -30,10 +31,10 @@ def get_llm_config() -> LlmConfigData:
             import json
             data = json.loads(LLM_CONFIG_FILE.read_text(encoding="utf-8"))
             return LlmConfigData(
-                api_key="",
-                base_url=data.get("base_url", ""),
-                model=data.get("model", ""),
-                implementation_model=data.get("implementation_model", ""),
+                api_key=str(data.get("api_key", "")),
+                base_url=str(data.get("base_url", "")),
+                model=str(data.get("model", "")),
+                implementation_model=str(data.get("implementation_model", "")),
             )
         except Exception:
             pass
@@ -43,16 +44,35 @@ def get_llm_config() -> LlmConfigData:
 @router.post("/config", response_model=LlmConfigData)
 def save_llm_config(config: LlmConfigData) -> LlmConfigData:
     import json
+    existing: dict[str, Any] = {}
+    if LLM_CONFIG_FILE.is_file():
+        try:
+            existing = json.loads(LLM_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            existing = {}
+    payload = {
+        "base_url": config.base_url,
+        "model": config.model,
+        "implementation_model": config.implementation_model,
+    }
+    # Persist the api_key only when the caller explicitly provides one. An
+    # empty string means "leave whatever is already stored" so a UI that
+    # redacts the key on reload doesn't overwrite the stored value on save.
+    if config.api_key:
+        payload["api_key"] = config.api_key
+    elif "api_key" in existing:
+        payload["api_key"] = existing["api_key"]
     LLM_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     LLM_CONFIG_FILE.write_text(
-        json.dumps({
-            "base_url": config.base_url,
-            "model": config.model,
-            "implementation_model": config.implementation_model,
-        }, indent=2, ensure_ascii=False),
+        json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    return config
+    return LlmConfigData(
+        api_key=payload.get("api_key", ""),
+        base_url=payload["base_url"],
+        model=payload["model"],
+        implementation_model=payload["implementation_model"],
+    )
 
 
 @router.post("/test", response_model=LLMConnectionResult)

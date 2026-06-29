@@ -135,11 +135,22 @@ class BaseAgent:
 
         return None, error
 
-    def run(self, input_data: dict[str, Any] | str) -> str:
+    def run(
+        self,
+        input_data: dict[str, Any] | str,
+        *,
+        max_tokens: int | None = None,
+        json_mode: bool = False,
+    ) -> str:
         """Generate a text result while containing agent-level failures."""
         try:
             user_prompt = self._format_input(input_data)
-            result = self.llm_client.generate(self.system_prompt, user_prompt)
+            result = self.llm_client.generate(
+                self.system_prompt,
+                user_prompt,
+                max_tokens=max_tokens,
+                json_mode=json_mode,
+            )
             if not isinstance(result, str) or not result.strip():
                 return f"{self.name} failed: LLM returned an empty result."
             return result

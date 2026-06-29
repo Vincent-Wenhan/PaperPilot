@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import json
+import os
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
@@ -72,7 +73,13 @@ class StructuredAgent(BaseAgent, ABC, Generic[SchemaT]):
         formatted_input = self._format_input(input_data)
         if self.llm_client.mock_mode:
             return self.build_mock(input_data)
-        raw = super().run(input_data)
+        max_tokens = self._max_output_tokens()
+        raw = self.llm_client.generate(
+            self.system_prompt,
+            formatted_input,
+            max_tokens=max_tokens,
+            json_mode=True,
+        )
         parsed, error = self._parse_structured_response(raw, input_data)
         if parsed is not None:
             return parsed
@@ -82,8 +89,15 @@ class StructuredAgent(BaseAgent, ABC, Generic[SchemaT]):
             f"Error: {error}. Return ONE JSON object only that matches the schema. "
             "Do not wrap the JSON in markdown fences."
         )
-        raw_retry = self.llm_client.generate(self.system_prompt, retry_prompt)
-        parsed_retry, retry_error = self._parse_structured_response(raw_retry, input_data)
+        raw_retry = self.llm_client.generate(
+            self.system_prompt,
+            retry_prompt,
+            max_tokens=max_tokens,
+            json_mode=True,
+        )
+        parsed_retry, retry_error = self._parse_structured_response(
+            raw_retry, input_data
+        )
         if parsed_retry is not None:
             return parsed_retry
         preview = " ".join(raw_retry.split())[:500]
@@ -91,3 +105,16 @@ class StructuredAgent(BaseAgent, ABC, Generic[SchemaT]):
             f"{self.name} returned invalid structured output after retry: {retry_error}. "
             f"Response preview: {preview or '<empty>'}"
         )
+
+    def _max_output_tokens(self) -> int | None:
+        """Cap output tokens for structured agents to avoid truncation.
+
+        Reads ``LLM_MAX_OUTPUT_TOKENS`` (default 8192) so callers can tune
+        per-deployment without code changes. Set to 0 to disable the cap.
+        """
+        raw = os.getenv("LLM_MAX_OUTPUT_TOKENS", "8192")
+        try:
+            value = int(raw)
+        except ValueError:
+            return 8192
+        return value or None

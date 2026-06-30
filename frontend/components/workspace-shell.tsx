@@ -66,12 +66,12 @@ const defaultRunForm: RunFormState = {
   pdf_path: "",
   pdf_paths: [],
   github_url: "",
-  hardware: "CPU only",
+  hardware: "",
   gpu_info: "",
-  goal: "minimal training experiment",
+  goal: "",
   target_user: "",
   product_goal: "",
-  preferred_type: "auto",
+  preferred_type: "",
   api_key: "",
   base_url: "https://api.openai.com/v1",
   model: "gpt-4o-mini",
@@ -118,7 +118,7 @@ export function WorkspaceShell() {
   const [savingConfig, setSavingConfig] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedNavId, setSelectedNavId] = useState("run");
-  const [planState, setPlanState] = useState(planSteps);
+  const [planState, setPlanState] = useState<PlanStep[]>([]);
   const [apiActions, setApiActions] = useState<ApiAction[]>([]);
   const [notice, setNotice] = useState(
     "Upload a PDF and configure agent settings, then create a backend run.",
@@ -653,9 +653,7 @@ export function WorkspaceShell() {
       rememberActiveRun(run);
       setPlanState(planForRunStatus(run));
       setGraphNodes(enrichGraphFromEvents(runGraph, runEvents, run.mode));
-      setTimelineEvents(
-        runEvents.length ? runEvents.map(eventFromApi) : eventsFromRun(run),
-      );
+      setTimelineEvents(runEvents.map(eventFromApi));
       setApiActions(runActions ?? []);
       setCommandResults(runCommands);
       setSelectedNavId("run");
@@ -1059,42 +1057,6 @@ function planForRunStatus(run: ApiRun): PlanStep[] {
     }));
   }
   return planFromRun(run);
-}
-
-function eventsFromRun(run: ApiRun) {
-  const timestamp = new Date().toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const paper = run.inputs?.pdf_path || "paper input";
-  const repo = run.inputs?.github_url || "repository input";
-  return [
-    {
-      id: `${run.run_id}-created`,
-      time: timestamp,
-      agent: "Workbench",
-      eventType: "run_created",
-      message: `Created ${run.mode} run from current inputs.`,
-      status: "success" as const,
-    },
-    {
-      id: `${run.run_id}-inputs`,
-      time: timestamp,
-      agent: "Input Router",
-      eventType: "input_received",
-      message: `Paper: ${paper}; repository: ${repo}.`,
-      status: "running" as const,
-    },
-    {
-      id: `${run.run_id}-plan`,
-      time: timestamp,
-      agent: "Planning Agent",
-      eventType: "plan_generated",
-      message: `Editable plan generated for: ${run.task}`,
-      status: "waiting_review" as const,
-    },
-  ];
 }
 
 function describeActionError(error: unknown): string {

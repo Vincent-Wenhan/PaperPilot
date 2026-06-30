@@ -65,14 +65,7 @@ const DEFAULT_LAYOUT: Record<string, { x: number; y: number }> = {
   scaffold: { x: 620, y: 170 },
 };
 
-const FALLBACK_NODES: GraphNodeData[] = [
-  { id: "parse", label: "Parse Paper", agent: "Paper parser", status: "success", startedAt: "", finishedAt: "00:45", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
-  { id: "repo_evidence", label: "Repo Understanding", agent: "Repository agent", status: "success", startedAt: "", finishedAt: "01:20", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
-  { id: "planning", label: "Product Planner", agent: "Planning agent", status: "success", startedAt: "", finishedAt: "01:10", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
-  { id: "implementation", label: "Prototype Builder", agent: "Builder agent", status: "running", startedAt: "", finishedAt: "02:34", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
-  { id: "evaluation", label: "Evaluator", agent: "Evaluation agent", status: "waiting_review", startedAt: "", finishedAt: "", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
-  { id: "revision", label: "Revision", agent: "Revision agent", status: "pending", startedAt: "", finishedAt: "", inputArtifacts: [], outputArtifacts: [], toolCalls: [], issues: [] },
-];
+const FALLBACK_NODES: GraphNodeData[] = [];
 
 function computeEdges(nodeIds: string[]): Array<{ id: string; source: string; target: string }> {
   const edges: Array<{ id: string; source: string; target: string }> = [];

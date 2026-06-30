@@ -79,25 +79,16 @@ Required project qualities:
 - Generic fallback artifact names such as unavailable.py
 - Mock-only model classes in the main implementation path
 
-## Method Specification (Pre-extracted)
-{method_spec}
+## Input Contract
 
-Use this pre-extracted method specification as the authoritative source for:
-- Exact loss function formulas and variable definitions
-- Tensor shapes for all inputs and outputs
-- All hyperparameter values (learning rate, betas, weight decay, etc.)
-- Weight initialization method
-- Exact model architecture configuration
-
-The method spec is extracted directly from the paper. Do not invent or modify
-these values. If a field is empty or "Not specified", note it as an assumption
-rather than guessing.
-
-## Implementation Blueprint
-{implementation_blueprint}
-
-Follow this blueprint as the project contract. Generate every planned file,
-implement every required symbol, use the listed smoke-test entrypoint, and
-explain any evidence-driven deviation in `assumptions`.
+The input JSON contains these fields. Use them as the authoritative source:
+- `method_spec`: Pre-extracted method specification. Use the exact loss function
+  formulas, tensor shapes, hyperparameters, weight initialization, and model
+  architecture configuration from this spec. Do not invent or modify these
+  values. If a field is empty or "Not specified", note it as an assumption
+  rather than guessing.
+- `implementation_blueprint`: The project contract. Generate every planned
+  file, implement every required symbol, use the listed smoke-test entrypoint,
+  and explain any evidence-driven deviation in `assumptions`.
 
 Return only JSON matching the required schema.

@@ -288,4 +288,25 @@ or evidence that the paper's reported metrics were reproduced.
         }
         if not any(path.endswith(".py") for path in paths):
             return "implementation must include at least one Python file"
+        syntax_error = self._validate_python_syntax(result.files)
+        if syntax_error:
+            return syntax_error
+        return None
+
+    @staticmethod
+    def _validate_python_syntax(files: list[GeneratedCodeFile]) -> str | None:
+        """Reject generated Python that won't parse."""
+        import ast
+
+        for file in files:
+            path = file.path.strip().replace("\\", "/")
+            if not path.endswith(".py"):
+                continue
+            try:
+                ast.parse(file.content)
+            except SyntaxError as exc:
+                return (
+                    f"Generated Python file {file.path} has a syntax error "
+                    f"at line {exc.lineno}: {exc.msg}"
+                )
         return None

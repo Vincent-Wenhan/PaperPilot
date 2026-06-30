@@ -77,7 +77,18 @@ def route_after_second_review(state: dict[str, Any]) -> str:
 
 
 def route_after_sandbox_verify(state: dict[str, Any]) -> str:
-    """Route to code_review for first pass, second_review after a revision."""
+    """Route to code_revise on smoke-test failure, otherwise to code_review/second_review."""
+    sandbox = state.get("sandbox_verification") or {}
+    smoke = state.get("smoke_test_result") or {}
+    smoke_failed = bool(smoke) and not smoke.get("passed")
+    sandbox_failed = bool(sandbox) and not sandbox.get("passed")
+
+    if (smoke_failed or sandbox_failed) and not smoke.get("error") == "timeout":
+        revision_count = int(state.get("code_revision_count") or 0)
+        max_revisions = int(state.get("code_max_revisions") or 1)
+        if revision_count < max_revisions:
+            return "code_revise"
+
     if int(state.get("code_revision_count") or 0) > 0:
         return "second_review"
     return "code_review"

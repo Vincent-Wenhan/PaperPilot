@@ -281,6 +281,7 @@ def build_reproduce_graph(
         route_after_sandbox_verify,
         {
             "code_review": "code_review",
+            "code_revise": "code_revise",
             "second_review": "second_review",
         },
     )

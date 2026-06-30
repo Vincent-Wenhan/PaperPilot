@@ -797,6 +797,36 @@ def run_reproduce_pipeline(
         progress(f"Sandbox verification: {passed_count}/{total} checks passed")
         return verification
 
+    def _format_smoke_failure_for_llm(smoke_result: dict[str, Any] | None) -> str:
+        """Return a compact smoke-test failure report the LLM can act on."""
+        if not smoke_result or smoke_result.get("passed"):
+            return ""
+        exit_code = smoke_result.get("exit_code")
+        stderr = (smoke_result.get("stderr") or "")[:1500]
+        stdout = (smoke_result.get("stdout") or "")[:500]
+        parts = [
+            f"exit_code={exit_code}",
+            f"stderr=\n{stderr}" if stderr else "stderr=<empty>",
+            f"stdout=\n{stdout}" if stdout else "stdout=<empty>",
+        ]
+        return "\n".join(parts)
+
+    def _augment_suggestions_with_smoke_failure(
+        suggestions: list[str],
+        smoke_result: dict[str, Any] | None,
+    ) -> list[str]:
+        """Append the actual smoke-test error so the LLM can fix the root cause."""
+        if not smoke_result or smoke_result.get("passed"):
+            return list(suggestions)
+        report = _format_smoke_failure_for_llm(smoke_result)
+        if not report:
+            return list(suggestions)
+        augmented = list(suggestions)
+        augmented.append(
+            "Smoke-test failure (real output, fix the root cause):\n" + report
+        )
+        return augmented
+
     def _run_smoke_test(repo_path: str, smoke_command: str) -> dict[str, Any]:
         """Actually execute the smoke-test command and capture real output."""
         if not repo_path or not Path(repo_path).is_dir():
@@ -864,7 +894,13 @@ def run_reproduce_pipeline(
             "goal": goal,
             "user_idea": user_idea,
             "approved_resource_links": result["resource_links"],
-            "revision_suggestions": revision_suggestions,
+            "revision_suggestions": _augment_suggestions_with_smoke_failure(
+                revision_suggestions,
+                result.get("smoke_test_result"),
+            ),
+            "smoke_test_failure": _format_smoke_failure_for_llm(
+                result.get("smoke_test_result")
+            ),
             "sandbox_verification_errors": [
                 r for r in (state.get("sandbox_verification") or {}).get("results", [])
                 if not r.get("passed")

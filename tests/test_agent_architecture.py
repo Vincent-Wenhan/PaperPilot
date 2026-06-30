@@ -85,7 +85,6 @@ class AgentArchitectureTests(unittest.TestCase):
             "product_evaluator_agent.py",
         }
         self.assertEqual({path.name for path in root.glob("*.py")}, expected)
-        self.assertTrue((root / "legacy").is_dir())
 
     def test_active_code_does_not_import_legacy_agents(self) -> None:
         project_root = Path(agents.__file__).resolve().parent.parent

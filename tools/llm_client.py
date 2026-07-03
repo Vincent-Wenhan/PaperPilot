@@ -6,6 +6,13 @@ import os
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+try:
+    import httpx
+
+    _HAS_HTTPX = True
+except ImportError:
+    _HAS_HTTPX = False
+
 
 class LLMClientError(RuntimeError):
     """Base error for actionable LLM configuration or request failures."""
@@ -82,6 +89,13 @@ class LLMClient:
         }
         if self.base_url:
             options["base_url"] = self.base_url
+        # Some OpenAI-compatible gateways drop the first connection during TLS
+        # setup, before the SDK-level retry policy can recover.
+        if _HAS_HTTPX:
+            options["http_client"] = httpx.Client(
+                timeout=90.0,
+                transport=httpx.HTTPTransport(retries=3),
+            )
         self._client = OpenAI(**options)
         return self._client
 

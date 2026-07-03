@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+import types
 import unittest
 
 from tools.llm_client import (
@@ -36,6 +38,33 @@ class _BadRequestFailure(Exception):
 
 
 class LLMClientTests(unittest.TestCase):
+    def test_openai_client_uses_transport_level_retries_when_httpx_is_available(self) -> None:
+        captured_options: dict[str, object] = {}
+
+        class CapturingOpenAI:
+            def __init__(self, **options: object) -> None:
+                captured_options.update(options)
+
+        module = types.SimpleNamespace(OpenAI=CapturingOpenAI)
+        original = sys.modules.get("openai")
+        sys.modules["openai"] = module
+        try:
+            client = LLMClient(api_key="test-key", model="test-model")
+            client._get_client()
+        finally:
+            if original is None:
+                sys.modules.pop("openai", None)
+            else:
+                sys.modules["openai"] = original
+
+        self.assertEqual(captured_options["timeout"], 90.0)
+        self.assertEqual(captured_options["max_retries"], 2)
+        if "http_client" in captured_options:
+            self.assertEqual(
+                type(captured_options["http_client"]).__module__.split(".")[0],
+                "httpx",
+            )
+
     def test_connection_error_reports_endpoint_and_network_guidance(self) -> None:
         client = LLMClient(
             api_key="test-key",

@@ -26,6 +26,8 @@ class GraphNodeState:
         output_artifacts: list[str] | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         issues: list[dict[str, Any]] | None = None,
+        route_reason: str = "",
+        next_route: str = "",
     ) -> None:
         self.id = id
         self.label = label
@@ -37,6 +39,8 @@ class GraphNodeState:
         self.output_artifacts = output_artifacts or []
         self.tool_calls = tool_calls or []
         self.issues = issues or []
+        self.route_reason = route_reason
+        self.next_route = next_route
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +54,8 @@ class GraphNodeState:
             "outputArtifacts": self.output_artifacts,
             "toolCalls": self.tool_calls,
             "issues": self.issues,
+            "routeReason": self.route_reason,
+            "nextRoute": self.next_route,
         }
 
 
@@ -121,6 +127,8 @@ class GraphService:
             issues: list[dict[str, Any]] = []
             input_artifacts: list[str] = []
             output_artifacts: list[str] = []
+            route_reason = ""
+            next_route = ""
 
             for evt in node_events:
                 created = getattr(evt, "created_at", "")
@@ -143,6 +151,20 @@ class GraphService:
                     name = payload.get("name") or payload.get("path", "")
                     if name:
                         output_artifacts.append(name)
+                input_artifacts.extend(
+                    item
+                    for item in payload.get("input_artifacts", [])
+                    if isinstance(item, str) and item not in input_artifacts
+                )
+                output_artifacts.extend(
+                    item
+                    for item in payload.get("output_artifacts", [])
+                    if isinstance(item, str) and item not in output_artifacts
+                )
+                if not route_reason:
+                    route_reason = str(payload.get("route_reason") or payload.get("reason") or "")
+                if not next_route:
+                    next_route = str(payload.get("next_route") or payload.get("revision_route") or "")
                 if etype in ("review_issue", "diagnosis_issue", "evaluation_issue"):
                     issues.append({
                         "eventId": getattr(evt, "event_id", ""),
@@ -162,6 +184,8 @@ class GraphService:
                     output_artifacts=output_artifacts,
                     tool_calls=tool_calls,
                     issues=issues,
+                    route_reason=route_reason,
+                    next_route=next_route,
                 ).to_dict()
             )
         self._advance_progression(nodes, node_index, event_by_node)

@@ -22,6 +22,16 @@ export type PendingAction = {
   executionStatus?: "not_started" | "running" | "succeeded" | "failed" | "blocked";
 };
 
+type PendingActionPayload = {
+  command?: string;
+  patchId?: string;
+  files?: string[];
+  cwd?: string;
+  expectedEffect?: string;
+  riskReason?: string;
+  path?: string;
+};
+
 const RISK_COLORS: Record<string, string> = {
   safe: "var(--green)",
   review: "var(--amber)",
@@ -39,7 +49,8 @@ type ApprovalCardProps = {
 
 export function ApprovalCard({ action, onApprove, onReject, onEdit, busy = false }: ApprovalCardProps) {
   const isPending = action.status === "pending" || action.status === "edited";
-  const command = (action.payload.command as string) ?? (action.payload.path as string) ?? "";
+  const payload = action.payload as PendingActionPayload;
+  const command = payload.command ?? payload.path ?? "";
 
   return (
     <div className={`approval-card risk-${action.risk}`}>
@@ -61,7 +72,7 @@ export function ApprovalCard({ action, onApprove, onReject, onEdit, busy = false
           <code>{command}</code>
         </pre>
       )}
-      <p className="approval-reason">{action.reason}</p>
+      <ApprovalRiskDetails action={action} />
       {isPending && (
         <div className="action-row" style={{ marginTop: 8 }}>
           <button
@@ -139,6 +150,7 @@ export function ActionApprovalDrawer({
 
   const isBusy = busyActionId === action.id || action.executionStatus === "running";
   const canAct = action.status === "pending" || action.status === "edited";
+  const payload = action.payload as PendingActionPayload;
 
   return (
     <aside className="approval-overlay" role="complementary" aria-label="Approval Required">
@@ -157,6 +169,18 @@ export function ActionApprovalDrawer({
       <div className="approval-reason-block">
         <span>Reason</span>
         <p>{action.reason}</p>
+      </div>
+      <div className="approval-reason-block">
+        <span>Files affected</span>
+        <p>{formatFiles(payload)}</p>
+      </div>
+      <div className="approval-reason-block">
+        <span>Risk reason</span>
+        <p>{payload.riskReason || action.reason || "Review required before execution."}</p>
+      </div>
+      <div className="approval-reason-block">
+        <span>Expected effect</span>
+        <p>{payload.expectedEffect || expectedEffectFor(action)}</p>
       </div>
       {editing && action.type === "run_command" && (
         <div className="approval-edit-block">
@@ -227,4 +251,37 @@ export function ActionApprovalDrawer({
       {children}
     </aside>
   );
+}
+
+function ApprovalRiskDetails({ action }: { action: PendingAction }) {
+  const payload = action.payload as PendingActionPayload;
+  return (
+    <div className="approval-risk-details">
+      <p className="approval-reason">{action.reason}</p>
+      <dl>
+        <dt>Files</dt>
+        <dd>{formatFiles(payload)}</dd>
+        <dt>Risk</dt>
+        <dd>{payload.riskReason || action.reason || "Review required before execution."}</dd>
+        <dt>Effect</dt>
+        <dd>{payload.expectedEffect || expectedEffectFor(action)}</dd>
+      </dl>
+    </div>
+  );
+}
+
+function formatFiles(payload: PendingActionPayload): string {
+  if (payload.files && payload.files.length > 0) return payload.files.join(", ");
+  if (payload.path) return payload.path;
+  if (payload.patchId) return `Patch ${payload.patchId}`;
+  return "No files declared";
+}
+
+function expectedEffectFor(action: PendingAction): string {
+  if (action.type === "apply_patch") return "Apply a proposed patch to the workspace.";
+  if (action.type === "run_command") return "Run the command in the configured workspace.";
+  if (action.type === "write_file") return "Write or update a generated artifact.";
+  if (action.type === "install_dependency") return "Install a project dependency.";
+  if (action.type === "download_resource") return "Download an external resource into the run workspace.";
+  return "Open an external URL for review.";
 }

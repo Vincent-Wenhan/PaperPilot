@@ -7,6 +7,9 @@ from typing import Any
 
 def route_after_evaluation(state: dict[str, Any]) -> str:
     """Route Productize revisions from score and evaluator suggestions."""
+    if state.get("product_verification"):
+        return route_after_product_evaluation(state)
+
     evaluation = state.get("evaluation") or {}
     score = float(evaluation.get("overall_score") or 0)
     revision_count = int(state.get("revision_count") or 0)
@@ -32,6 +35,35 @@ def route_after_evaluation(state: dict[str, Any]) -> str:
     )
     if any(keyword in text for keyword in prototype_keywords):
         return "revise_prototype"
+    return "revise_product_plan"
+
+
+def route_after_product_evaluation(state: dict[str, Any]) -> str:
+    """Route Productize revisions from blocking verification issues."""
+    report = state.get("product_verification") or state.get("evaluation") or {}
+    issues = report.get("issues") or []
+    blocking = [
+        issue
+        for issue in issues
+        if isinstance(issue, dict) and bool(issue.get("blocking"))
+    ]
+    score = float(report.get("score") or report.get("overall_score") or 0)
+    revision_count = int(state.get("revision_count") or 0)
+    max_revisions = int(state.get("max_revisions") or 1)
+
+    if not blocking and (report.get("ok") is True or score >= 4.0):
+        return "finish"
+    if revision_count >= max_revisions:
+        return "finish_with_warnings"
+
+    routes = {
+        str(issue.get("suggested_route") or "")
+        for issue in blocking
+    }
+    if "revise_prototype" in routes:
+        return "revise_prototype"
+    if "reduce_mvp_scope" in routes or "revise_prd" in routes:
+        return "revise_product_plan"
     return "revise_product_plan"
 
 

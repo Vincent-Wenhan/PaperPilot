@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from schemas.runner_schema import CommandPlan
@@ -136,6 +138,33 @@ class RepositoryUnderstanding(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class EvidenceItem(BaseModel):
+    source_type: Literal["paper", "repo", "config", "code", "readme"] = "repo"
+    path: str = ""
+    quote_or_summary: str = ""
+    confidence: Literal["low", "medium", "high"] = "medium"
+
+
+class RepoEntrypoint(BaseModel):
+    path: str = ""
+    command_hint: str = ""
+    args: list[str] = Field(default_factory=list)
+    confidence: Literal["low", "medium", "high"] = "medium"
+
+
+class ReproductionEvidencePack(BaseModel):
+    task_type: str = ""
+    method_modules: list[str] = Field(default_factory=list)
+    datasets: list[EvidenceItem] = Field(default_factory=list)
+    metrics: list[EvidenceItem] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    entrypoints: list[RepoEntrypoint] = Field(default_factory=list)
+    configs: list[str] = Field(default_factory=list)
+    checkpoints: list[EvidenceItem] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    overall_confidence: Literal["low", "medium", "high"] = "medium"
+
+
 class ReproductionPlan(BaseModel):
     goal: str = "minimal training experiment"
     implementation_strategy: str = ""
@@ -149,6 +178,20 @@ class ReproductionPlan(BaseModel):
     command_plans: list[CommandPlan] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     fallback_plan: list[str] = Field(default_factory=list)
+
+
+class ImplementationContract(BaseModel):
+    task_name: str = ""
+    input_schema: dict[str, object] = Field(default_factory=dict)
+    output_schema: dict[str, object] = Field(default_factory=dict)
+    required_modules: list[str] = Field(default_factory=list)
+    required_files: list[str] = Field(default_factory=list)
+    required_cli: list[str] = Field(default_factory=list)
+    required_tests: list[str] = Field(default_factory=list)
+    smoke_test_command: str | list[str] = "python main.py --smoke-test"
+    non_goals: list[str] = Field(default_factory=list)
+    evidence_links: list[str] = Field(default_factory=list)
+    forbidden_patterns: list[str] = Field(default_factory=list)
 
 
 class GeneratedCodeFile(BaseModel):

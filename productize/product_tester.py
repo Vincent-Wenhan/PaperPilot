@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from config import PROJECT_ROOT
+from schemas.product_schema import ProductContract
 
 REQUIRED_FILES = (
     "manifest.json",
@@ -64,6 +65,7 @@ def _basic_js_check(filename: str, source: str) -> str:
 
 def inspect_generated_product(
     output_dir: str | Path = "generated_product",
+    product_contract: ProductContract | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Inspect required files, static syntax, mock mode, and run instructions."""
     root = Path(output_dir).expanduser()
@@ -116,6 +118,7 @@ def inspect_generated_product(
     adapter_text = _read(root / adapter_entry)
     styles_text = _read(root / "frontend/styles.css")
     readme_text = _read(root / "README.md")
+    product_spec_text = _read(root / "product_spec.md")
 
     compile_errors: list[str] = list(manifest_errors)
     if "<main id=\"app\"" not in index_text:
@@ -168,6 +171,14 @@ def inspect_generated_product(
         marker in app_text
         for marker in ("workspace-grid", "Core Features", "Prototype Plan", "Download JSON")
     ) and all(marker in styles_text for marker in (".workspace-grid", ".panel", ".json-block"))
+    contract_result = _inspect_product_contract(
+        product_contract,
+        app_text=app_text,
+        adapter_text=adapter_text,
+        index_text=index_text,
+        readme_text=readme_text,
+        product_spec_text=product_spec_text,
+    )
     files = (
         sorted(
             str(path.relative_to(root))
@@ -192,6 +203,8 @@ def inspect_generated_product(
         notes.append("Static module wiring is missing or Streamlit is still documented.")
     if not has_rich_layout:
         notes.append("Generated static UI does not include the expected rich layout markers.")
+    if not contract_result["contract_ok"]:
+        notes.append("Generated product violates ProductContract acceptance checks.")
     if not notes:
         notes.append("Static product checks passed.")
 
@@ -206,7 +219,66 @@ def inspect_generated_product(
         "manifest_ok": not manifest_errors and bool(manifest_paths),
         "manifest": manifest,
         "ui_spec_coverage": ui_spec_coverage,
+        **contract_result,
         "syntax_ok": not compile_errors,
         "compile_errors": compile_errors,
         "notes": notes,
+    }
+
+
+def _inspect_product_contract(
+    product_contract: ProductContract | dict[str, Any] | None,
+    *,
+    app_text: str,
+    adapter_text: str,
+    index_text: str,
+    readme_text: str,
+    product_spec_text: str,
+) -> dict[str, Any]:
+    if product_contract is None:
+        return {
+            "contract_ok": True,
+            "contract_missing_controls": [],
+            "contract_missing_outputs": [],
+            "contract_forbidden_claims": [],
+            "contract_missing_disclaimers": [],
+        }
+
+    contract = ProductContract.model_validate(product_contract)
+    visible_sources = "\n".join([app_text, adapter_text, index_text, product_spec_text])
+    all_sources = "\n".join([visible_sources, readme_text]).lower()
+
+    missing_controls = [
+        control
+        for control in contract.ux.required_controls
+        if control and control not in visible_sources
+    ]
+    output_fields = contract.ux.required_result_cards or contract.io.output_fields
+    missing_outputs = [
+        output
+        for output in output_fields
+        if output and output not in visible_sources
+    ]
+    forbidden_claims = [
+        claim
+        for claim in contract.safety.forbidden_claims
+        if claim and claim.lower() in all_sources
+    ]
+    missing_disclaimers = [
+        disclaimer
+        for disclaimer in contract.safety.required_disclaimers
+        if disclaimer and disclaimer.lower() not in all_sources
+    ]
+
+    return {
+        "contract_ok": not (
+            missing_controls
+            or missing_outputs
+            or forbidden_claims
+            or missing_disclaimers
+        ),
+        "contract_missing_controls": missing_controls,
+        "contract_missing_outputs": missing_outputs,
+        "contract_forbidden_claims": forbidden_claims,
+        "contract_missing_disclaimers": missing_disclaimers,
     }

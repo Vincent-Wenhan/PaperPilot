@@ -11,6 +11,7 @@ from runtime.graph_state import ProductizeState, ReproduceState
 from runtime.routing import (
     route_after_code_review,
     route_after_evaluation,
+    route_after_product_evaluation,
     route_after_second_review,
     route_command_plans,
 )
@@ -73,6 +74,46 @@ class GraphRuntimeTests(unittest.TestCase):
                     "evaluation": {"overall_score": 2.5},
                     "revision_count": 1,
                     "max_revisions": 1,
+                }
+            ),
+            "finish_with_warnings",
+        )
+
+    def test_blocking_product_verification_routes_by_issue(self) -> None:
+        self.assertEqual(
+            route_after_product_evaluation(
+                {
+                    "product_verification": {
+                        "ok": False,
+                        "score": 2.5,
+                        "issues": [
+                            {
+                                "blocking": True,
+                                "suggested_route": "revise_prototype",
+                            }
+                        ],
+                    },
+                    "revision_count": 0,
+                    "max_revisions": 2,
+                }
+            ),
+            "revise_prototype",
+        )
+        self.assertEqual(
+            route_after_product_evaluation(
+                {
+                    "product_verification": {
+                        "ok": False,
+                        "score": 3.0,
+                        "issues": [
+                            {
+                                "blocking": True,
+                                "suggested_route": "reduce_mvp_scope",
+                            }
+                        ],
+                    },
+                    "revision_count": 2,
+                    "max_revisions": 2,
                 }
             ),
             "finish_with_warnings",

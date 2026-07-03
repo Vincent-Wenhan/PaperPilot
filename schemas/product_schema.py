@@ -1,7 +1,7 @@
 """Schema for product opportunity scoring."""
 from __future__ import annotations
 
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -69,6 +69,68 @@ class ProductPlan(BaseModel):
     mvp_scope: MVPScope = Field(default_factory=MVPScope)
     risks: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
+
+
+class ProductIOContract(BaseModel):
+    input_type: Literal["image", "text", "video", "file", "mixed"] = "mixed"
+    input_fields: list[str] = Field(default_factory=list)
+    output_fields: list[str] = Field(default_factory=list)
+    example_input: dict[str, object] = Field(default_factory=dict)
+    example_output: dict[str, object] = Field(default_factory=dict)
+
+
+class ProductUXContract(BaseModel):
+    primary_user_action: str = "Run analysis"
+    required_controls: list[str] = Field(default_factory=list)
+    required_result_cards: list[str] = Field(default_factory=list)
+    empty_state: str = "Provide input to start."
+    loading_state: str = "Running mock analysis."
+    error_state: str = "The mock workflow could not complete."
+
+
+class ProductSafetyContract(BaseModel):
+    forbidden_claims: list[str] = Field(default_factory=list)
+    required_disclaimers: list[str] = Field(default_factory=list)
+    mock_mode_boundary: str = "Mock mode returns deterministic demo data only."
+
+
+class ProductContract(BaseModel):
+    product_name: str = ""
+    target_user: str = ""
+    job_to_be_done: str = ""
+    io: ProductIOContract = Field(default_factory=ProductIOContract)
+    ux: ProductUXContract = Field(default_factory=ProductUXContract)
+    safety: ProductSafetyContract = Field(default_factory=ProductSafetyContract)
+    acceptance_tests: list[str] = Field(default_factory=list)
+
+
+class ProductIssue(BaseModel):
+    issue_id: str = ""
+    category: Literal[
+        "paper_faithfulness",
+        "user_value",
+        "mvp_scope",
+        "mock_boundary",
+        "ui_usability",
+        "technical_feasibility",
+        "safety",
+    ] = "user_value"
+    severity: Literal["low", "medium", "high"] = "medium"
+    blocking: bool = False
+    message: str = ""
+    suggested_route: Literal[
+        "revise_prd",
+        "reduce_mvp_scope",
+        "revise_prototype",
+        "accept_with_warning",
+    ] = "accept_with_warning"
+
+
+class ProductVerificationReport(BaseModel):
+    ok: bool = False
+    score: float = Field(default=0, ge=0, le=5)
+    issues: list[ProductIssue] = Field(default_factory=list)
+    revision_route: str = "accept_with_warning"
 
 
 class PrototypePlan(BaseModel):

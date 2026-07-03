@@ -160,7 +160,12 @@ describe("reference workbench layout", () => {
             type: "apply_patch",
             risk: "review",
             reason: "Implement prototype scaffold and API endpoints.",
-            payload: { command: "git apply prototype.patch" },
+            payload: {
+              command: "git apply prototype.patch",
+              files: ["frontend/app.js", "backend/main.py"],
+              riskReason: "Patch changes executable API and UI files.",
+              expectedEffect: "Prototype scaffold becomes runnable.",
+            },
             status: "pending",
           },
         ]}
@@ -173,6 +178,9 @@ describe("reference workbench layout", () => {
 
     expect(screen.getByRole("complementary", { name: "Approval Required" })).toBeVisible();
     expect(screen.getByText("git apply prototype.patch")).toBeVisible();
+    expect(screen.getByText("frontend/app.js, backend/main.py")).toBeVisible();
+    expect(screen.getByText("Patch changes executable API and UI files.")).toBeVisible();
+    expect(screen.getByText("Prototype scaffold becomes runnable.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Approve & Execute" })).toBeVisible();
   });
 

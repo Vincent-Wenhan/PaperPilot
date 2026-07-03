@@ -10,9 +10,10 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { CheckCircle2, Circle, Clock3, LoaderCircle } from "lucide-react";
+import { CheckCircle2, Circle, Clock3, LoaderCircle, X } from "lucide-react";
 import { useCallback, useState } from "react";
 
+import { icons } from "@/lib/icons";
 import type { WorkflowStatus } from "@/lib/workbench-types";
 
 export type GraphNodeData = {
@@ -36,6 +37,8 @@ export type GraphNodeData = {
     message: string;
     payload: Record<string, unknown>;
   }>;
+  routeReason?: string;
+  nextRoute?: string;
 };
 
 type WorkflowGraphProps = {
@@ -84,12 +87,13 @@ function WorkflowNodeCard({ data }: NodeProps) {
   const toolCount = nodeData.toolCalls?.length ?? 0;
   const issueCount = nodeData.issues?.length ?? 0;
   const StatusIcon = nodeData.status === "success" ? CheckCircle2 : nodeData.status === "running" ? LoaderCircle : nodeData.status === "waiting_review" ? Clock3 : Circle;
+  const AgentIcon = icons[nodeData.id as keyof typeof icons] ?? icons.agents;
   return (
     <div className={`workflow-node-card status-${nodeData.status}`}>
       <Handle className="workflow-node-handle" position={Position.Left} type="target" />
-      <div className="node-title"><StatusIcon size={17} /><strong>{nodeData.label}</strong></div>
+      <div className="node-title"><AgentIcon size={17} /><strong>{nodeData.label}</strong></div>
       <div className="node-status-row">
-        <span>{nodeData.status === "success" ? "Completed" : nodeData.status === "waiting_review" ? "Review" : nodeData.status}</span>
+        <span><StatusIcon size={13} /> {nodeData.status === "success" ? "Completed" : nodeData.status === "waiting_review" ? "Review" : nodeData.status}</span>
         <time>{nodeData.finishedAt}</time>
       </div>
       <div className="node-meta">
@@ -168,12 +172,14 @@ function NodeDetailPanel({
   node: GraphNodeData;
   onClose: () => void;
 }) {
+  const why = node.routeReason || "Waiting for structured route reason.";
+  const nextRoute = node.nextRoute || "Not routed yet";
   return (
     <div className="node-detail-panel" style={{ maxHeight: 240, overflow: "auto", borderTop: "1px solid var(--border)", padding: "12px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3 style={{ margin: 0 }}>{node.label}</h3>
         <button className="icon-button" type="button" onClick={onClose} title="Close">
-          ✕
+          <X size={15} />
         </button>
       </div>
       <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", marginTop: 8 }}>
@@ -181,20 +187,20 @@ function NodeDetailPanel({
         <dd>{node.agent}</dd>
         <dt>Status</dt>
         <dd>{node.status}</dd>
+        <dt>Why this node ran</dt>
+        <dd>{why}</dd>
         {node.startedAt && (<><dt>Started</dt><dd>{node.startedAt}</dd></>)}
         {node.finishedAt && (<><dt>Finished</dt><dd>{node.finishedAt}</dd></>)}
-        {node.inputArtifacts.length > 0 && (
-          <><dt>Inputs</dt><dd>{node.inputArtifacts.join(", ")}</dd></>
-        )}
-        {node.outputArtifacts.length > 0 && (
-          <><dt>Outputs</dt><dd>{node.outputArtifacts.join(", ")}</dd></>
-        )}
-        {node.toolCalls.length > 0 && (
-          <><dt>Tool Calls</dt><dd>{node.toolCalls.map((tc) => tc.message).join("; ")}</dd></>
-        )}
-        {node.issues.length > 0 && (
-          <><dt>Issues</dt><dd>{node.issues.map((i) => i.message).join("; ")}</dd></>
-        )}
+        <dt>What it read</dt>
+        <dd>{node.inputArtifacts.length > 0 ? node.inputArtifacts.join(", ") : "No input artifacts recorded"}</dd>
+        <dt>What it wrote</dt>
+        <dd>{node.outputArtifacts.length > 0 ? node.outputArtifacts.join(", ") : "No output artifacts recorded"}</dd>
+        <dt>Tool calls</dt>
+        <dd>{node.toolCalls.length > 0 ? node.toolCalls.map((tc) => tc.message).join("; ") : "No tool calls recorded"}</dd>
+        <dt>What failed</dt>
+        <dd>{node.issues.length > 0 ? node.issues.map((i) => i.message).join("; ") : "No issues recorded"}</dd>
+        <dt>Where it routed next</dt>
+        <dd>{nextRoute}</dd>
       </dl>
     </div>
   );

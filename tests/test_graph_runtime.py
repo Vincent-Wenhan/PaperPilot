@@ -11,10 +11,12 @@ from runtime.graph_state import ProductizeState, ReproduceState
 from runtime.routing import (
     route_after_code_review,
     route_after_evaluation,
+    route_after_verification,
     route_after_product_evaluation,
     route_after_second_review,
     route_command_plans,
 )
+from schemas.runner_schema import AgentBudget
 
 
 class GraphRuntimeTests(unittest.TestCase):
@@ -117,6 +119,53 @@ class GraphRuntimeTests(unittest.TestCase):
                 }
             ),
             "finish_with_warnings",
+        )
+
+    def test_agent_budget_controls_revision_and_repair_limits(self) -> None:
+        budget = AgentBudget(max_revision_rounds=3, max_repair_rounds=1)
+        self.assertEqual(budget.max_tool_calls, 8)
+        self.assertTrue(budget.require_artifact_each_round)
+        self.assertEqual(
+            route_after_product_evaluation(
+                {
+                    "product_verification": {
+                        "ok": False,
+                        "score": 2.0,
+                        "issues": [
+                            {
+                                "blocking": True,
+                                "suggested_route": "revise_prototype",
+                            }
+                        ],
+                    },
+                    "revision_count": 2,
+                    "agent_budget": budget.model_dump(),
+                }
+            ),
+            "revise_prototype",
+        )
+        self.assertEqual(
+            route_after_evaluation(
+                {
+                    "evaluation": {
+                        "overall_score": 2.5,
+                        "revision_suggestions": ["Improve prototype UI"],
+                    },
+                    "revision_count": 2,
+                    "agent_budget": budget.model_dump(),
+                }
+            ),
+            "revise_prototype",
+        )
+        self.assertEqual(
+            route_after_verification(
+                {
+                    "verification_report": {"ok": False},
+                    "code_revision_count": 1,
+                    "agent_budget": budget.model_dump(),
+                }
+            ),
+            "execution_diagnosis",
         )
 
     def test_command_routing_uses_highest_risk(self) -> None:

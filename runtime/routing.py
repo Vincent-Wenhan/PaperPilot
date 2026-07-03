@@ -4,6 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from schemas.runner_schema import AgentBudget
+
+
+def _budget_from_state(state: dict[str, Any]) -> AgentBudget:
+    raw = state.get("agent_budget") or {}
+    if isinstance(raw, AgentBudget):
+        return raw
+    if isinstance(raw, dict):
+        return AgentBudget.model_validate(raw)
+    return AgentBudget()
+
 
 def route_after_evaluation(state: dict[str, Any]) -> str:
     """Route Productize revisions from score and evaluator suggestions."""
@@ -13,7 +24,8 @@ def route_after_evaluation(state: dict[str, Any]) -> str:
     evaluation = state.get("evaluation") or {}
     score = float(evaluation.get("overall_score") or 0)
     revision_count = int(state.get("revision_count") or 0)
-    max_revisions = int(state.get("max_revisions") or 1)
+    budget = _budget_from_state(state)
+    max_revisions = int(state.get("max_revisions") or budget.max_revision_rounds)
     if score >= 4.0:
         return "finish"
     if revision_count >= max_revisions:
@@ -49,7 +61,8 @@ def route_after_product_evaluation(state: dict[str, Any]) -> str:
     ]
     score = float(report.get("score") or report.get("overall_score") or 0)
     revision_count = int(state.get("revision_count") or 0)
-    max_revisions = int(state.get("max_revisions") or 1)
+    budget = _budget_from_state(state)
+    max_revisions = int(state.get("max_revisions") or budget.max_revision_rounds)
 
     if not blocking and (report.get("ok") is True or score >= 4.0):
         return "finish"
@@ -135,7 +148,12 @@ def route_after_verification(state: dict[str, Any]) -> str:
         return "code_review"
 
     repair_count = int(state.get("code_revision_count") or state.get("repair_count") or 0)
-    max_repairs = int(state.get("code_max_revisions") or state.get("max_repair_rounds") or 2)
+    budget = _budget_from_state(state)
+    max_repairs = int(
+        state.get("code_max_revisions")
+        or state.get("max_repair_rounds")
+        or budget.max_repair_rounds
+    )
     if repair_count >= max_repairs:
         return "execution_diagnosis"
     return "code_repair"

@@ -22,7 +22,7 @@ from schemas.product_schema import (
     PrototypePlan,
     ValueProposition,
 )
-from schemas.runner_schema import CommandPlan, CommandResult
+from schemas.runner_schema import AgentBudget, CommandPlan, CommandResult
 from schemas.tool_schema import ToolCall, ToolResult, ToolSpec
 
 __all__ = [
@@ -43,6 +43,7 @@ __all__ = [
     "ProductProposal",
     "PrototypePlan",
     "ProductEvaluation",
+    "AgentBudget",
     "CommandPlan",
     "CommandResult",
     "ToolSpec",

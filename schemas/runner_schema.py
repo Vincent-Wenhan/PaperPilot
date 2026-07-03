@@ -14,6 +14,13 @@ class CommandPlan(BaseModel):
     blocked_reason: Optional[str] = None
 
 
+class AgentBudget(BaseModel):
+    max_tool_calls: int = Field(default=8, ge=1)
+    max_repair_rounds: int = Field(default=2, ge=0)
+    max_revision_rounds: int = Field(default=2, ge=0)
+    require_artifact_each_round: bool = True
+
+
 class CommandResult(BaseModel):
     command: str
     mode: str = "safe"

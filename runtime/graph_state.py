@@ -28,6 +28,7 @@ class ProductizeState(TypedDict, total=False):
     evaluation: dict[str, Any]
     revision_count: int
     max_revisions: int
+    agent_budget: dict[str, Any]
     revision_history: Annotated[list[dict[str, Any]], operator.add]
     graph_trace: Annotated[list[str], operator.add]
     issues: Annotated[list[dict[str, Any]], operator.add]
@@ -53,6 +54,7 @@ class ReproduceState(TypedDict, total=False):
     repository_understanding: dict[str, Any]
     reproduction_plan: dict[str, Any]
     implementation_contract: dict[str, Any]
+    agent_budget: dict[str, Any]
     command_plans: list[dict[str, Any]]
     command_route: str
     pending_human_review: dict[str, Any] | None

@@ -58,6 +58,17 @@ class GeneratedProjectVerifier:
     def verify(self) -> VerificationReport:
         issues: list[VerificationIssue] = []
 
+        project_dir_ok = self._check_project_dir(issues)
+        if not project_dir_ok:
+            return VerificationReport(
+                ok=False,
+                syntax_ok=False,
+                tests_collect_ok=False,
+                smoke_ok=False,
+                schema_ok=False,
+                issues=issues,
+            )
+
         files_ok = self._check_required_files(issues)
         syntax_ok = self._check_python_syntax(issues)
         tests_collect_ok = self._pytest_collect(issues)
@@ -80,6 +91,19 @@ class GeneratedProjectVerifier:
             stdout=stdout,
             stderr=stderr,
         )
+
+    def _check_project_dir(self, issues: list[VerificationIssue]) -> bool:
+        if self.project_dir.is_dir():
+            return True
+        issues.append(
+            VerificationIssue(
+                code="missing_project_dir",
+                file=str(self.project_dir),
+                message=f"Generated project directory does not exist: {self.project_dir}",
+                severity="high",
+            )
+        )
+        return False
 
     def _check_required_files(self, issues: list[VerificationIssue]) -> bool:
         ok = True

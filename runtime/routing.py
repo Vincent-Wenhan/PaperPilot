@@ -124,3 +124,18 @@ def route_after_sandbox_verify(state: dict[str, Any]) -> str:
     if int(state.get("code_revision_count") or 0) > 0:
         return "second_review"
     return "code_review"
+
+
+def route_after_verification(state: dict[str, Any]) -> str:
+    """Route generated projects through verify -> repair -> verify."""
+    report = state.get("verification_report") or state.get("sandbox_verification") or {}
+    if report.get("ok") is True or report.get("passed") is True:
+        if int(state.get("code_revision_count") or 0) > 0:
+            return "second_review"
+        return "code_review"
+
+    repair_count = int(state.get("code_revision_count") or state.get("repair_count") or 0)
+    max_repairs = int(state.get("code_max_revisions") or state.get("max_repair_rounds") or 2)
+    if repair_count >= max_repairs:
+        return "execution_diagnosis"
+    return "code_repair"

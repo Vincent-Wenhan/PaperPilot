@@ -179,6 +179,66 @@ class ReproduceBranchTests(unittest.TestCase):
         self.assertEqual(state["code_revision_count"], 2)
         self.assertEqual(state["code_second_review"]["verdict"], "accept")
 
+    def test_verifier_failure_routes_to_code_repair_before_review(self) -> None:
+        verification_calls: list[int] = []
+        repair_inputs: list[list[str]] = []
+
+        def verify(state: dict[str, object]) -> dict[str, object]:
+            verification_calls.append(1)
+            if len(verification_calls) == 1:
+                return {
+                    "ok": False,
+                    "issues": [
+                        {
+                            "code": "missing_output_json",
+                            "message": "Smoke test did not produce outputs/result.json.",
+                        }
+                    ],
+                }
+            return {"ok": True, "issues": []}
+
+        def repair(
+            state: dict[str, object],
+            suggestions: list[str],
+        ) -> ImplementationBundle:
+            repair_inputs.append(suggestions)
+            return ImplementationBundle(project_name="repaired")
+
+        graph = build_reproduce_graph(
+            ReproduceGraphDependencies(
+                parse_paper=lambda path: "paper text",
+                understand_research=lambda text, idea: PaperUnderstanding(title="Paper"),
+                prepare_repository=lambda url: {},
+                understand_repository=lambda research, repo, url: RepositoryUnderstanding(),
+                plan_reproduction=lambda research, repository, inputs: ReproductionPlan(),
+                generate_implementation=lambda state: ImplementationBundle(project_name="broken"),
+                review_code=_accept_review,
+                revise_code=repair,
+                diagnose_execution=lambda plan, results: ExecutionDiagnosis(),
+                sandbox_verify=verify,
+                second_review_code=_accept_review,
+                build_outputs=lambda state: {},
+            )
+        )
+
+        state = graph.invoke(
+            {
+                "pdf_path": "paper.pdf",
+                "github_url": "",
+                "graph_trace": [],
+                "errors": [],
+                "command_results": [],
+                "code_max_revisions": 2,
+            }
+        )
+
+        self.assertEqual(len(verification_calls), 2)
+        self.assertEqual(state["implementation_bundle"]["project_name"], "repaired")
+        self.assertEqual(state["code_revision_count"], 1)
+        self.assertIn("missing_output_json", repair_inputs[0][0])
+        self.assertIn("generated_project_verifier", state["graph_trace"])
+        self.assertIn("code_repair", state["graph_trace"])
+
 
 class ReproduceRiskRoutingTests(unittest.TestCase):
     def _run(self, commands: list[CommandPlan]) -> dict[str, object]:

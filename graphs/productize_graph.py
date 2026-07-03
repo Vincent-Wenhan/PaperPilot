@@ -12,9 +12,18 @@ from langgraph.types import Send
 from graphs.subgraphs.product_revision_graph import build_revision_record
 from runtime.graph_state import ProductizeState
 from runtime.routing import route_after_evaluation
+from productize.ui_spec import build_product_contract, build_product_ui_spec
 from schemas.composition_schema import PaperCapabilityCard, ResearchSynthesis
 from schemas.evaluation_schema import ProductEvaluation
-from schemas.product_schema import PRD, ProductOpportunity, ProductPlan, ProductProposal, PrototypePlan
+from schemas.product_schema import (
+    PRD,
+    ProductIssue,
+    ProductOpportunity,
+    ProductPlan,
+    ProductProposal,
+    ProductVerificationReport,
+    PrototypePlan,
+)
 
 
 @dataclass(frozen=True)
@@ -290,6 +299,72 @@ def _proposal_to_plan(proposal: ProductProposal) -> ProductPlan:
     )
 
 
+def _product_verification_from_evaluation(
+    evaluation: dict[str, Any],
+    inspection: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    inspection = inspection or {}
+    score = float(evaluation.get("overall_score") or evaluation.get("score") or 0)
+    issues: list[ProductIssue] = []
+
+    if inspection and not bool(inspection.get("contract_ok", True)):
+        missing_controls = ", ".join(inspection.get("contract_missing_controls") or [])
+        missing_outputs = ", ".join(inspection.get("contract_missing_outputs") or [])
+        forbidden = ", ".join(inspection.get("contract_forbidden_claims") or [])
+        detail = "; ".join(
+            item
+            for item in (
+                f"missing controls: {missing_controls}" if missing_controls else "",
+                f"missing outputs: {missing_outputs}" if missing_outputs else "",
+                f"forbidden claims: {forbidden}" if forbidden else "",
+            )
+            if item
+        )
+        issues.append(
+            ProductIssue(
+                issue_id="contract-static-check",
+                category="ui_usability",
+                severity="high",
+                blocking=True,
+                message=detail or "Generated product violates ProductContract.",
+                suggested_route="revise_prototype",
+            )
+        )
+
+    text = " ".join(
+        [
+            *[str(item) for item in evaluation.get("detected_problems") or []],
+            *[str(item) for item in evaluation.get("revision_suggestions") or []],
+            *[str(item) for item in evaluation.get("safety_warnings") or []],
+        ]
+    ).lower()
+    if score < 4 and not issues:
+        prototype_keywords = ("ui", "adapter", "mock", "syntax", "readme", "prototype")
+        route = (
+            "revise_prototype"
+            if any(keyword in text for keyword in prototype_keywords)
+            else "reduce_mvp_scope"
+        )
+        issues.append(
+            ProductIssue(
+                issue_id="evaluation-score-gate",
+                category="ui_usability" if route == "revise_prototype" else "mvp_scope",
+                severity="high" if score < 3 else "medium",
+                blocking=True,
+                message="Product evaluation score is below the acceptance threshold.",
+                suggested_route=route,
+            )
+        )
+
+    report = ProductVerificationReport(
+        ok=not issues and score >= 4,
+        score=score,
+        issues=issues,
+        revision_route=issues[0].suggested_route if issues else "finish",
+    )
+    return report.model_dump(mode="json")
+
+
 def build_productize_execution_graph(
     dependencies: ProductizeExecutionDependencies,
     *,
@@ -325,6 +400,17 @@ def build_productize_execution_graph(
             "graph_trace": ["build_prototype"],
         }
 
+    def product_contract(state: ProductizeState) -> dict[str, Any]:
+        plan = ProductPlan.model_validate(state["product_plan"])
+        prototype = PrototypePlan.model_validate(state["prototype_plan"])
+        contract = build_product_contract(plan, prototype)
+        ui_spec = build_product_ui_spec(plan, prototype, product_contract=contract)
+        return {
+            "product_contract": contract.model_dump(mode="json"),
+            "ui_spec": ui_spec.model_dump(mode="json"),
+            "graph_trace": ["product_contract"],
+        }
+
     def evaluate_product(state: ProductizeState) -> dict[str, Any]:
         evaluation = dependencies.evaluate_product(
             dict(state.get("research_synthesis") or {}),
@@ -332,8 +418,10 @@ def build_productize_execution_graph(
             dict(state["prototype_plan"]),
             {},
         )
+        evaluation_dict = _as_dict(evaluation)
         return {
-            "evaluation": _as_dict(evaluation),
+            "evaluation": evaluation_dict,
+            "product_verification": _product_verification_from_evaluation(evaluation_dict),
             "graph_trace": ["evaluate_product"],
         }
 
@@ -418,8 +506,13 @@ def build_productize_execution_graph(
             dict(state["prototype_plan"]),
             dict(state.get("inspection") or {}),
         )
+        evaluation_dict = _as_dict(evaluation)
         return {
-            "evaluation": _as_dict(evaluation),
+            "evaluation": evaluation_dict,
+            "product_verification": _product_verification_from_evaluation(
+                evaluation_dict,
+                dict(state.get("inspection") or {}),
+            ),
             "graph_trace": ["final_evaluation"],
         }
 
@@ -427,6 +520,7 @@ def build_productize_execution_graph(
     builder.add_node("prepare_selected_proposal", prepare_selected_proposal)
     builder.add_node("select_template", select_template)
     builder.add_node("build_prototype", build_prototype)
+    builder.add_node("product_contract", product_contract)
     builder.add_node("evaluate_product", evaluate_product)
     builder.add_node("revise_product_plan", revise_product_plan)
     builder.add_node("revise_prototype", revise_prototype)
@@ -438,7 +532,8 @@ def build_productize_execution_graph(
     builder.add_edge(START, "prepare_selected_proposal")
     builder.add_edge("prepare_selected_proposal", "select_template")
     builder.add_edge("select_template", "build_prototype")
-    builder.add_edge("build_prototype", "evaluate_product")
+    builder.add_edge("build_prototype", "product_contract")
+    builder.add_edge("product_contract", "evaluate_product")
     builder.add_conditional_edges(
         "evaluate_product",
         route_after_evaluation,
@@ -449,8 +544,8 @@ def build_productize_execution_graph(
             "revise_prototype": "revise_prototype",
         },
     )
-    builder.add_edge("revise_product_plan", "evaluate_product")
-    builder.add_edge("revise_prototype", "evaluate_product")
+    builder.add_edge("revise_product_plan", "product_contract")
+    builder.add_edge("revise_prototype", "product_contract")
     builder.add_edge("finish", "scaffold_product")
     builder.add_edge("finish_with_warnings", "scaffold_product")
     builder.add_edge("scaffold_product", "inspect_product")

@@ -21,7 +21,7 @@ from graphs.productize_graph import (
     build_productize_proposal_graph,
 )
 from productize import inspect_generated_product, scaffold_product, select_product_template
-from productize.ui_spec import build_product_ui_spec
+from productize.ui_spec import build_product_contract, build_product_ui_spec
 from pipeline.productize_renderers import render_opportunities
 from pipeline.graph_checkpointer import get_shared_checkpointer
 from pipeline.productize_graph_hitl import (
@@ -44,6 +44,7 @@ from schemas.product_schema import (
     ProductOpportunityList,
     ProductPlan,
     ProductProposal,
+    ProductContract,
     PrototypePlan,
     ValueProposition,
 )
@@ -287,6 +288,8 @@ def _new_product_result() -> ProductResult:
         "product_spec": "",
         "template_type": "",
         "prototype_plan": {},
+        "product_contract": {},
+        "product_verification": {},
         "ui_spec": {},
         "adapter_plan": "",
         "frontend_plan": "",
@@ -748,7 +751,12 @@ def _invoke_execution_graph(
         progress("Generating product scaffold")
         plan = ProductPlan.model_validate(state["product_plan"])
         prototype = PrototypePlan.model_validate(state["prototype_plan"])
-        ui_spec = build_product_ui_spec(plan, prototype)
+        contract = ProductContract.model_validate(
+            state.get("product_contract")
+            or build_product_contract(plan, prototype).model_dump(mode="json")
+        )
+        ui_spec = build_product_ui_spec(plan, prototype, product_contract=contract)
+        compatibility_result["product_contract"] = contract.model_dump(mode="json")
         compatibility_result["ui_spec"] = ui_spec.model_dump(mode="json")
         try:
             return scaffold_product(
@@ -772,7 +780,6 @@ def _invoke_execution_graph(
             }
 
     def inspect(state: dict[str, Any]) -> dict[str, Any]:
-        del state
         if prototype_rejected:
             return {
                 "exists": False,
@@ -788,7 +795,8 @@ def _invoke_execution_graph(
             }
         progress("Inspecting generated product")
         try:
-            return inspect_generated_product(output_path)
+            contract = state.get("product_contract") or compatibility_result.get("product_contract")
+            return inspect_generated_product(output_path, product_contract=contract)
         except Exception as exc:
             _record_error(compatibility_result, "Product Inspector", exc)
             return {
@@ -896,6 +904,9 @@ def _invoke_execution_graph(
             "product_spec": _product_plan_to_markdown(plan),
             "template_type": state["template_type"],
             "prototype_plan": prototype.model_dump(mode="json"),
+            "product_contract": state.get("product_contract") or compatibility_result.get("product_contract") or {},
+            "product_verification": state.get("product_verification") or {},
+            "ui_spec": state.get("ui_spec") or compatibility_result.get("ui_spec") or {},
             "adapter_plan": _prototype_plan_to_markdown(prototype),
             "frontend_plan": _prototype_plan_to_markdown(prototype),
             "scaffold_result": state["scaffold_result"],

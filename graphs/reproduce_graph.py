@@ -17,12 +17,13 @@ from graphs.subgraphs.command_review_graph import (
 from runtime.graph_state import ReproduceState
 from runtime.routing import (
     route_after_code_review,
-    route_after_sandbox_verify,
+    route_after_verification,
     route_after_second_review,
     route_command_plans,
 )
 from schemas.reproduction_schema import (
     ExecutionDiagnosis,
+    ImplementationContract,
     ImplementationBundle,
     PaperUnderstanding,
     RepositoryUnderstanding,
@@ -75,6 +76,50 @@ def _as_dict(value: Any) -> dict[str, Any]:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     return dict(value)
+
+
+def _build_implementation_contract(plan: ReproductionPlan) -> ImplementationContract:
+    required_files = ["README.md", "main.py", "requirements.txt"]
+    required_tests = ["tests/test_smoke.py"]
+    smoke = "python main.py --smoke-test"
+    for command_plan in plan.command_plans:
+        command = command_plan.command.strip()
+        if command and "smoke" in command.lower():
+            smoke = command
+            break
+    return ImplementationContract(
+        task_name=plan.goal,
+        input_schema={"sample": "object"},
+        output_schema={},
+        required_modules=plan.architecture_plan,
+        required_files=required_files,
+        required_cli=[smoke],
+        required_tests=required_tests,
+        smoke_test_command=smoke,
+        non_goals=plan.fallback_plan,
+        evidence_links=plan.acceptance_criteria + plan.validation_plan,
+        forbidden_patterns=[
+            "guaranteed SOTA",
+            "fully reproduces",
+            "production ready",
+        ],
+    )
+
+
+def _verification_issue_suggestions(report: dict[str, Any]) -> list[str]:
+    issues = report.get("issues") or []
+    suggestions: list[str] = []
+    for issue in issues:
+        if not isinstance(issue, dict):
+            continue
+        code = str(issue.get("code") or "")
+        message = str(issue.get("message") or "")
+        item = f"{code}: {message}".strip(": ")
+        if item:
+            suggestions.append(item)
+    if not suggestions and report:
+        suggestions.append(f"Generated project verifier failed: {report}")
+    return suggestions or ["Generated project verifier failed; repair the smallest failing file."]
 
 
 def build_reproduce_graph(
@@ -143,6 +188,7 @@ def build_reproduce_graph(
         )
         return {
             "reproduction_plan": plan.model_dump(mode="json"),
+            "implementation_contract": _build_implementation_contract(plan).model_dump(mode="json"),
             "command_plans": [
                 item.model_dump(mode="json") for item in plan.command_plans
             ],
@@ -208,6 +254,22 @@ def build_reproduce_graph(
             "graph_trace": ["code_revise"],
         }
 
+    def code_repair(state: ReproduceState) -> dict[str, Any]:
+        report = dict(state.get("verification_report") or state.get("sandbox_verification") or {})
+        suggestions = _verification_issue_suggestions(report)
+        implementation = dependencies.revise_code(dict(state), suggestions)
+        revision_count = int(state.get("code_revision_count") or 0) + 1
+        return {
+            "implementation_bundle": _as_dict(implementation),
+            "patch_bundle": {
+                "summary": "Verifier-guided repair requested from implementation agent.",
+                "patches": [],
+                "expected_fixed_issues": suggestions,
+            },
+            "code_revision_count": revision_count,
+            "graph_trace": ["code_repair"],
+        }
+
     def execution_diagnosis(state: ReproduceState) -> dict[str, Any]:
         diagnosis = dependencies.diagnose_execution(
             dict(state.get("reproduction_plan") or {}),
@@ -218,11 +280,12 @@ def build_reproduce_graph(
             "graph_trace": ["execution_diagnosis"],
         }
 
-    def sandbox_verify_node(state: ReproduceState) -> dict[str, Any]:
+    def generated_project_verifier(state: ReproduceState) -> dict[str, Any]:
         result = dependencies.sandbox_verify(dict(state))
         return {
+            "verification_report": result,
             "sandbox_verification": result,
-            "graph_trace": ["sandbox_verify"],
+            "graph_trace": ["generated_project_verifier", "sandbox_verify"],
         }
 
     def second_review(state: ReproduceState) -> dict[str, Any]:
@@ -249,9 +312,10 @@ def build_reproduce_graph(
     builder.add_node("review_summary", command_summary("review"))
     builder.add_node("blocked_summary", command_summary("blocked"))
     builder.add_node("reproduction_implementation", reproduction_implementation)
-    builder.add_node("sandbox_verify", sandbox_verify_node)
+    builder.add_node("generated_project_verifier", generated_project_verifier)
     builder.add_node("code_review", code_review)
     builder.add_node("code_revise", code_revise)
+    builder.add_node("code_repair", code_repair)
     builder.add_node("second_review", second_review)
     builder.add_node("execution_diagnosis", execution_diagnosis)
     builder.add_node("build_outputs", build_outputs)
@@ -275,14 +339,15 @@ def build_reproduce_graph(
     )
     for summary in ("safe_summary", "review_summary", "blocked_summary"):
         builder.add_edge(summary, "reproduction_implementation")
-    builder.add_edge("reproduction_implementation", "sandbox_verify")
+    builder.add_edge("reproduction_implementation", "generated_project_verifier")
     builder.add_conditional_edges(
-        "sandbox_verify",
-        route_after_sandbox_verify,
+        "generated_project_verifier",
+        route_after_verification,
         {
             "code_review": "code_review",
-            "code_revise": "code_revise",
+            "code_repair": "code_repair",
             "second_review": "second_review",
+            "execution_diagnosis": "execution_diagnosis",
         },
     )
     builder.add_conditional_edges(
@@ -294,7 +359,8 @@ def build_reproduce_graph(
             "finish_with_warnings": "execution_diagnosis",
         },
     )
-    builder.add_edge("code_revise", "sandbox_verify")
+    builder.add_edge("code_revise", "generated_project_verifier")
+    builder.add_edge("code_repair", "generated_project_verifier")
     builder.add_conditional_edges(
         "second_review",
         route_after_second_review,

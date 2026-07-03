@@ -905,9 +905,17 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             with patch("backend.services.run_service.patch_service", patches):
                 actions = service._patch_actions_from_result(
                     run.run_id,
-                    {"patch_id": proposal.patch_id, "reason": "apply test patch"},
+                    {
+                        "patch_id": proposal.patch_id,
+                        "reason": "apply test patch",
+                        "risk_reason": "Touches generated Python source.",
+                        "expected_effect": "Update main.py safely.",
+                    },
                 )
                 self.assertEqual(len(actions), 1)
+                self.assertEqual(actions[0].files, ["workspace/main.py"])
+                self.assertEqual(actions[0].risk_reason, "Touches generated Python source.")
+                self.assertEqual(actions[0].expected_effect, "Update main.py safely.")
                 service._actions[run.run_id] = actions
                 executed = service.execute_action(actions[0].action_id)
 

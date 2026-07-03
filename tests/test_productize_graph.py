@@ -17,6 +17,7 @@ from schemas.evaluation_schema import ProductEvaluation
 from schemas.product_schema import (
     MVPScope,
     PRD,
+    ProductContract,
     ProductOpportunity,
     ProductPlan,
     ProductProposal,
@@ -324,6 +325,60 @@ class ProductizeExecutionGraphTests(unittest.TestCase):
         )
         self.assertIn("finish_with_warnings", state["graph_trace"])
         self.assertEqual(counts, {"scaffold": 1, "inspect": 1})
+
+    def test_execution_graph_carries_product_contract_to_scaffold_and_inspection(self) -> None:
+        seen: dict[str, object] = {}
+        score = ProductEvaluation(overall_score=4.5)
+
+        def scaffold(state: dict[str, object]) -> dict[str, object]:
+            contract = ProductContract.model_validate(state["product_contract"])
+            seen["scaffold_contract"] = contract.product_name
+            seen["ui_spec_controls"] = [
+                item["control_id"]
+                for item in state["ui_spec"]["input_controls"]
+            ]
+            return {"success": True}
+
+        def inspect(state: dict[str, object]) -> dict[str, object]:
+            contract = ProductContract.model_validate(state["product_contract"])
+            seen["inspect_contract"] = contract.product_name
+            return {"syntax_ok": True, "can_run_mock": True, "contract_ok": True}
+
+        graph = build_productize_execution_graph(
+            ProductizeExecutionDependencies(
+                select_template=lambda state: "text",
+                build_prototype=lambda plan, template, feedback: PrototypePlan(
+                    template_type=template,
+                    user_inputs=["Paper claim"],
+                    system_outputs=["Evidence score"],
+                    mock_result={"evidence_score": 0.8},
+                ),
+                evaluate_product=lambda synthesis, product_plan, prototype_plan, inspection: score,
+                revise_product_plan=lambda plan, evaluation: plan,
+                revise_prototype=lambda plan, prototype, evaluation: prototype,
+                scaffold_product=scaffold,
+                inspect_product=inspect,
+            )
+        )
+
+        state = graph.invoke(
+            {
+                "selected_proposal": _proposal().model_dump(mode="json"),
+                "research_synthesis": {},
+                "papers": [{"paper_id": "paper-1"}],
+                "max_revisions": 1,
+                "revision_count": 0,
+                "revision_history": [],
+                "errors": [],
+                "graph_trace": [],
+            }
+        )
+
+        self.assertEqual(seen["scaffold_contract"], "Demo")
+        self.assertEqual(seen["inspect_contract"], "Demo")
+        self.assertEqual(seen["ui_spec_controls"], ["paper_claim"])
+        self.assertEqual(state["product_contract"]["io"]["output_fields"], ["evidence_score"])
+        self.assertEqual(state["product_verification"]["ok"], True)
 
 
 if __name__ == "__main__":

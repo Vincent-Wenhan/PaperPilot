@@ -18,7 +18,10 @@ class ProductizeState(TypedDict, total=False):
     proposals: list[dict[str, Any]]
     selected_proposal: dict[str, Any]
     product_plan: dict[str, Any]
+    product_contract: dict[str, Any]
+    product_verification: dict[str, Any]
     prototype_plan: dict[str, Any]
+    ui_spec: dict[str, Any]
     template_type: str
     scaffold_result: dict[str, Any]
     inspection: dict[str, Any]
@@ -49,12 +52,15 @@ class ReproduceState(TypedDict, total=False):
     research_understanding: dict[str, Any]
     repository_understanding: dict[str, Any]
     reproduction_plan: dict[str, Any]
+    implementation_contract: dict[str, Any]
     command_plans: list[dict[str, Any]]
     command_route: str
     pending_human_review: dict[str, Any] | None
     command_results: Annotated[list[dict[str, Any]], operator.add]
     execution_diagnosis: dict[str, Any]
     implementation_bundle: dict[str, Any]
+    verification_report: dict[str, Any]
+    patch_bundle: dict[str, Any]
     code_review: dict[str, Any]
     code_second_review: dict[str, Any]
     code_revision_count: int

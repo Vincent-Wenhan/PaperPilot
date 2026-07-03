@@ -122,6 +122,9 @@ class ActionRequest(BaseModel):
     path: str = ""
     risk: ActionRisk
     reason: str
+    files: list[str] = Field(default_factory=list)
+    risk_reason: str = ""
+    expected_effect: str = ""
     status: ActionStatus = "pending"
     edited_command: str = ""
     execution_status: ActionExecutionStatus = "not_started"

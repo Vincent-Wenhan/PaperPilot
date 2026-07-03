@@ -194,6 +194,19 @@ class ImplementationContract(BaseModel):
     forbidden_patterns: list[str] = Field(default_factory=list)
 
 
+class CodePatch(BaseModel):
+    path: str = ""
+    new_content: str = ""
+    reason: str = ""
+    fixes: list[str] = Field(default_factory=list)
+
+
+class CodePatchBundle(BaseModel):
+    summary: str = ""
+    patches: list[CodePatch] = Field(default_factory=list)
+    expected_fixed_issues: list[str] = Field(default_factory=list)
+
+
 class GeneratedCodeFile(BaseModel):
     path: str = ""
     purpose: str = ""

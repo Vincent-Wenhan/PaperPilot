@@ -709,8 +709,9 @@ class InMemoryRunService:
                 build_productize_execution_graph,
             )
             from productize import inspect_generated_product
-            from productize.ui_spec import build_product_ui_spec
+            from productize.ui_spec import build_product_contract, build_product_ui_spec
             from schemas.product_schema import (
+                ProductContract,
                 ProductPlan,
                 ProductProposal,
                 PrototypePlan,
@@ -808,7 +809,11 @@ class InMemoryRunService:
                 from productize import scaffold_product
                 plan = ProductPlan.model_validate(state["product_plan"])
                 prototype = PrototypePlan.model_validate(state["prototype_plan"])
-                ui_spec = build_product_ui_spec(plan, prototype)
+                contract = ProductContract.model_validate(
+                    state.get("product_contract")
+                    or build_product_contract(plan, prototype).model_dump(mode="json")
+                )
+                ui_spec = build_product_ui_spec(plan, prototype, product_contract=contract)
                 return scaffold_product(
                     template_type=str(state["template_type"]),
                     product_spec=_product_plan_to_markdown(plan),
@@ -821,9 +826,10 @@ class InMemoryRunService:
                 )
 
             def inspect(state: dict[str, Any]) -> dict[str, Any]:
-                del state
+                contract = state.get("product_contract") if isinstance(state, dict) else None
                 return inspect_generated_product(
-                    WORKSPACE_DIR / "runs" / run_id / "generated_product"
+                    WORKSPACE_DIR / "runs" / run_id / "generated_product",
+                    product_contract=contract,
                 )
 
             def evaluate_product(*args, **kwargs):
@@ -1830,6 +1836,11 @@ class InMemoryRunService:
             execution_mode=execution_mode,
             risk=risk,  # type: ignore[arg-type]
             reason=reason,
+            files=[],
+            risk_reason=plan.blocked_reason or reason,
+            expected_effect=(
+                "Execute the generated reproduction command and capture stdout, stderr, and exit code."
+            ),
         )
 
     def _patch_actions_from_result(
@@ -1844,6 +1855,10 @@ class InMemoryRunService:
             raw_specs.append(result["patch_proposal"])
         if isinstance(result.get("patch_proposals"), list):
             raw_specs.extend(result["patch_proposals"])
+        if isinstance(result.get("code_patch_bundle"), dict):
+            bundle = result["code_patch_bundle"]
+            if isinstance(bundle.get("patches"), list):
+                raw_specs.extend(bundle["patches"])
 
         actions: list[ActionRequest] = []
         for spec in raw_specs:
@@ -1875,6 +1890,15 @@ class InMemoryRunService:
                         spec.get("reason")
                         or patch.reason
                         or "Apply generated patch proposal."
+                    ),
+                    files=[patch.path],
+                    risk_reason=str(
+                        spec.get("risk_reason")
+                        or "Patch modifies generated workspace files and requires review."
+                    ),
+                    expected_effect=str(
+                        spec.get("expected_effect")
+                        or "Apply the patch and run syntax checks before continuing."
                     ),
                 )
             )

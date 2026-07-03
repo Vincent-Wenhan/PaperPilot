@@ -91,6 +91,9 @@ export type ApiAction = {
   path: string;
   risk: "low" | "medium" | "high" | "blocked";
   reason: string;
+  files?: string[];
+  risk_reason?: string;
+  expected_effect?: string;
   status: "pending" | "approved" | "rejected" | "edited";
   edited_command: string;
   execution_status: "not_started" | "running" | "succeeded" | "failed" | "blocked";

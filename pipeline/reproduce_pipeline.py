@@ -68,6 +68,7 @@ from schemas.reproduction_schema import (
     ExecutionDiagnosis,
     ImplementationBlueprint,
     ImplementationBundle,
+    ImplementationContract,
     PaperUnderstanding,
     RepositoryUnderstanding,
     ReproductionPlan,
@@ -76,6 +77,7 @@ from schemas.reproduction_schema import (
 from tools.code_writer import materialize_implementation
 from tools.code_quality import assess_implementation_quality
 from tools.command_runner import run_sandbox_verification
+from tools.generated_project_verifier import GeneratedProjectVerifier
 from tools.implementation_blueprint import build_implementation_blueprint
 from tools.llm_client import LLMClient, LLMClientError
 from tools.markdown_writer import save_markdown, save_shell_script
@@ -113,6 +115,7 @@ def _initial_result() -> PipelineResult:
         "research_understanding": {},
         "repository_understanding": {},
         "reproduction_plan": {},
+        "implementation_contract": {},
         "execution_diagnosis": {},
         "implementation_blueprint": {},
         "implementation_bundle": {},
@@ -141,6 +144,7 @@ def _initial_result() -> PipelineResult:
         "command_route": "safe",
         "pending_human_review": None,
         "command_results": [],
+        "verification_report": {},
         "graph_trace": [],
         "issues": [],
         "errors": [],
@@ -259,9 +263,11 @@ def _merge_graph_state_into_result(
     result["research_understanding"] = state.get("research_understanding") or {}
     result["repository_understanding"] = state.get("repository_understanding") or {}
     result["reproduction_plan"] = state.get("reproduction_plan") or {}
+    result["implementation_contract"] = state.get("implementation_contract") or {}
     result["execution_diagnosis"] = state.get("execution_diagnosis") or {}
     if generate_code and goal != "understand paper":
         result["implementation_bundle"] = state.get("implementation_bundle") or {}
+    result["verification_report"] = state.get("verification_report") or {}
     result["command_plans"] = list(state.get("command_plans") or [])
     result["command_route"] = state.get("command_route") or "safe"
     result["pending_human_review"] = state.get("pending_human_review")
@@ -635,6 +641,7 @@ def run_reproduce_pipeline(
             "research_understanding": state.get("research_understanding") or {},
             "repository_understanding": state.get("repository_understanding") or {},
             "reproduction_plan": state.get("reproduction_plan") or {},
+            "implementation_contract": state.get("implementation_contract") or {},
             "implementation_blueprint": result["implementation_blueprint"],
             "paper_text": state.get("paper_text", ""),
             "hardware": hardware,
@@ -784,18 +791,59 @@ def run_reproduce_pipeline(
 
     def sandbox_verify_fn(state: dict[str, Any]) -> dict[str, Any]:
         if not generate_code or goal == "understand paper":
-            return {"passed": True, "results": [], "error": None}
-        progress("Sandbox verifying generated code")
+            return {"ok": True, "passed": True, "results": [], "issues": [], "error": None}
+        progress("Generated Project Verifier checking contract")
         repo_path = result.get("generated_repo_path") or result.get("repo_path") or state.get("repo_path") or ""
         if not repo_path:
-            return {"passed": False, "results": [], "error": "No generated repo path"}
+            return {
+                "ok": False,
+                "passed": False,
+                "results": [],
+                "issues": [
+                    {
+                        "code": "missing_generated_repo",
+                        "message": "No generated repo path",
+                        "severity": "high",
+                    }
+                ],
+                "error": "No generated repo path",
+            }
         bundle = state.get("implementation_bundle") or {}
-        smoke_test = bundle.get("smoke_test_command", "python main.py --smoke-test") if isinstance(bundle, dict) else "python main.py --smoke-test"
-        verification = run_sandbox_verification(repo_path, smoke_test)
-        passed_count = sum(1 for r in verification.get("results", []) if r.get("passed"))
-        total = len(verification.get("results", []))
-        progress(f"Sandbox verification: {passed_count}/{total} checks passed")
-        return verification
+        contract = ImplementationContract.model_validate(
+            state.get("implementation_contract") or {}
+        ).model_dump(mode="json")
+        if isinstance(bundle, dict):
+            smoke_test = bundle.get("smoke_test_command") or contract.get("smoke_test_command")
+            if smoke_test:
+                contract["smoke_test_command"] = smoke_test
+            generated_files = [
+                str(item.get("path") or "")
+                for item in bundle.get("files", [])
+                if isinstance(item, dict)
+            ]
+            required_files = set(contract.get("required_files") or [])
+            required_files.update(path for path in generated_files if path)
+            contract["required_files"] = sorted(required_files)
+            required_tests = set(contract.get("required_tests") or [])
+            required_tests.update(
+                path
+                for path in generated_files
+                if path.startswith("tests/") and path.endswith(".py")
+            )
+            contract["required_tests"] = sorted(required_tests)
+        report = GeneratedProjectVerifier(repo_path, contract).verify().to_dict()
+        report["passed"] = bool(report.get("ok"))
+        result["verification_report"] = report
+        result["sandbox_verification"] = report
+        progress(
+            "Generated project verification: "
+            + (
+                "passed"
+                if report.get("ok")
+                else f"failed with {len(report.get('issues') or [])} issue(s)"
+            )
+        )
+        return report
 
     def _format_smoke_failure_for_llm(smoke_result: dict[str, Any] | None) -> str:
         """Return a compact smoke-test failure report the LLM can act on."""
@@ -887,6 +935,7 @@ def run_reproduce_pipeline(
             "research_understanding": state.get("research_understanding") or {},
             "repository_understanding": state.get("repository_understanding") or {},
             "reproduction_plan": state.get("reproduction_plan") or {},
+            "implementation_contract": state.get("implementation_contract") or {},
             "implementation_blueprint": result.get("implementation_blueprint") or {},
             "paper_text": state.get("paper_text", ""),
             "hardware": hardware,
@@ -902,8 +951,11 @@ def run_reproduce_pipeline(
                 result.get("smoke_test_result")
             ),
             "sandbox_verification_errors": [
-                r for r in (state.get("sandbox_verification") or {}).get("results", [])
-                if not r.get("passed")
+                *[
+                    r for r in (state.get("sandbox_verification") or {}).get("results", [])
+                    if not r.get("passed")
+                ],
+                *list((state.get("verification_report") or {}).get("issues", [])),
             ],
             "method_spec": json.dumps(
                 ResearchUnderstandingAgent.build_method_spec(

@@ -71,6 +71,7 @@ from schemas.reproduction_schema import (
     ImplementationContract,
     PaperUnderstanding,
     RepositoryUnderstanding,
+    ReproductionEvidencePack,
     ReproductionPlan,
     ResourceLink,
 )
@@ -114,6 +115,7 @@ def _initial_result() -> PipelineResult:
         "llm_unavailable_clients": [],
         "research_understanding": {},
         "repository_understanding": {},
+        "evidence_pack": {},
         "reproduction_plan": {},
         "implementation_contract": {},
         "execution_diagnosis": {},
@@ -262,6 +264,7 @@ def _merge_graph_state_into_result(
 ) -> None:
     result["research_understanding"] = state.get("research_understanding") or {}
     result["repository_understanding"] = state.get("repository_understanding") or {}
+    result["evidence_pack"] = state.get("evidence_pack") or {}
     result["reproduction_plan"] = state.get("reproduction_plan") or {}
     result["implementation_contract"] = state.get("implementation_contract") or {}
     result["execution_diagnosis"] = state.get("execution_diagnosis") or {}

@@ -52,6 +52,7 @@ class ReproduceState(TypedDict, total=False):
     repo_scan: dict[str, Any]
     research_understanding: dict[str, Any]
     repository_understanding: dict[str, Any]
+    evidence_pack: dict[str, Any]
     reproduction_plan: dict[str, Any]
     implementation_contract: dict[str, Any]
     agent_budget: dict[str, Any]

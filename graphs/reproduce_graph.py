@@ -22,11 +22,14 @@ from runtime.routing import (
     route_command_plans,
 )
 from schemas.reproduction_schema import (
+    EvidenceItem,
     ExecutionDiagnosis,
     ImplementationContract,
     ImplementationBundle,
     PaperUnderstanding,
+    RepoEntrypoint,
     RepositoryUnderstanding,
+    ReproductionEvidencePack,
     ReproductionPlan,
 )
 from schemas.code_review_schema import CodeReview
@@ -106,6 +109,68 @@ def _build_implementation_contract(plan: ReproductionPlan) -> ImplementationCont
     )
 
 
+def _build_evidence_pack(
+    research_data: dict[str, Any],
+    repository_data: dict[str, Any],
+) -> ReproductionEvidencePack:
+    research = PaperUnderstanding.model_validate(research_data or {})
+    repository = RepositoryUnderstanding.model_validate(repository_data or {})
+    datasets = [
+        EvidenceItem(
+            source_type="paper",
+            quote_or_summary=dataset.name or dataset.role,
+            confidence="high" if dataset.evidence else "medium",
+        )
+        for dataset in research.datasets
+    ]
+    metrics = [
+        EvidenceItem(
+            source_type="paper",
+            quote_or_summary=metric.name or metric.purpose,
+            confidence="high" if metric.evidence else "medium",
+        )
+        for metric in research.metrics
+    ]
+    checkpoints = [
+        EvidenceItem(
+            source_type="repo",
+            quote_or_summary=item,
+            confidence="medium",
+        )
+        for item in repository.checkpoint_requirements
+    ]
+    entrypoints = [
+        RepoEntrypoint(path=path, command_hint=f"python {path}", confidence="high")
+        for path in [
+            *repository.training_entrypoints,
+            *repository.evaluation_entrypoints,
+            *repository.demo_entrypoints,
+        ]
+    ]
+    missing = list(research.missing_information)
+    if not datasets:
+        missing.append("dataset evidence")
+    if not metrics:
+        missing.append("metric evidence")
+    if not entrypoints and repository.repo_source != "paper-only":
+        missing.append("repository entrypoint evidence")
+    confidence = "high"
+    if missing:
+        confidence = "medium" if datasets or metrics or entrypoints else "low"
+    return ReproductionEvidencePack(
+        task_type=research.task,
+        method_modules=[module.name for module in research.method_modules if module.name],
+        datasets=datasets,
+        metrics=metrics,
+        dependencies=list(repository.dependency_files),
+        entrypoints=entrypoints,
+        configs=list(repository.config_files),
+        checkpoints=checkpoints,
+        missing_evidence=missing,
+        overall_confidence=confidence,
+    )
+
+
 def _verification_issue_suggestions(report: dict[str, Any]) -> list[str]:
     issues = report.get("issues") or []
     suggestions: list[str] = []
@@ -172,6 +237,16 @@ def build_reproduce_graph(
             "graph_trace": ["repository_understanding"],
         }
 
+    def evidence_pack(state: ReproduceState) -> dict[str, Any]:
+        pack = _build_evidence_pack(
+            dict(state.get("research_understanding") or {}),
+            dict(state.get("repository_understanding") or {}),
+        )
+        return {
+            "evidence_pack": pack.model_dump(mode="json"),
+            "graph_trace": ["evidence_pack"],
+        }
+
     def reproduction_planner(state: ReproduceState) -> dict[str, Any]:
         inputs = {
             "goal": state.get("goal", "minimal training experiment"),
@@ -183,7 +258,7 @@ def build_reproduce_graph(
             dependencies.plan_reproduction(
                 dict(state.get("research_understanding") or {}),
                 dict(state.get("repository_understanding") or {}),
-                inputs,
+                {**inputs, "evidence_pack": state.get("evidence_pack") or {}},
             )
         )
         return {
@@ -306,6 +381,7 @@ def build_reproduce_graph(
     builder.add_node("research_understanding", research_understanding)
     builder.add_node("prepare_repository", prepare_repository_node)
     builder.add_node("repository_understanding", repository_understanding)
+    builder.add_node("evidence_pack", evidence_pack)
     builder.add_node("reproduction_planner", reproduction_planner)
     builder.add_node("command_risk_router", command_risk_router)
     builder.add_node("safe_summary", command_summary("safe"))
@@ -326,7 +402,8 @@ def build_reproduce_graph(
         ["research_understanding", "prepare_repository"],
         "repository_understanding",
     )
-    builder.add_edge("repository_understanding", "reproduction_planner")
+    builder.add_edge("repository_understanding", "evidence_pack")
+    builder.add_edge("evidence_pack", "reproduction_planner")
     builder.add_edge("reproduction_planner", "command_risk_router")
     builder.add_conditional_edges(
         "command_risk_router",

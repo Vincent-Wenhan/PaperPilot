@@ -87,6 +87,67 @@ class ReproduceBranchTests(unittest.TestCase):
             trace.index("prepare_repository"),
             trace.index("repository_understanding"),
         )
+        self.assertLess(
+            trace.index("repository_understanding"),
+            trace.index("evidence_pack"),
+        )
+
+    def test_evidence_pack_is_built_before_planning(self) -> None:
+        planner_inputs: dict[str, object] = {}
+
+        def plan_reproduction(
+            research: dict[str, object],
+            repository: dict[str, object],
+            inputs: dict[str, object],
+        ) -> ReproductionPlan:
+            del research, repository
+            planner_inputs.update(inputs)
+            return ReproductionPlan()
+
+        graph = build_reproduce_graph(
+            ReproduceGraphDependencies(
+                parse_paper=lambda path: "paper text",
+                understand_research=lambda text, idea: PaperUnderstanding(
+                    task="classification",
+                    datasets=[{"name": "CIFAR-10", "evidence": ["paper section 4"]}],
+                    metrics=[{"name": "accuracy"}],
+                    missing_information=["training seed"],
+                ),
+                prepare_repository=lambda url: {"repo_path": "/tmp/repo"},
+                understand_repository=lambda research, repo, url: RepositoryUnderstanding(
+                    repo_source="github",
+                    dependency_files=["requirements.txt"],
+                    training_entrypoints=["train.py"],
+                    config_files=["configs/base.yaml"],
+                ),
+                plan_reproduction=plan_reproduction,
+                generate_implementation=lambda state: ImplementationBundle(),
+                review_code=_accept_review,
+                revise_code=_revise_noop,
+                diagnose_execution=lambda plan, results: ExecutionDiagnosis(),
+                sandbox_verify=_sandbox_pass,
+                second_review_code=_accept_review,
+                build_outputs=lambda state: {},
+            )
+        )
+        state = graph.invoke(
+            {
+                "pdf_path": "paper.pdf",
+                "github_url": "https://github.com/example/repo",
+                "graph_trace": [],
+                "errors": [],
+                "command_results": [],
+            }
+        )
+
+        evidence_pack = state["evidence_pack"]
+        self.assertEqual(evidence_pack["task_type"], "classification")
+        self.assertEqual(evidence_pack["datasets"][0]["quote_or_summary"], "CIFAR-10")
+        self.assertEqual(evidence_pack["entrypoints"][0]["path"], "train.py")
+        self.assertEqual(
+            planner_inputs["evidence_pack"]["overall_confidence"],
+            "medium",
+        )
 
     def test_paper_only_repository_fallback_reaches_planning(self) -> None:
         graph = build_reproduce_graph(

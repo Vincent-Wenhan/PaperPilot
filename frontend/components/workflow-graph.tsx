@@ -86,8 +86,11 @@ function WorkflowNodeCard({ data }: NodeProps) {
   const nodeData = data as unknown as GraphNodeData;
   const toolCount = nodeData.toolCalls?.length ?? 0;
   const issueCount = nodeData.issues?.length ?? 0;
+  const inputCount = nodeData.inputArtifacts?.length ?? 0;
+  const outputCount = nodeData.outputArtifacts?.length ?? 0;
   const StatusIcon = nodeData.status === "success" ? CheckCircle2 : nodeData.status === "running" ? LoaderCircle : nodeData.status === "waiting_review" ? Clock3 : Circle;
   const AgentIcon = icons[nodeData.id as keyof typeof icons] ?? icons.agents;
+  const routeText = nodeData.nextRoute || nodeData.routeReason;
   return (
     <div className={`workflow-node-card status-${nodeData.status}`}>
       <Handle className="workflow-node-handle" position={Position.Left} type="target" />
@@ -96,7 +99,10 @@ function WorkflowNodeCard({ data }: NodeProps) {
         <span><StatusIcon size={13} /> {nodeData.status === "success" ? "Completed" : nodeData.status === "waiting_review" ? "Review" : nodeData.status}</span>
         <time>{nodeData.finishedAt}</time>
       </div>
+      {routeText ? <div className="node-route-line">{routeText}</div> : null}
       <div className="node-meta">
+        {inputCount > 0 && <span className="node-badge">{inputCount} in</span>}
+        {outputCount > 0 && <span className="node-badge">{outputCount} out</span>}
         {toolCount > 0 && <span className="node-badge">{toolCount} tools</span>}
         {issueCount > 0 && <span className="node-badge issue">{issueCount} issues</span>}
       </div>

@@ -8,6 +8,7 @@ import { WorkflowGraph, type GraphNodeData } from "@/components/workflow-graph";
 import { WorkbenchTabs, type WorkbenchTabId } from "@/components/workbench/workbench-tabs";
 import { ActivityPanel } from "@/components/workbench/activity-panel";
 import { StatusPill } from "@/components/status-pill";
+import { FileStack, GitBranch, ShieldCheck, TriangleAlert } from "lucide-react";
 
 export type WorkspaceSectionContext = {
   projectId: string;
@@ -103,6 +104,7 @@ export function CenterWorkspace({
                   <span>{mode === "reproduce" ? "Reproduce workflow" : "Product Design workflow"}</span>
                   <button className="refresh-link" type="button" onClick={onContinueRun}>Refresh</button>
                 </div>
+                <WorkflowSignalStrip mode={mode} nodes={graphNodes ?? []} hasRun={hasRun} />
                 {hasRun ? (
                   <WorkflowGraph nodes={graphNodes} />
                 ) : (
@@ -190,6 +192,61 @@ export function CenterWorkspace({
         </>
       )}
     </section>
+  );
+}
+
+function WorkflowSignalStrip({
+  mode,
+  nodes,
+  hasRun,
+}: {
+  mode: RunMode;
+  nodes: GraphNodeData[];
+  hasRun: boolean;
+}) {
+  if (!hasRun) {
+    return null;
+  }
+  const completed = nodes.filter((node) => node.status === "success").length;
+  const gated = nodes.filter(
+    (node) => node.status === "waiting_review" || node.routeReason || node.nextRoute,
+  ).length;
+  const artifacts = nodes.reduce(
+    (total, node) => total + node.inputArtifacts.length + node.outputArtifacts.length,
+    0,
+  );
+  const issues = nodes.reduce((total, node) => total + node.issues.length, 0);
+  const latestRoute = [...nodes].reverse().find((node) => node.nextRoute || node.routeReason);
+
+  return (
+    <div className="workflow-signal-strip" aria-label="Workflow verification summary">
+      <SignalMetric icon={ShieldCheck} label={mode === "reproduce" ? "Verifier gates" : "Product gates"} value={`${gated}`} />
+      <SignalMetric icon={FileStack} label="Artifacts" value={`${artifacts}`} />
+      <SignalMetric icon={TriangleAlert} label="Issues" value={`${issues}`} tone={issues > 0 ? "warn" : "ok"} />
+      <SignalMetric icon={GitBranch} label="Route" value={latestRoute?.nextRoute || latestRoute?.routeReason || `${completed}/${nodes.length}`} wide />
+    </div>
+  );
+}
+
+function SignalMetric({
+  icon: Icon,
+  label,
+  value,
+  tone = "neutral",
+  wide = false,
+}: {
+  icon: typeof ShieldCheck;
+  label: string;
+  value: string;
+  tone?: "neutral" | "ok" | "warn";
+  wide?: boolean;
+}) {
+  return (
+    <div className={`workflow-signal ${tone}${wide ? " wide" : ""}`}>
+      <Icon size={14} />
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 

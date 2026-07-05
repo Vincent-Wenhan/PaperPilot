@@ -159,6 +159,7 @@ def _initial_result() -> PipelineResult:
         "gpu_info": "",
         "goal": "",
         "user_idea": "",
+        "output_files": {},
     }
 
 
@@ -206,6 +207,7 @@ def _save_outputs(
         "run_script": str(output_dir / "run.sh"),
         "report": str(output_dir / "report.md"),
     }
+    result["output_files"] = dict(saved_outputs)
     for step, writer, content, path in (
         (
             "Failed to save reproduction_plan.md",

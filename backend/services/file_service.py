@@ -107,13 +107,6 @@ class FileService:
         )
         source_roots = self._source_repository_roots(result)
 
-        output_files = result.get("output_files")
-        if isinstance(output_files, dict):
-            for value in output_files.values():
-                raw_path = str(value or "").strip()
-                if raw_path:
-                    roots.append(Path(raw_path).parent)
-
         for action in run_service.list_actions(run_id):
             cwd = str(action.cwd or "").strip()
             if cwd:

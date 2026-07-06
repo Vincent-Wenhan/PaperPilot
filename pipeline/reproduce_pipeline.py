@@ -54,14 +54,8 @@ from pipeline.graph_hitl_runner import (
     resume_graph,
 )
 from pipeline.hitl_context import PipelineHITL
-from pipeline.structured_stage import llm_client_key, run_structured_stage as _run_structured_stage
-from pipeline.stage_tracker import (
-    STAGE_FALLBACK,
-    STAGE_MOCK,
-    STAGE_REAL,
-    init_stage_sources,
-    record_stage_source,
-)
+from pipeline.structured_stage import run_structured_stage as _run_structured_stage
+from pipeline.stage_tracker import init_stage_sources
 from runtime.checkpointing import build_graph_config
 from schemas.code_review_schema import CodeReview
 from schemas.reproduction_schema import (

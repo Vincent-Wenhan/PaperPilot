@@ -11,6 +11,8 @@ PaperPilot 是一个有安全边界的论文复现与 Research-to-Product 多 Ag
 
 当前主界面是 Next.js Agent Workbench + FastAPI。旧的 Streamlit 主界面已删除。
 
+![PaperPilot Workbench UI](docs/images/paperpilot_target_ui_workbench.png)
+
 ```text
 frontend/        Next.js workbench
 backend/         FastAPI API、WebSocket、run/action/file/patch 服务

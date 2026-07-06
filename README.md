@@ -11,6 +11,8 @@ PaperPilot does not claim automatic full paper reproduction, production-ready mo
 
 The active UI is the Next.js Agent Workbench backed by FastAPI. The old Streamlit host UI has been removed.
 
+![PaperPilot Workbench UI](docs/images/paperpilot_target_ui_workbench.png)
+
 ```text
 frontend/        Next.js workbench
 backend/         FastAPI API, WebSocket events, run/action/file/patch services

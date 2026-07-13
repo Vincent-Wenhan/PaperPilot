@@ -481,6 +481,114 @@ class InMemoryRunService:
     def _effective_mock_mode(request: RunCreateRequest) -> bool:
         return request.mock_mode
 
+    def cancel_run(self, run_id: str, *, reason: str = "user_cancelled") -> RunRecord | None:
+        """Mark a run as cancelled.  Only non-terminal runs can be cancelled."""
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        if run.status in {"succeeded", "failed", "cancelled"}:
+            raise ValueError(f"Run is already in terminal state: {run.status}")
+        with self._lock:
+            updated = run.model_copy(
+                update={
+                    "status": "cancelled",
+                    "summary": f"Run cancelled: {reason}",
+                    "updated_at": utc_now(),
+                }
+            )
+            self._runs[run_id] = updated
+            self._persist_state_locked()
+        self._append_event(
+            run_id,
+            node="runner_review",
+            agent="Workbench",
+            event_type="run_cancelled",
+            status="failed",
+            message=f"Run cancelled: {reason}",
+            payload={"reason": reason},
+        )
+        return deepcopy(updated)
+
+    def retry_run(self, run_id: str, *, from_step: str | None = None) -> RunRecord | None:
+        """Retry a failed run.  Returns the run with status=running."""
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        if run.status not in {"failed", "cancelled"}:
+            raise ValueError(
+                f"Run can only be retried from failed or cancelled state, not {run.status}"
+            )
+        request = RunCreateRequest(
+            mode=run.mode,
+            project_id=run.project_id,
+            task=run.task,
+            pdf_path=run.inputs.get("pdf_path", ""),
+            github_url=run.inputs.get("github_url", ""),
+            hardware=run.inputs.get("hardware", "CPU only"),
+            gpu_info=run.inputs.get("gpu_info", ""),
+            goal=run.inputs.get("goal", "minimal training experiment"),
+            target_user=run.inputs.get("target_user", ""),
+            product_goal=run.inputs.get("product_goal", ""),
+            preferred_type=run.inputs.get("preferred_type", "auto"),
+            run_pipeline=True,
+            api_key=self._llm_configs.get(run_id, {}).get("api_key", ""),
+            base_url=run.inputs.get("llm_base_url", ""),
+            model=run.inputs.get("llm_model", "gpt-4o-mini"),
+            implementation_model=run.inputs.get("implementation_model", ""),
+            mock_mode=run.inputs.get("mock_mode", "false").lower() == "true",
+        )
+        with self._lock:
+            updated = run.model_copy(
+                update={
+                    "status": "running",
+                    "summary": f"Retrying run from {from_step or 'start'}...",
+                    "updated_at": utc_now(),
+                }
+            )
+            self._runs[run_id] = updated
+            self._persist_state_locked()
+        self._append_event(
+            run_id,
+            node="runner_review",
+            agent="Workbench",
+            event_type="run_retry_started",
+            status="running",
+            message=f"Retrying run from {from_step or 'start'}",
+            payload={"from_step": from_step},
+        )
+        self._executor.submit(self.run_pipeline_now, run_id, request)
+        return deepcopy(updated)
+
+    def resume_run(self, run_id: str, *, approved: bool = True, feedback: str = "") -> RunRecord | None:
+        """Resume a run waiting for input/approval."""
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        if run.status not in {"waiting_input", "waiting_approval", "waiting_review"}:
+            raise ValueError(
+                f"Run can only be resumed from waiting state, not {run.status}"
+            )
+        with self._lock:
+            updated = run.model_copy(
+                update={
+                    "status": "running",
+                    "summary": "Run resumed.",
+                    "updated_at": utc_now(),
+                }
+            )
+            self._runs[run_id] = updated
+            self._persist_state_locked()
+        self._append_event(
+            run_id,
+            node="runner_review",
+            agent="Workbench",
+            event_type="run_resumed",
+            status="running",
+            message=f"Run resumed: approved={approved}, feedback={feedback[:100]}",
+            payload={"approved": approved, "feedback": feedback},
+        )
+        return deepcopy(updated)
+
     def _inputs_from_request(self, request: RunCreateRequest) -> dict[str, str]:
         return {
             "pdf_path": request.pdf_path,

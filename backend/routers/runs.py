@@ -8,9 +8,12 @@ from fastapi import APIRouter, HTTPException, Query
 
 from backend.schemas import (
     ActionRequest,
+    CancelRunRequest,
     ProductizeProposalExecuteRequest,
+    ResumeRunRequest,
     RevisionRequest,
     RevisionResult,
+    RetryRunRequest,
     RunCreateRequest,
     RunRecord,
     WorkbenchEvent,
@@ -115,3 +118,39 @@ def get_run_graph(run_id: str) -> list[dict[str, Any]]:
         raise HTTPException(status_code=404, detail="Run not found")
     events = run_service.list_events(run_id)
     return graph_service.build_graph(run.mode, events)
+
+
+@router.post("/runs/{run_id}/cancel", response_model=RunRecord)
+def cancel_run(run_id: str, request: CancelRunRequest | None = None) -> RunRecord:
+    body = request or CancelRunRequest()
+    try:
+        result = run_service.cancel_run(run_id, reason=body.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return result
+
+
+@router.post("/runs/{run_id}/retry", response_model=RunRecord)
+def retry_run(run_id: str, request: RetryRunRequest | None = None) -> RunRecord:
+    body = request or RetryRunRequest()
+    try:
+        result = run_service.retry_run(run_id, from_step=body.from_step)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return result
+
+
+@router.post("/runs/{run_id}/resume", response_model=RunRecord)
+def resume_run(run_id: str, request: ResumeRunRequest | None = None) -> RunRecord:
+    body = request or ResumeRunRequest()
+    try:
+        result = run_service.resume_run(run_id, approved=body.approved, feedback=body.feedback)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return result

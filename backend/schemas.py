@@ -151,6 +151,19 @@ class RevisionResult(BaseModel):
     revision_history: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class CancelRunRequest(BaseModel):
+    reason: str = "user_cancelled"
+
+
+class RetryRunRequest(BaseModel):
+    from_step: str | None = None
+
+
+class ResumeRunRequest(BaseModel):
+    approved: bool = True
+    feedback: str = ""
+
+
 class ArtifactSummary(BaseModel):
     artifact_id: str
     run_id: str

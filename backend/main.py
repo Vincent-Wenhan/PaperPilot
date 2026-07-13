@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from backend.errors import (
+    WorkbenchError,
+    file_not_found_handler,
+    value_error_handler,
+    workbench_error_handler,
+)
 from backend.routers import (
     actions,
     artifacts,
@@ -38,6 +45,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_exception_handler(WorkbenchError, workbench_error_handler)
+app.add_exception_handler(ValueError, value_error_handler)
+app.add_exception_handler(FileNotFoundError, file_not_found_handler)
 
 app.include_router(runs.router)
 app.include_router(actions.router)

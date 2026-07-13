@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from backend.errors import InvalidArgumentError, NotFoundError
 from backend.schemas import (
     ActionRequest,
     CancelRunRequest,
@@ -44,14 +45,14 @@ def create_run(request: RunCreateRequest) -> RunRecord:
 def get_run(run_id: str) -> RunRecord:
     run = run_service.get_run(run_id)
     if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise NotFoundError("Run not found")
     return run
 
 
 @router.get("/runs/{run_id}/events", response_model=list[WorkbenchEvent])
 def get_run_events(run_id: str, after: str = Query(default="")) -> list[WorkbenchEvent]:
     if run_service.get_run(run_id) is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise NotFoundError("Run not found")
     if after:
         return event_service.list_events(run_id, after_id=after)
     return run_service.list_events(run_id)
@@ -60,17 +61,17 @@ def get_run_events(run_id: str, after: str = Query(default="")) -> list[Workbenc
 @router.get("/runs/{run_id}/actions", response_model=list[ActionRequest])
 def get_run_actions(run_id: str) -> list[ActionRequest]:
     if run_service.get_run(run_id) is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise NotFoundError("Run not found")
     return run_service.list_actions(run_id)
 
 
 @router.get("/runs/{run_id}/result")
 def get_run_result(run_id: str) -> dict[str, Any]:
     if run_service.get_run(run_id) is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise NotFoundError("Run not found")
     result = run_service.get_result(run_id)
     if result is None:
-        raise HTTPException(status_code=404, detail="Run result not available")
+        raise NotFoundError("Run result not available")
     return result
 
 
@@ -126,9 +127,9 @@ def cancel_run(run_id: str, request: CancelRunRequest | None = None) -> RunRecor
     try:
         result = run_service.cancel_run(run_id, reason=body.reason)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise InvalidArgumentError(str(exc)) from exc
     if result is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise NotFoundError("Run not found")
     return result
 
 
@@ -138,9 +139,9 @@ def retry_run(run_id: str, request: RetryRunRequest | None = None) -> RunRecord:
     try:
         result = run_service.retry_run(run_id, from_step=body.from_step)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise InvalidArgumentError(str(exc)) from exc
     if result is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise NotFoundError("Run not found")
     return result
 
 
@@ -150,7 +151,7 @@ def resume_run(run_id: str, request: ResumeRunRequest | None = None) -> RunRecor
     try:
         result = run_service.resume_run(run_id, approved=body.approved, feedback=body.feedback)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise InvalidArgumentError(str(exc)) from exc
     if result is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise NotFoundError("Run not found")
     return result

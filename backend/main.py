@@ -7,7 +7,18 @@ import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import actions, artifacts, checks, commands, files, llm, patches, runs, uploads
+from backend.routers import (
+    actions,
+    artifacts,
+    checks,
+    commands,
+    events,
+    files,
+    llm,
+    patches,
+    runs,
+    uploads,
+)
 from backend.schemas import WorkbenchEvent
 from backend.services.event_service import event_service
 
@@ -33,6 +44,7 @@ app.include_router(actions.router)
 app.include_router(artifacts.router)
 app.include_router(checks.router)
 app.include_router(commands.router)
+app.include_router(events.router)
 app.include_router(files.router)
 app.include_router(patches.router)
 app.include_router(llm.router)

@@ -949,11 +949,11 @@ class WorkbenchBackendServiceTests(unittest.TestCase):
             result = service.apply_patch(proposal.patch_id)
 
             self.assertIsNotNone(result)
-            self.assertTrue(result.applied)
+            self.assertFalse(result.applied)
             self.assertFalse(result.syntax_ok)
             self.assertEqual(result.syntax_failures[0]["path"], "workspace/broken.py")
             self.assertIn("Syntax", result.syntax_failures[0]["error"])
-            self.assertEqual(target.read_text(encoding="utf-8"), "def broken(:\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "print('old')\n")
 
     def test_patch_apply_route_requests_action_without_writing_file(self) -> None:
         from backend.routers import patches as patch_router

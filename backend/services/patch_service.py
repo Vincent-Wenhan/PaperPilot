@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import py_compile
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 from uuid import uuid4
@@ -91,24 +92,48 @@ class PatchService:
             allow_missing=True,
         )
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(patch.new_content, encoding="utf-8")
-        check_ok, check_msg = self._syntax_check(resolved)
+        # Write to a temp file first, run syntax check, then atomic rename.
+        fd, temp_name = tempfile.mkstemp(
+            dir=resolved.parent,
+            prefix=".patch-",
+            suffix=resolved.suffix or ".tmp",
+        )
+        temp_path = Path(temp_name)
+        try:
+            with __import__("os").fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(patch.new_content)
+                handle.flush()
+                __import__("os").fsync(handle.fileno())
+
+            check_ok, check_msg = self._syntax_check(temp_path)
+            if not check_ok:
+                # Syntax failed: do not touch the target file.
+                updated = patch.model_copy(update={"status": "rejected"})
+                self._patches[patch_id] = updated
+                return PatchApplyResult(
+                    patch_id=patch_id,
+                    path=patch.path,
+                    applied=False,
+                    message=f"Patch rejected: syntax check failed: {check_msg}",
+                    syntax_ok=False,
+                    syntax_failures=[{"path": patch.path, "error": check_msg}],
+                )
+
+            # Atomic replace.
+            __import__("os").replace(temp_path, resolved)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)
+
         updated = patch.model_copy(update={"status": "applied"})
         self._patches[patch_id] = updated
-        message = "Patch applied to generated workspace file."
-        if check_ok:
-            message += " Syntax check passed."
-        else:
-            message += f" Syntax check warning: {check_msg}"
         return PatchApplyResult(
             patch_id=patch_id,
             path=patch.path,
             applied=True,
-            message=message,
-            syntax_ok=check_ok,
-            syntax_failures=[] if check_ok else [
-                {"path": patch.path, "error": check_msg}
-            ],
+            message="Patch applied to generated workspace file.",
+            syntax_ok=True,
+            syntax_failures=[],
         )
 
     def get_patch(self, patch_id: str) -> PatchProposal | None:

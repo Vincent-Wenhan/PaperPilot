@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
+from backend.errors import NotFoundError
 from backend.schemas import FileContent, FileNode
 from backend.services.file_service import file_service
 
@@ -20,4 +21,5 @@ def read_file_content(run_id: str, path: str = Query(..., min_length=1)) -> File
     try:
         return file_service.read_content(path, run_id=run_id)
     except (FileNotFoundError, PermissionError, ValueError) as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise NotFoundError(str(exc)) from exc
+

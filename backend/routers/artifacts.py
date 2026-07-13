@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
+from backend.errors import NotFoundError
 from backend.schemas import ArtifactContent, ArtifactSummary
 from backend.services.artifact_service import artifact_service
 from backend.services.run_service import run_service
@@ -38,4 +39,5 @@ def read_artifact(run_id: str, artifact_id: str) -> ArtifactContent:
     try:
         return artifact_service.read_artifact(artifact_id)
     except (FileNotFoundError, PermissionError, ValueError) as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise NotFoundError(str(exc)) from exc
+

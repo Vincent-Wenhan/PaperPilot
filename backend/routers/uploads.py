@@ -8,11 +8,11 @@ server absolute path.
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, UploadFile
 
+from backend.errors import InvalidArgumentError
 from config import PROJECT_ROOT
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
@@ -25,7 +25,7 @@ CHUNK_SIZE = 1024 * 1024
 @router.post("/pdf")
 async def upload_pdf(file: UploadFile) -> dict[str, str]:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+        raise InvalidArgumentError("Only PDF files are supported.")
 
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     file_id = f"file_{uuid4().hex}"
@@ -43,18 +43,18 @@ async def upload_pdf(file: UploadFile) -> dict[str, str]:
                 if total > MAX_PDF_BYTES:
                     output.close()
                     dest.unlink(missing_ok=True)
-                    raise HTTPException(
+                    raise InvalidArgumentError(
+                        "PDF exceeds the 100MB upload limit.",
                         status_code=413,
-                        detail="PDF exceeds the 100MB upload limit.",
                     )
                 if first_chunk:
                     first_chunk = False
                     if not chunk.startswith(b"%PDF-"):
                         output.close()
                         dest.unlink(missing_ok=True)
-                        raise HTTPException(
+                        raise InvalidArgumentError(
+                            "Invalid PDF signature (must start with %PDF-).",
                             status_code=400,
-                            detail="Invalid PDF signature (must start with %PDF-).",
                         )
                 digest.update(chunk)
                 output.write(chunk)
@@ -63,7 +63,7 @@ async def upload_pdf(file: UploadFile) -> dict[str, str]:
 
     if total == 0:
         dest.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="Uploaded PDF file is empty.")
+        raise InvalidArgumentError("Uploaded PDF file is empty.")
 
     return {
         "file_id": file_id,
@@ -71,3 +71,4 @@ async def upload_pdf(file: UploadFile) -> dict[str, str]:
         "size_bytes": str(total),
         "sha256": digest.hexdigest(),
     }
+

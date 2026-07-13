@@ -32,10 +32,7 @@ export type ConnectionState =
   | "closed";
 
 export function useRunStream(runId: string | null) {
-  const [state, dispatch] = useReducer<RunViewState, RunEvent | null>(
-    reducer,
-    initialRunState,
-  );
+  const [state, dispatch] = useReducer(reducer, initialRunState);
   const [connectionState, setConnectionState] =
     useState<ConnectionState>("idle");
   const lastSequenceRef = useRef(0);

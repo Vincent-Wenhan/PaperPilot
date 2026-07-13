@@ -3,7 +3,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { WorkspaceShell, enrichGraphFromEvents } from "@/components/workspace-shell";
+import { WorkspaceShell } from "@/components/workspace-shell";
+import { enrichGraphFromEvents } from "@/lib/run-graph";
 
 vi.mock("@/components/workflow-graph", () => ({
   WorkflowGraph: () => <div aria-label="Workflow graph" />,

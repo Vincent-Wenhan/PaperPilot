@@ -106,7 +106,7 @@ export function createInitialRunState(runId: string): RunViewState {
   return { ...initialRunState, runId };
 }
 
-export function reduceRunEvent(
+export function applyRunEvent(
   state: RunViewState,
   event: RunEvent,
 ): RunViewState {
